@@ -4,6 +4,8 @@ A toolchain manager for Java and Node developers — a single-binary alternative
 
 Bunny installs JDKs, Node, Maven, Gradle, and the editors and IDEs that target them into a self-contained `~/.bunny`. Each SDK version receives its own scoped data directory (`~/.m2`, `~/.gradle`, `~/.npm`), so JDK 21's caches never mix with JDK 25's, and `bunny uninstall` leaves your home directory clean. No sudo, no shell hooks, one Go binary — with identical behavior in your terminal, your IDE, your CI pipeline, and over SSH.
 
+Bunny currently supports Linux on `x86_64`/`amd64`.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
 ~/.bunny/bin/bunny setup && exec $SHELL
@@ -51,7 +53,7 @@ java -version
 code .
 ```
 
-Pin a bunny version with `BUNNY_VERSION=v0.2.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
+Pin a bunny version with `BUNNY_VERSION=v0.1.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
 
 ## A typical Java workflow
 
@@ -120,6 +122,7 @@ Maintainer/CI commands live under `bunny dev`.
 - [Team deployment](docs/teams.md) — fork the catalog, host internally, onboard with one command
 - [Corporate environments](docs/corporate.md) — proxies, custom CA bundles, `~/.m2/settings.xml`, internal artifact repos
 - [Architecture](docs/architecture.md) — package boundaries, state ownership, and mutation transactions
+- [Changelog](CHANGELOG.md) — notable changes in each release
 - [Roadmap](ROADMAP.md) — what's next, what's deliberately out of scope
 
 ## Directory layout

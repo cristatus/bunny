@@ -16,7 +16,6 @@ builds:
       - linux
     goarch:
       - amd64
-      - arm64
     flags:
       - -trimpath
     ldflags:
@@ -28,6 +27,7 @@ archives:
     formats: ["tar.gz"]
     files:
       - README.md
+      - CHANGELOG.md
       - LICENSE*
 
 checksum:

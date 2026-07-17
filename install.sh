@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
 #
 # Environment:
-#   BUNNY_VERSION   Specific version to install (e.g. v0.2.0). Defaults to latest.
+#   BUNNY_VERSION   Specific version to install (e.g. v0.1.0). Defaults to latest.
 #   BUNNY_HOME      Install root. Defaults to ~/.bunny. The binary lands at $BUNNY_HOME/bin/bunny.
 
 set -eu
@@ -34,8 +34,7 @@ os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 
 case "$(uname -m)" in
 x86_64 | amd64) arch=amd64 ;;
-aarch64 | arm64) arch=arm64 ;;
-*) die "unsupported architecture: $(uname -m)" ;;
+*) die "bunny currently supports only Linux x86_64/amd64 (detected: $(uname -m))" ;;
 esac
 
 # Resolve "latest" via the GitHub release-redirect — works without auth.
