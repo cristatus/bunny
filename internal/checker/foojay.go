@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path"
+	"strings"
 
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/verparse"
@@ -41,6 +43,7 @@ func (f *Foojay) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 	q.Set("lib_c_type", "glibc")
 	q.Set("archive_type", "tar.gz")
 	q.Set("package_type", "jdk")
+	q.Set("javafx_bundled", "false")
 	q.Set("latest", "available")
 	q.Set("release_status", "ga")
 	q.Set("directly_downloadable", "true")
@@ -99,5 +102,50 @@ func (f *Foojay) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 			r.Hash, r.HashAlgorithm = d.Checksum, "sha512"
 		}
 	}
+	if r.Hash == "" && cfg.HashURL != "" {
+		hashURL := ExpandTemplate(cfg.HashURL, pkg.JavaVersion)
+		target := path.Base(d.DirectDownloadURI)
+		if hash, algorithm, err := FetchChecksumFromURL(ctx, hashURL, target, cfg.HashPattern); err == nil {
+			r.Hash, r.HashAlgorithm = hash, algorithm
+		}
+	}
+	if r.Hash == "" {
+		if hash, ok := foojayGitHubDigest(ctx, d.DirectDownloadURI); ok {
+			r.Hash, r.HashAlgorithm = hash, "sha256"
+		}
+	}
 	return r, nil
+}
+
+// foojayGitHubDigest resolves the SHA-256 GitHub displays beside a release
+// asset. Some JDK vendors publish only SHA-1 through Disco even though GitHub
+// has calculated a stronger digest for the exact same artifact.
+func foojayGitHubDigest(ctx context.Context, downloadURL string) (string, bool) {
+	u, err := url.Parse(downloadURL)
+	if err != nil || u.Hostname() != "github.com" {
+		return "", false
+	}
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	if len(parts) != 6 || parts[2] != "releases" || parts[3] != "download" {
+		return "", false
+	}
+	tag, err := url.PathUnescape(parts[4])
+	if err != nil {
+		return "", false
+	}
+	filename, err := url.PathUnescape(parts[5])
+	if err != nil {
+		return "", false
+	}
+	filename = path.Base(filename)
+	assets, err := (&GitHub{}).fetchAssets(ctx, parts[0]+"/"+parts[1], tag)
+	if err != nil {
+		return "", false
+	}
+	for _, asset := range assets {
+		if asset.Filename == filename && IsValidSHA256(asset.Digest) {
+			return asset.Digest, true
+		}
+	}
+	return "", false
 }

@@ -18,6 +18,9 @@ func foojayTestServer(t *testing.T, idsBody string) *httptest.Server {
 		if r.URL.Query().Get("version") != "21" || r.URL.Query().Get("distribution") != "temurin" {
 			t.Errorf("unexpected query: %s", r.URL.RawQuery)
 		}
+		if r.URL.Query().Get("javafx_bundled") != "false" {
+			t.Errorf("javafx_bundled = %q, want false", r.URL.Query().Get("javafx_bundled"))
+		}
 		fmt.Fprint(w, `{"result":[{"id":"abc","java_version":"21.0.11+10","size":207513939}]}`)
 	})
 	mux.HandleFunc("/ids/abc", func(w http.ResponseWriter, r *http.Request) {
@@ -86,5 +89,38 @@ func TestFoojayEmptyResultErrors(t *testing.T) {
 func TestFoojayRequiresDistribution(t *testing.T) {
 	if _, err := (&Foojay{}).Check(context.Background(), &manifest.UpdateConfig{}, "21", ""); err == nil {
 		t.Error("expected error when distribution is empty")
+	}
+}
+
+func TestFoojayConfiguredChecksumFallback(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/packages", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"result":[{"id":"abc","java_version":"17.0.19","size":1}]}`)
+	})
+	mux.HandleFunc("/ids/abc", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"result":[{"direct_download_uri":"https://example.com/jdk.tar.gz"}]}`)
+	})
+	mux.HandleFunc("/checksums/17", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, strings.Repeat("b", 64))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	withFoojayBase(t, srv.URL)
+
+	r, err := (&Foojay{}).Check(context.Background(), &manifest.UpdateConfig{
+		Distribution: "temurin",
+		HashURL:      srv.URL + "/checksums/{major}",
+	}, "17.0.18", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Hash != strings.Repeat("b", 64) || r.HashAlgorithm != "sha256" {
+		t.Fatalf("checksum fallback = %+v", r)
+	}
+}
+
+func TestFoojayGitHubDigestRejectsNonReleaseURL(t *testing.T) {
+	if hash, ok := foojayGitHubDigest(context.Background(), "https://example.com/file.tar.gz"); ok || hash != "" {
+		t.Fatalf("got hash %q, ok %v", hash, ok)
 	}
 }
