@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -44,12 +45,33 @@ func (c *DevUpdateCmd) Run(a *App) error {
 	})
 }
 
+// devCheckConcurrency bounds how many upstream source checks run at once.
+const devCheckConcurrency = 8
+
+// devJob is one (package, updatable source) to check and, if it advanced,
+// rewrite. The check phase fills result/srcUpdate/err; the write phase reads
+// them.
+type devJob struct {
+	pkg          catalog.PackageInfo
+	m            *manifest.Manifest
+	manifestPath string
+	indexPath    string
+	sourceIdx    int
+	source       manifest.Source
+	currentVer   string
+	updateCfg    *manifest.UpdateConfig
+
+	result    *checker.Result
+	srcUpdate catalog.SourceUpdate
+	err       error
+}
+
 // writeUpdates walks every manifest with an update block, checks each source
-// against upstream, and rewrites the on-disk manifest + index.json for any
-// package whose upstream tag has advanced. Primary source (sources[0]) bumps
-// the manifest version and the index entry; secondary sources rewrite in
-// place. Rewritten packages are collected and rendered together so the columns
-// align, closed by a summary line.
+// against upstream (concurrently), and rewrites the on-disk manifest +
+// index.json for any package whose upstream tag has advanced. Primary source
+// (sources[0]) bumps the manifest version and the index entry; secondary
+// sources rewrite in place. Checks run in parallel; the file writes run
+// sequentially so index.json is never raced and output stays deterministic.
 func writeUpdates(ctx context.Context, a *App, id string) error {
 	if !a.local.Exists() {
 		return fmt.Errorf("no local catalog at %s; 'bunny dev update' requires a local catalog to rewrite", a.Paths.Catalog())
@@ -60,13 +82,8 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 		return err
 	}
 
-	out := ui.New(os.Stdout)
-	out.Println() // leading blank, then the live status sits below it
-	status := progress.NewStatus(os.Stderr)
-
 	start := time.Now()
-	type row struct{ id, change, note string }
-	var rows []row
+	var jobs []*devJob
 	var errs []error
 	failed := 0
 	for _, p := range pkgs {
@@ -84,7 +101,6 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 		}
 		manifestPath := filepath.Join(a.local.Root(), p.Category, p.ID, "manifest.yaml")
 		indexPath := filepath.Join(a.local.Root(), "index.json")
-		status.Update("checking " + p.ID + "…")
 		for i, s := range m.Sources {
 			if s.Update == nil {
 				continue
@@ -93,56 +109,72 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 			if i > 0 {
 				currentVer = extractURLVersion(s.URL, s.Update.TagPattern)
 			}
-			r, src, err := resolveSourceUpdate(ctx, p.ID, currentVer, s, s.Update)
+			jobs = append(jobs, &devJob{
+				pkg: p, m: m, manifestPath: manifestPath, indexPath: indexPath,
+				sourceIdx: i, source: s, currentVer: currentVer, updateCfg: s.Update,
+			})
+		}
+	}
+
+	out := ui.New(os.Stdout)
+	out.Println() // leading blank, then the live counter sits below it
+
+	// Phase 1: check upstream concurrently (bounded), with a live counter.
+	runDevChecks(ctx, jobs)
+
+	// Phase 2: apply rewrites sequentially, in order, collecting a row per
+	// rewritten package so the whole set aligns.
+	type row struct{ id, change, note string }
+	var rows []row
+	for _, j := range jobs {
+		if j.err != nil {
+			errs = append(errs, fmt.Errorf("%s sources[%d]: %w", j.pkg.ID, j.sourceIdx, j.err))
+			failed++
+			continue
+		}
+		r := j.result
+		if r == nil || !r.HasUpdate {
+			continue
+		}
+		change := ""
+		if j.sourceIdx == 0 {
+			mw, err := catalog.PrepareManifestVersion(j.manifestPath, r.LatestVersion, j.srcUpdate)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("%s sources[%d]: %w", p.ID, i, err))
+				errs = append(errs, fmt.Errorf("%s: prepare manifest: %w", j.pkg.ID, err))
 				failed++
 				continue
 			}
-			if r == nil || !r.HasUpdate {
+			iw, err := catalog.PrepareIndexEntry(j.indexPath, j.pkg.ID, catalog.IndexEntry{
+				Name:        j.m.Name,
+				Version:     r.LatestVersion,
+				Category:    j.pkg.Category,
+				Description: j.m.Description,
+			})
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s: prepare index: %w", j.pkg.ID, err))
+				failed++
 				continue
 			}
-			change := ""
-			if i == 0 {
-				mw, err := catalog.PrepareManifestVersion(manifestPath, r.LatestVersion, src)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("%s: prepare manifest: %w", p.ID, err))
-					failed++
-					continue
-				}
-				iw, err := catalog.PrepareIndexEntry(indexPath, p.ID, catalog.IndexEntry{
-					Name:        m.Name,
-					Version:     r.LatestVersion,
-					Category:    p.Category,
-					Description: m.Description,
-				})
-				if err != nil {
-					errs = append(errs, fmt.Errorf("%s: prepare index: %w", p.ID, err))
-					failed++
-					continue
-				}
-				if err := catalog.Commit([]catalog.PreparedWrite{mw, iw}); err != nil {
-					errs = append(errs, fmt.Errorf("%s: commit manifest+index: %w", p.ID, err))
-					failed++
-					continue
-				}
-				change = fmt.Sprintf("%s → %s", r.CurrentVersion, r.LatestVersion)
-			} else {
-				if err := catalog.RewriteSource(manifestPath, i, src); err != nil {
-					errs = append(errs, fmt.Errorf("%s sources[%d]: rewrite: %w", p.ID, i, err))
-					failed++
-					continue
-				}
-				change = fmt.Sprintf("%s → %s", currentVer, r.LatestVersion)
+			if err := catalog.Commit([]catalog.PreparedWrite{mw, iw}); err != nil {
+				errs = append(errs, fmt.Errorf("%s: commit manifest+index: %w", j.pkg.ID, err))
+				failed++
+				continue
 			}
-			rw := row{id: p.ID, change: change}
-			if i > 0 {
-				rw.note = fmt.Sprintf("(source %d)", i+1)
+			change = fmt.Sprintf("%s → %s", r.CurrentVersion, r.LatestVersion)
+		} else {
+			if err := catalog.RewriteSource(j.manifestPath, j.sourceIdx, j.srcUpdate); err != nil {
+				errs = append(errs, fmt.Errorf("%s sources[%d]: rewrite: %w", j.pkg.ID, j.sourceIdx, err))
+				failed++
+				continue
 			}
-			rows = append(rows, rw)
+			change = fmt.Sprintf("%s → %s", j.currentVer, r.LatestVersion)
 		}
+		rw := row{id: j.pkg.ID, change: change}
+		if j.sourceIdx > 0 {
+			rw.note = fmt.Sprintf("(source %d)", j.sourceIdx+1)
+		}
+		rows = append(rows, rw)
 	}
-	status.Clear()
 
 	if len(rows) == 0 && failed == 0 {
 		out.Println("all packages up to date")
@@ -174,6 +206,34 @@ func padRight(s string, w int) string {
 		return s + strings.Repeat(" ", gap)
 	}
 	return s
+}
+
+// runDevChecks resolves every job's upstream state concurrently, bounded to
+// devCheckConcurrency, updating a live "checking (done/total)" counter. Each
+// job's result/srcUpdate/err is filled in place; there are no cross-job writes,
+// so no locking beyond the counter is needed.
+func runDevChecks(ctx context.Context, jobs []*devJob) {
+	status := progress.NewStatus(os.Stderr)
+	defer status.Clear()
+
+	sem := make(chan struct{}, devCheckConcurrency)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	done := 0
+	for _, j := range jobs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(j *devJob) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			j.result, j.srcUpdate, j.err = resolveSourceUpdate(ctx, j.pkg.ID, j.currentVer, j.source, j.updateCfg)
+			mu.Lock()
+			done++
+			status.Update(fmt.Sprintf("checking sources… (%d/%d)", done, len(jobs)))
+			mu.Unlock()
+		}(j)
+	}
+	wg.Wait()
 }
 
 // resolveSourceUpdate runs the checker, picks a download URL, and produces
