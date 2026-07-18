@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
 #
 # Environment:
-#   BUNNY_VERSION   Specific version to install (e.g. v0.1.0). Defaults to latest.
+#   BUNNY_VERSION   Specific version to install (e.g. v0.2.0). Defaults to latest.
 #   BUNNY_HOME      Install root. Defaults to ~/.bunny. The binary lands at $BUNNY_HOME/bin/bunny.
 
 set -eu

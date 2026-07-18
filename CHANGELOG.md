@@ -7,6 +7,38 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-18
+
+### Added
+
+- Spartan, information-dense command output with TTY-aware semantic color,
+  aligned tables and detail views, and clean errors with typo suggestions.
+- Interactive per-package progress for install, uninstall, and update workflows,
+  with stable plain output for pipes and `--no-progress`.
+- Resilient batch installs that skip packages already at the requested version
+  and continue after individual package failures.
+
+### Changed
+
+- `bunny update` now compares installed versions with the curated catalog;
+  upstream discovery remains a maintainer operation under `bunny dev update`.
+- `bunny dev update` checks independent upstream sources concurrently.
+- Help and shell completion now follow the command workflow more closely,
+  including completion for multiple install and uninstall operands.
+- Logging is disabled by default and can be enabled explicitly with `-l`.
+
+### Removed
+
+- `bunny update --all`; whole-catalog upstream discovery now belongs to
+  `bunny dev update`.
+- `bunny which`, because exposing an underlying executable path lets callers
+  bypass Bunny's launcher environment and per-version data isolation.
+
+### Security
+
+- Catalog updates now require checksums published by the upstream project;
+  hashes computed from an unverified download are no longer accepted.
+
 ## [0.1.0] - 2026-07-17
 
 Initial public release.
@@ -39,5 +71,6 @@ Initial public release.
   validation.
 - Install-time preparation isolation through Bubblewrap where required.
 
-[Unreleased]: https://github.com/cristatus/bunny/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cristatus/bunny/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/cristatus/bunny/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/cristatus/bunny/releases/tag/v0.1.0
