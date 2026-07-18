@@ -80,11 +80,8 @@ If your IDE shells out from a different working directory, point its tool path a
 ## Inspecting what would resolve
 
 ```bash
-bunny info <id>     # shows the active version of that package
-bunny use           # without args: list current providers
+bunny info <id>  # shows details for a package
 ```
-
-There isn't a `bunny which` yet (see [ROADMAP](../ROADMAP.md)) — `bunny info` plus reading `.bunny-version` is the workaround.
 
 ## Common gotchas
 

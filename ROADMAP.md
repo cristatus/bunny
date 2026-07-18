@@ -26,7 +26,6 @@ We ship packages whose canonical distribution is a **standalone binary or tarbal
 No promises, no order:
 
 - More JVM-ecosystem manifests as the team needs them (sbt, Scala compiler, Ant, async-profiler). Kotlin, JBang, Quarkus, Micronaut, Spring Boot, and Helidon CLIs already ship.
-- `bunny which <command>` — show which package's shim handles a given command.
 
 ## Anti-roadmap
 

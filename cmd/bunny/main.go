@@ -36,7 +36,6 @@ type CLI struct {
 	Use        UseCmd        `cmd:"" help:"Switch active provider for a capability"`
 	Pin        PinCmd        `cmd:"" help:"Pin a capability to a version in ./.bunny-version"`
 	Unpin      UnpinCmd      `cmd:"" help:"Remove a capability's pin from ./.bunny-version"`
-	Which      WhichCmd      `cmd:"" help:"Show which package a shimmed command resolves to"`
 	Run        RunCmd        `cmd:"" help:"Run an installed package"`
 	Doctor     DoctorCmd     `cmd:"" help:"Run health checks"`
 	Clean      CleanCmd      `cmd:"" help:"Prune cache and tmp dirs"`
@@ -49,7 +48,6 @@ type CLI struct {
 	CompleteIds          CompleteIDsCmd          `cmd:"" hidden:"" help:"List package IDs for shell completion"`
 	CompleteCategories   CompleteCategoriesCmd   `cmd:"" hidden:"" help:"List catalog categories for shell completion"`
 	CompleteCapabilities CompleteCapabilitiesCmd `cmd:"" hidden:"" help:"List installed-provider capabilities for completion"`
-	CompleteCommands     CompleteCommandsCmd     `cmd:"" hidden:"" help:"List shimmed command names for completion"`
 
 	Dev DevCmd `cmd:"" hidden:"" help:"Catalog maintainer commands (rewrite manifests, etc.)"`
 }

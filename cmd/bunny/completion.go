@@ -79,27 +79,6 @@ func (a *App) completionCapabilities() []string {
 	return caps
 }
 
-// completionCommands returns every shimmed command name (manifest bin: shims
-// and runtime global tools), sorted and deduped — for `which` completion.
-func (a *App) completionCommands() []string {
-	seen := map[string]bool{}
-	var names []string
-	for name := range a.State.Commands {
-		if !seen[name] {
-			seen[name] = true
-			names = append(names, name)
-		}
-	}
-	for name := range a.State.GlobalCommands {
-		if !seen[name] {
-			seen[name] = true
-			names = append(names, name)
-		}
-	}
-	sort.Strings(names)
-	return names
-}
-
 // completionCategories returns the distinct package categories in the local
 // catalog, sorted — for `list --category` completion.
 func (a *App) completionCategories() []string {
@@ -154,16 +133,6 @@ func (c *CompleteCapabilitiesCmd) Run(a *App) error {
 	return nil
 }
 
-// CompleteCommandsCmd is the hidden helper for `which` completion.
-type CompleteCommandsCmd struct{}
-
-func (c *CompleteCommandsCmd) Run(a *App) error {
-	for _, name := range a.completionCommands() {
-		fmt.Println(name)
-	}
-	return nil
-}
-
 // CompletionCmd prints the static shell-completion script for the given shell.
 type CompletionCmd struct {
 	Shell string `arg:"" optional:"" enum:"bash,zsh,fish" default:"bash" help:"Shell type (bash, zsh, or fish)"`
@@ -179,7 +148,7 @@ func (c *CompletionCmd) Run(_ *App) error {
 // placeholder. Keep in sync with the CLI struct in main.go — the hidden
 // complete-ids command is intentionally excluded.
 var completionSubcommands = []string{
-	"install", "uninstall", "list", "info", "search", "use", "pin", "unpin", "which", "run",
+	"install", "uninstall", "list", "info", "search", "use", "pin", "unpin", "run",
 	"update", "doctor", "init", "setup", "clean", "reshim",
 	"toolchains", "dev", "completion",
 }
@@ -281,7 +250,6 @@ const bashCompletion = `_bunny() {
         info|search)              COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
         use)                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
         pin|unpin)                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
-        which)                    COMPREPLY=( $(compgen -W "$(bunny complete-commands 2>/dev/null)" -- "$cur") ) ;;
         update|clean|reshim|run)  COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
         init|completion)          COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     esac
@@ -357,7 +325,6 @@ case $sub in
     info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
     use) compadd -- ${(f)"$(bunny complete-ids --providers 2>/dev/null)"} ;;
     pin|unpin) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
-    which) compadd -- ${(f)"$(bunny complete-commands 2>/dev/null)"} ;;
     update|clean|reshim|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
     init|completion) compadd -- bash zsh fish ;;
 esac
@@ -378,9 +345,6 @@ end
 function __bunny_capabilities
     bunny complete-capabilities 2>/dev/null
 end
-function __bunny_commands
-    bunny complete-commands 2>/dev/null
-end
 complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 # global flags — accepted anywhere (no subcommand condition)
 complete -c bunny -l help -d 'Show help'
@@ -392,7 +356,6 @@ complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(_
 complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim run; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from use; and not __fish_seen_subcommand_from dev' -a '(__bunny_provider_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from pin unpin' -a '(__bunny_capabilities)'
-complete -c bunny -f -n '__fish_seen_subcommand_from which' -a '(__bunny_commands)'
 complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash zsh fish'
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and not __fish_seen_subcommand_from update' -a update
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcommand_from update' -a '(__bunny_ids)'
