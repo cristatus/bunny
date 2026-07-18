@@ -7,21 +7,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/log"
-
 	"github.com/cristatus/bunny/internal/checker"
 	"github.com/cristatus/bunny/internal/ui"
 )
 
-// UpdateCmd checks for packages with newer upstream versions. By default it
-// only reports what is available (read-only); pass --apply to reinstall each
-// outdated package with the latest catalog version.
-//
-// Scope defaults to installed packages. --all widens the check to the whole
-// catalog (maintainer view); ignored when --apply is set.
+// UpdateCmd reports installed packages whose catalog version has moved on. By
+// default it only reports (read-only); pass --apply to reinstall each at the
+// catalog version.
 type UpdateCmd struct {
 	ID    string `arg:"" optional:"" help:"Package ID (default: every installed package)"`
-	All   bool   `help:"Check the whole catalog, not just installed packages"`
 	Apply bool   `help:"Apply available updates (reinstall with newer versions)"`
 }
 
@@ -35,7 +29,7 @@ func (c *UpdateCmd) Run(a *App) error {
 func (c *UpdateCmd) check(a *App) error {
 	p := ui.New(os.Stdout)
 	p.Println() // blank before the live check status (and the results below it)
-	report, err := a.checkUpdates(a.context(), c.ID, c.All)
+	report, err := a.checkUpdates(a.context(), c.ID)
 	if err != nil {
 		return err
 	}
@@ -46,11 +40,7 @@ func (c *UpdateCmd) check(a *App) error {
 		p.Println("all packages are up to date")
 		return nil
 	}
-	if c.All {
-		p.Printf("%d packages have updates\n\n", len(report.Results))
-	} else {
-		p.Printf("%d of %d packages have updates\n\n", len(report.Results), len(a.State.Packages))
-	}
+	p.Printf("%d of %d packages have updates\n\n", len(report.Results), len(a.State.Packages))
 	p.Print(renderUpdateTable(p, report.Results))
 	p.Println()
 	p.Println("run 'bunny update --apply' to install") // the one kept action line
@@ -94,11 +84,8 @@ func bumpKind(current, latest string) string {
 }
 
 func (c *UpdateCmd) apply(a *App) error {
-	if c.All {
-		log.Warn("--all has no effect with --apply; applying updates to installed packages only")
-	}
 	ctx := a.context()
-	report, err := a.checkUpdates(ctx, c.ID, false)
+	report, err := a.checkUpdates(ctx, c.ID)
 	if err != nil {
 		return err
 	}

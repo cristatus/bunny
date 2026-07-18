@@ -244,7 +244,7 @@ const bashCompletion = `_bunny() {
             list)         flags="$flags --category --remote" ;;
             run)          flags="$flags --command" ;;
             setup)        flags="$flags --shell" ;;
-            update)       flags="$flags --all --apply" ;;
+            update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
         esac
         COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
@@ -324,7 +324,7 @@ if [[ $cur == -* ]]; then
         list) flags+=(--category --remote) ;;
         run) flags+=(--command) ;;
         setup) flags+=(--shell) ;;
-        update) flags+=(--all --apply) ;;
+        update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
     esac
     compadd -- $flags
@@ -403,7 +403,6 @@ complete -c bunny -n '__fish_seen_subcommand_from list' -s c -l category -r -f -
 complete -c bunny -n '__fish_seen_subcommand_from list' -l remote -d 'List all packages in the catalog'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
-complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l all -d 'Whole catalog'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'
 complete -c bunny -n '__fish_seen_subcommand_from clean' -l all -d 'Drop all download cache'
 `

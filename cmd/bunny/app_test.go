@@ -179,25 +179,32 @@ func TestReshimNeverReplacesBunnyExecutable(t *testing.T) {
 	}
 }
 
-func TestCheckUpdatesReportsBackendFailures(t *testing.T) {
+func TestCheckUpdatesComparesToCatalog(t *testing.T) {
+	// update compares installed versions to the catalog (no upstream source
+	// checks — that's `dev update`'s job), so a differing catalog version is an
+	// update and a matching one is not.
 	st := state.Empty()
 	st.SetInstalled("tool", "1.0", "")
-	cat := reportCatalog{
-		packages: []catalog.PackageInfo{{ID: "tool", Version: "1.0"}},
-		manifests: map[string]*manifest.Manifest{
-			"tool": {
-				ID: "tool", Version: "1.0",
-				Sources: []manifest.Source{{URL: "https://example.com/tool", Update: &manifest.UpdateConfig{Type: "does-not-exist"}}},
-			},
-		},
-	}
+	st.SetInstalled("other", "2.0", "")
+	cat := reportCatalog{packages: []catalog.PackageInfo{
+		{ID: "tool", Version: "1.1"},        // catalog moved on → update
+		{ID: "other", Version: "2.0"},       // same version → no update
+		{ID: "uninstalled", Version: "3.0"}, // not installed → ignored
+	}}
 	a := &App{State: st, Catalog: cat}
-	report, err := a.checkUpdates(context.Background(), "", false)
+
+	report, err := a.checkUpdates(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Checked != 1 || report.Err() == nil {
-		t.Fatalf("report = %+v, error = %v", report, report.Err())
+	if report.Err() != nil {
+		t.Fatalf("no source-check failures expected: %v", report.Err())
+	}
+	if len(report.Results) != 1 || report.Results[0].ID != "tool" {
+		t.Fatalf("want exactly one update (tool), got %+v", report.Results)
+	}
+	if r := report.Results[0]; r.CurrentVersion != "1.0" || r.LatestVersion != "1.1" {
+		t.Fatalf("versions wrong: %+v", r)
 	}
 }
 

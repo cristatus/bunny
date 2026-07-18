@@ -306,8 +306,6 @@ func (a *App) refreshRemote() {
 // UpdateReport distinguishes "no updates" from "updates could not be checked".
 type UpdateReport struct {
 	Results  []checker.Result
-	Checked  int
-	Skipped  int
 	Failures []error
 }
 
@@ -318,10 +316,9 @@ func (r *UpdateReport) Err() error {
 	return fmt.Errorf("%d update check(s) failed: %w", len(r.Failures), errors.Join(r.Failures...))
 }
 
-// checkUpdates runs the checker against the catalog. id="" + all=false
-// (the default) restricts to installed packages; all=true broadens to the
-// whole catalog. A non-empty id always wins.
-func (a *App) checkUpdates(ctx context.Context, id string, all bool) (*UpdateReport, error) {
+// checkUpdates compares installed packages against the catalog. id="" (the
+// default) checks every installed package; a non-empty id checks just that one.
+func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error) {
 	status := progress.NewStatus(os.Stderr)
 	defer status.Clear()
 
@@ -337,49 +334,26 @@ func (a *App) checkUpdates(ctx context.Context, id string, all bool) (*UpdateRep
 		}
 	}
 
-	// Phase 1: build the worklist (local: filter + manifest load). Packages
-	// with no update backend are skipped here so the live counter's total
-	// reflects only the packages that actually need a network check.
+	// Compare each installed package's version against the catalog's. The
+	// catalog is the source of truth for available versions — kept current by
+	// `bunny dev update`, which is what actually queries upstream sources. This
+	// command never hits a package's source; it's a fast local comparison.
 	report := &UpdateReport{}
-	type job struct {
-		id, current, url string
-		update           *manifest.UpdateConfig
-	}
-	var jobs []job
 	for _, p := range pkgs {
 		if id != "" && p.ID != id {
 			continue
 		}
-		if id == "" && !all && !a.State.IsInstalled(p.ID) {
-			continue
+		installed, ok := a.State.Packages[p.ID]
+		if !ok {
+			continue // not installed → nothing to update
 		}
-		m, err := a.Catalog.Load(p.ID)
-		if err != nil {
-			report.Failures = append(report.Failures, fmt.Errorf("%s: load manifest: %w", p.ID, err))
-			continue
-		}
-		if len(m.Sources) == 0 || m.Sources[0].Update == nil {
-			report.Skipped++
-			continue
-		}
-		current := m.Version
-		if pi, ok := a.State.Packages[p.ID]; ok {
-			current = pi.Version
-		}
-		jobs = append(jobs, job{id: p.ID, current: current, url: m.Sources[0].URL, update: m.Sources[0].Update})
-	}
-
-	// Phase 2: run the network checks, showing a live self-erasing counter.
-	for i, j := range jobs {
-		status.Update(fmt.Sprintf("checking %s (%d/%d)", j.id, i+1, len(jobs)))
-		report.Checked++
-		r, err := checker.Check(ctx, j.id, j.current, j.url, j.update)
-		if err != nil {
-			report.Failures = append(report.Failures, fmt.Errorf("%s: %w", j.id, err))
-			continue
-		}
-		if r != nil && r.HasUpdate {
-			report.Results = append(report.Results, *r)
+		if installed.Version != p.Version {
+			report.Results = append(report.Results, checker.Result{
+				ID:             p.ID,
+				CurrentVersion: installed.Version,
+				LatestVersion:  p.Version,
+				HasUpdate:      true,
+			})
 		}
 	}
 	return report, nil
