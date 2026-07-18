@@ -105,7 +105,7 @@ func (g *GitHub) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 			target = filepath.Base(ExpandTemplate(sourceURL, version))
 		}
 		if target != "" {
-			if hash, algo, err := FetchChecksumFromURL(ctx, hashURL, target); err == nil {
+			if hash, algo, err := FetchChecksumFromURL(ctx, hashURL, target, cfg.HashPattern); err == nil {
 				r.Hash = hash
 				r.HashAlgorithm = algo
 			}

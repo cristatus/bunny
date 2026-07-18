@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -33,8 +34,9 @@ func FetchChecksum(ctx context.Context, downloadURL string) (hash, algorithm str
 }
 
 // FetchChecksumFromURL fetches an explicit checksum URL and extracts the hash
-// for targetFile. Algorithm is auto-detected from the URL if possible.
-func FetchChecksumFromURL(ctx context.Context, hashURL, targetFile string) (hash, algorithm string, err error) {
+// for targetFile. When hashPattern is set, its first capture group identifies
+// the digest; otherwise common checksum-file formats are parsed.
+func FetchChecksumFromURL(ctx context.Context, hashURL, targetFile, hashPattern string) (hash, algorithm string, err error) {
 	log.Debug("Fetching checksum", "url", hashURL)
 	body, err := httpReadAll(ctx, hashURL)
 	if err != nil {
@@ -50,7 +52,39 @@ func FetchChecksumFromURL(ctx context.Context, hashURL, targetFile string) (hash
 		algorithm = "sha512"
 		validator = IsValidSHA512
 	}
+	if hashPattern != "" {
+		hash, detected, err := ParseChecksumPattern(body, hashPattern)
+		if err != nil {
+			return "", "", err
+		}
+		if algorithm != "" && algorithm != detected {
+			return "", "", fmt.Errorf("hash-pattern returned %s digest for %s URL", detected, algorithm)
+		}
+		return hash, detected, nil
+	}
 	return ParseChecksumFile(body, targetFile, algorithm, validator)
+}
+
+// ParseChecksumPattern extracts and validates the digest in the first capture
+// group of pattern. SHA-256 and SHA-512 are inferred from the captured value.
+func ParseChecksumPattern(content, pattern string) (string, string, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return "", "", fmt.Errorf("invalid hash-pattern: %w", err)
+	}
+	m := re.FindStringSubmatch(content)
+	if len(m) < 2 {
+		return "", "", fmt.Errorf("hash-pattern did not match with a capture group")
+	}
+	hash := strings.ToLower(m[1])
+	switch {
+	case IsValidSHA256(hash):
+		return hash, "sha256", nil
+	case IsValidSHA512(hash):
+		return hash, "sha512", nil
+	default:
+		return "", "", fmt.Errorf("hash-pattern captured an invalid SHA-256/SHA-512 digest")
+	}
 }
 
 // FetchFileSize sends HEAD and returns Content-Length.

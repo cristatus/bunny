@@ -134,6 +134,7 @@ type UpdateConfig struct {
 	TagPattern     string `yaml:"tag-pattern,omitempty"`
 	URLTemplate    string `yaml:"url-template,omitempty"`
 	HashURL        string `yaml:"hash-url,omitempty"`
+	HashPattern    string `yaml:"hash-pattern,omitempty"`
 	HashQuery      string `yaml:"hash-query,omitempty"`
 	// Distribution selects the JDK vendor for the foojay checker (e.g. "temurin").
 	Distribution string `yaml:"distribution,omitempty"`

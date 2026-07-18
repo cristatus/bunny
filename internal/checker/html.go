@@ -57,7 +57,7 @@ func (h *HTML) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 	if r.DownloadURL != "" {
 		target := filepath.Base(r.DownloadURL)
 		if cfg.HashURL != "" {
-			if h, a, err := FetchChecksumFromURL(ctx, ExpandTemplate(cfg.HashURL, version), target); err == nil {
+			if h, a, err := FetchChecksumFromURL(ctx, ExpandTemplate(cfg.HashURL, version), target, cfg.HashPattern); err == nil {
 				r.Hash = h
 				r.HashAlgorithm = a
 			}

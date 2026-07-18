@@ -2,13 +2,8 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/sha512"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -238,7 +233,9 @@ func runDevChecks(ctx context.Context, jobs []*devJob) {
 
 // resolveSourceUpdate runs the checker, picks a download URL, and produces
 // a SourceUpdate ready for catalog.RewriteSource / RewriteManifestVersion.
-// Hashes come from the checker if it computed them; otherwise we fetch.
+// Hashes must come from an upstream-published checksum discovered by the
+// checker. Hashing the payload merely pins the first download; it does not
+// authenticate it.
 func resolveSourceUpdate(ctx context.Context, id, currentVersion string, src manifest.Source, cfg *manifest.UpdateConfig) (*checker.Result, catalog.SourceUpdate, error) {
 	r, err := checker.Check(ctx, id, currentVersion, src.URL, cfg)
 	if err != nil {
@@ -265,19 +262,13 @@ func resolveSourceUpdate(ctx context.Context, id, currentVersion string, src man
 	case "sha512":
 		sha512Hash = r.Hash
 	}
-	size := r.Size
-	if (needSHA256 && sha256Hash == "") || (needSHA512 && sha512Hash == "") || size == 0 {
-		h, err := downloadAndHashAll(ctx, downloadURL)
-		if err != nil {
-			return nil, catalog.SourceUpdate{}, fmt.Errorf("download %s: %w", downloadURL, err)
-		}
-		if needSHA256 {
-			sha256Hash = h.sha256
-		}
-		if needSHA512 {
-			sha512Hash = h.sha512
-		}
-		size = h.size
+	if (needSHA256 && sha256Hash == "") || (needSHA512 && sha512Hash == "") {
+		return nil, catalog.SourceUpdate{}, fmt.Errorf(
+			"upstream did not publish the required checksum for %s", downloadURL)
+	}
+	if src.Size > 0 && r.Size == 0 {
+		return nil, catalog.SourceUpdate{}, fmt.Errorf(
+			"upstream did not report the size for %s", downloadURL)
 	}
 
 	urlUpdate := ""
@@ -288,7 +279,7 @@ func resolveSourceUpdate(ctx context.Context, id, currentVersion string, src man
 		URL:    urlUpdate,
 		SHA256: sha256Hash,
 		SHA512: sha512Hash,
-		Size:   size,
+		Size:   r.Size,
 	}, nil
 }
 
@@ -309,38 +300,4 @@ func extractURLVersion(sourceURL, pattern string) string {
 		return ""
 	}
 	return m[1]
-}
-
-type hashes struct {
-	sha256 string
-	sha512 string
-	size   int64
-}
-
-var devHTTPClient = &http.Client{Timeout: 30 * time.Minute}
-
-func downloadAndHashAll(ctx context.Context, url string) (hashes, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return hashes{}, err
-	}
-	resp, err := devHTTPClient.Do(req)
-	if err != nil {
-		return hashes{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return hashes{}, fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
-	s256 := sha256.New()
-	s512 := sha512.New()
-	n, err := io.Copy(io.MultiWriter(s256, s512), resp.Body)
-	if err != nil {
-		return hashes{}, err
-	}
-	return hashes{
-		sha256: hex.EncodeToString(s256.Sum(nil)),
-		sha512: hex.EncodeToString(s512.Sum(nil)),
-		size:   n,
-	}, nil
 }

@@ -97,7 +97,7 @@ func (j *JSON) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 		if r.Hash == "" && cfg.HashURL != "" {
 			u := strings.ReplaceAll(cfg.HashURL, "{tag}", tag)
 			u = ExpandTemplate(u, version)
-			if h, a, err := FetchChecksumFromURL(ctx, u, target); err == nil {
+			if h, a, err := FetchChecksumFromURL(ctx, u, target, cfg.HashPattern); err == nil {
 				r.Hash = h
 				r.HashAlgorithm = a
 			}
