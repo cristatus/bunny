@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/shim"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // PinCmd writes a project-local version pin to ./.bunny-version so the given
@@ -25,13 +25,19 @@ func (c *PinCmd) Run(a *App) error {
 	if err := shim.WriteProjectVersion(cwd, c.Capability, c.Version); err != nil {
 		return fmt.Errorf("write pin: %w", err)
 	}
-	log.Info("Pinned", "capability", c.Capability, "version", c.Version,
-		"file", filepath.Join(cwd, shim.ProjectVersionFile))
-	// The pin resolves to "<capability>-<version>"; nudge if it isn't installed.
+	p := ui.New(os.Stdout)
+	p.Println()
+	p.Print(pinConfirmation(c.Capability, c.Version))
+	// The pin resolves to "<capability>-<version>"; warn if it isn't installed.
 	if candidate := c.Capability + "-" + c.Version; !a.State.IsInstalled(candidate) {
-		log.Info("Pinned version is not installed yet — run 'bunny install " + candidate + "'")
+		log.Warn("pinned version is not installed", "package", candidate)
 	}
 	return nil
+}
+
+// pinConfirmation is the one-line result of a successful pin.
+func pinConfirmation(capability, version string) string {
+	return fmt.Sprintf("pinned %s to %s in ./%s\n", capability, version, shim.ProjectVersionFile)
 }
 
 // UnpinCmd removes a capability's pin from ./.bunny-version.
@@ -48,10 +54,12 @@ func (c *UnpinCmd) Run(_ *App) error {
 	if err != nil {
 		return fmt.Errorf("remove pin: %w", err)
 	}
+	p := ui.New(os.Stdout)
+	p.Println()
 	if !removed {
-		log.Info("No pin to remove", "capability", c.Capability)
+		p.Println("no pin to remove for " + c.Capability)
 		return nil
 	}
-	log.Info("Unpinned", "capability", c.Capability)
+	p.Println("unpinned " + c.Capability)
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/toolchains"
+	"github.com/cristatus/bunny/internal/ui"
 	"github.com/cristatus/bunny/internal/verparse"
 )
 
@@ -21,7 +22,9 @@ func (c *ToolchainsCmd) Run(a *App) error {
 		if err := a.regenerateToolchains(); err != nil {
 			return err
 		}
-		log.Info("Regenerated JDK toolchain config")
+		p := ui.New(os.Stdout)
+		p.Println()
+		p.Println("regenerated JDK toolchain config")
 		return nil
 	})
 }

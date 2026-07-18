@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/charmbracelet/log"
 	"gopkg.in/yaml.v3"
@@ -20,26 +19,50 @@ import (
 	"github.com/cristatus/bunny/internal/installer"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
+	"github.com/cristatus/bunny/internal/progress"
 	"github.com/cristatus/bunny/internal/reshim"
 	"github.com/cristatus/bunny/internal/runtime"
 	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/state"
+	"github.com/cristatus/bunny/internal/suggest"
 )
 
 // App is the orchestration root the CLI handlers call into. Holds the
 // resolved $BUNNY_HOME paths, the active catalog, the on-disk state, and a
 // pre-wired installer.
 type App struct {
-	Context   context.Context
-	Paths     *paths.Paths
-	State     *state.State
-	Catalog   catalog.Loader
-	Installed catalog.Loader
-	Installer *installer.Installer
+	Context    context.Context
+	Paths      *paths.Paths
+	State      *state.State
+	Catalog    catalog.Loader
+	Installed  catalog.Loader
+	Installer  *installer.Installer
+	NoProgress bool // force plain (final-line-only) progress output
 
 	local  *catalog.Local
 	remote *catalog.Remote
 }
+
+// reporter returns the progress Reporter for install/uninstall/update: a plain
+// final-line-only reporter when --no-progress is set, otherwise the TTY-aware
+// one. Progress always goes to stderr, keeping stdout results pipe-clean.
+func (a *App) reporter() progress.Reporter {
+	if a.NoProgress {
+		return progress.NewPlain(os.Stderr)
+	}
+	return progress.New(os.Stderr)
+}
+
+// reporterHook adapts a per-package progress.Reporter to the installer's
+// ProgressHook so the installer can drive phase and download updates for the
+// package currently being installed.
+type reporterHook struct {
+	rep progress.Reporter
+	pkg string
+}
+
+func (h reporterHook) Phase(name string)          { h.rep.Phase(h.pkg, name) }
+func (h reporterHook) Download(done, total int64) { h.rep.Download(h.pkg, done, total) }
 
 // userConfig is the on-disk shape of $BUNNY_HOME/config.yaml.
 type userConfig struct {
@@ -299,8 +322,11 @@ func (r *UpdateReport) Err() error {
 // (the default) restricts to installed packages; all=true broadens to the
 // whole catalog. A non-empty id always wins.
 func (a *App) checkUpdates(ctx context.Context, id string, all bool) (*UpdateReport, error) {
+	status := progress.NewStatus(os.Stderr)
+	defer status.Clear()
+
+	status.Update("refreshing catalog…")
 	a.refreshRemote()
-	log.Info("Checking for updates")
 	pkgs, err := a.Catalog.List()
 	if err != nil {
 		return nil, err
@@ -310,7 +336,16 @@ func (a *App) checkUpdates(ctx context.Context, id string, all bool) (*UpdateRep
 			return nil, err
 		}
 	}
+
+	// Phase 1: build the worklist (local: filter + manifest load). Packages
+	// with no update backend are skipped here so the live counter's total
+	// reflects only the packages that actually need a network check.
 	report := &UpdateReport{}
+	type job struct {
+		id, current, url string
+		update           *manifest.UpdateConfig
+	}
+	var jobs []job
 	for _, p := range pkgs {
 		if id != "" && p.ID != id {
 			continue
@@ -327,14 +362,20 @@ func (a *App) checkUpdates(ctx context.Context, id string, all bool) (*UpdateRep
 			report.Skipped++
 			continue
 		}
-		report.Checked++
 		current := m.Version
 		if pi, ok := a.State.Packages[p.ID]; ok {
 			current = pi.Version
 		}
-		r, err := checker.Check(ctx, p.ID, current, m.Sources[0].URL, m.Sources[0].Update)
+		jobs = append(jobs, job{id: p.ID, current: current, url: m.Sources[0].URL, update: m.Sources[0].Update})
+	}
+
+	// Phase 2: run the network checks, showing a live self-erasing counter.
+	for i, j := range jobs {
+		status.Update(fmt.Sprintf("checking %s (%d/%d)", j.id, i+1, len(jobs)))
+		report.Checked++
+		r, err := checker.Check(ctx, j.id, j.current, j.url, j.update)
 		if err != nil {
-			report.Failures = append(report.Failures, fmt.Errorf("%s: %w", p.ID, err))
+			report.Failures = append(report.Failures, fmt.Errorf("%s: %w", j.id, err))
 			continue
 		}
 		if r != nil && r.HasUpdate {
@@ -453,22 +494,19 @@ func sortedKeys(values map[string]string) []string {
 	return keys
 }
 
-// requireInCatalog validates an explicit id against the catalog list and
-// suggests substring-matched candidates on miss (covers the vscode→code
-// shape from main).
+// requireInCatalog validates an explicit id against the catalog list and, on a
+// miss, suggests the nearest catalog id (edit distance ≤ 2 or a prefix match).
 func requireInCatalog(id string, pkgs []catalog.PackageInfo) error {
-	var hints []string
+	ids := make([]string, 0, len(pkgs))
 	for _, p := range pkgs {
 		if p.ID == id {
 			return nil
 		}
-		if strings.Contains(id, p.ID) || strings.Contains(p.ID, id) {
-			hints = append(hints, p.ID)
-		}
+		ids = append(ids, p.ID)
 	}
 	msg := fmt.Sprintf("package %q not found in catalog", id)
-	if len(hints) > 0 {
-		msg += fmt.Sprintf(" (did you mean: %s)", strings.Join(hints, ", "))
+	if best, ok := suggest.Closest(id, ids); ok {
+		msg += fmt.Sprintf(" (did you mean %q?)", best)
 	}
 	return errors.New(msg)
 }

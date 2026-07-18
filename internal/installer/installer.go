@@ -67,7 +67,10 @@ func New(paths *paths.Paths, cat catalog.Loader, st *state.State) *Installer {
 
 // Install runs the full workflow for a single package ID. force=true
 // re-installs even if the same version is already present.
-func (i *Installer) Install(ctx context.Context, id string, force bool) error {
+func (i *Installer) Install(ctx context.Context, id string, force bool, hook ProgressHook) error {
+	if hook == nil {
+		hook = noopHook{}
+	}
 	m, err := i.Catalog.Load(id)
 	if err != nil {
 		return fmt.Errorf("load manifest: %w", err)
@@ -142,16 +145,19 @@ func (i *Installer) Install(ctx context.Context, id string, force bool) error {
 		"work":    workDir,
 	}
 
-	if err := i.fetchSources(ctx, m, srcDir, prepareVars); err != nil {
+	hook.Phase("downloading")
+	if err := i.fetchSources(ctx, m, srcDir, prepareVars, hook); err != nil {
 		cleanup()
 		return err
 	}
 
+	hook.Phase("extracting")
 	if err := i.runPrepare(ctx, m, srcDir, pkgDir, prepareVars); err != nil {
 		cleanup()
 		return err
 	}
 
+	hook.Phase("installing")
 	placed, err := i.place(id, pkgDir, force)
 	if err != nil {
 		cleanup()
@@ -510,7 +516,7 @@ func integrationDestinations(m *manifest.Manifest, vars map[string]string) map[s
 	return out
 }
 
-func (i *Installer) fetchSources(ctx context.Context, m *manifest.Manifest, srcDir string, vars map[string]string) error {
+func (i *Installer) fetchSources(ctx context.Context, m *manifest.Manifest, srcDir string, vars map[string]string, hook ProgressHook) error {
 	dlSources := make([]Source, 0, len(m.Sources))
 	for _, s := range m.Sources {
 		dlSources = append(dlSources, Source{
@@ -523,7 +529,7 @@ func (i *Installer) fetchSources(ctx context.Context, m *manifest.Manifest, srcD
 		})
 	}
 	cacheDir := i.Paths.AppDownloadCache(m.ID)
-	paths, err := i.Download.FetchAllContext(ctx, cacheDir, dlSources)
+	paths, err := i.Download.FetchAllContext(ctx, cacheDir, dlSources, hook.Download)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}

@@ -186,7 +186,7 @@ var completionSubcommands = []string{
 
 // completionGlobalFlags are the top-level flags accepted before any subcommand
 // (from the CLI struct in main.go); bash/zsh embed them via __GLOBALS__.
-var completionGlobalFlags = []string{"--help", "--log-level", "--version"}
+var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "--version"}
 
 // completionLogLevels are the values --log-level accepts (mirrors the enum on
 // CLI.LogLevel in main.go); scripts embed them via __LOGLEVELS__.
@@ -267,16 +267,23 @@ const bashCompletion = `_bunny() {
         return
     fi
 
-    # Operand already given → nothing more (run passthrough; single-operand cmds).
+    # install/uninstall take multiple ids → keep completing regardless of how
+    # many operands are already present (don't stop after the first).
+    case "$sub" in
+        install)   COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ); return ;;
+        uninstall) COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ); return ;;
+    esac
+
+    # Single-operand commands: once an operand is present, nothing more.
     [[ -n "$operand" ]] && return
 
     case "$sub" in
-        install|info|search)                     COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
-        use)                                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
-        pin|unpin)                                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
-        which)                                    COMPREPLY=( $(compgen -W "$(bunny complete-commands 2>/dev/null)" -- "$cur") ) ;;
-        uninstall|update|clean|reshim|run)        COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
-        init|completion)                          COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
+        info|search)              COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
+        use)                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
+        pin|unpin)                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
+        which)                    COMPREPLY=( $(compgen -W "$(bunny complete-commands 2>/dev/null)" -- "$cur") ) ;;
+        update|clean|reshim|run)  COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
+        init|completion)          COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     esac
 }
 complete -F _bunny bunny
@@ -338,14 +345,20 @@ if [[ $sub == dev ]]; then
     return
 fi
 
+# install/uninstall take multiple ids → keep completing regardless of operands.
+case $sub in
+    install) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"}; return ;;
+    uninstall) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"}; return ;;
+esac
+
 [[ -n $operand ]] && return
 
 case $sub in
-    install|info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
+    info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
     use) compadd -- ${(f)"$(bunny complete-ids --providers 2>/dev/null)"} ;;
     pin|unpin) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
     which) compadd -- ${(f)"$(bunny complete-commands 2>/dev/null)"} ;;
-    uninstall|update|clean|reshim|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
+    update|clean|reshim|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
     init|completion) compadd -- bash zsh fish ;;
 esac
 `
@@ -372,6 +385,7 @@ complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 # global flags — accepted anywhere (no subcommand condition)
 complete -c bunny -l help -d 'Show help'
 complete -c bunny -s l -l log-level -r -f -a '__LOGLEVELS__' -d 'Log level'
+complete -c bunny -l no-progress -d 'Disable interactive progress output'
 complete -c bunny -l version -d 'Print version'
 # positional operands per subcommand
 complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(__bunny_ids)'

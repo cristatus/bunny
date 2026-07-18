@@ -57,8 +57,36 @@ func (d *Downloader) Fetch(cacheDir string, src Source) (string, error) {
 	return d.FetchContext(context.Background(), cacheDir, src)
 }
 
+// ProgressFunc receives cumulative download progress: bytes fetched so far and
+// the expected total (0 when the total is unknown).
+type ProgressFunc func(done, total int64)
+
+// progressWriter counts bytes written and reports cumulative progress, throttled
+// so a fast download doesn't redraw the terminal on every 32 KiB chunk.
+type progressWriter struct {
+	w      io.Writer
+	done   int64
+	total  int64
+	report ProgressFunc
+	last   time.Time
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	p.done += int64(n)
+	if p.report != nil && time.Since(p.last) >= 50*time.Millisecond {
+		p.report(p.done, p.total)
+		p.last = time.Now()
+	}
+	return n, err
+}
+
 // FetchContext is Fetch with cancellation propagated to HTTP requests.
 func (d *Downloader) FetchContext(ctx context.Context, cacheDir string, src Source) (string, error) {
+	return d.fetchContext(ctx, cacheDir, src, nil)
+}
+
+func (d *Downloader) fetchContext(ctx context.Context, cacheDir string, src Source, onProgress ProgressFunc) (string, error) {
 	if err := os.MkdirAll(cacheDir, 0755); err != nil {
 		return "", err
 	}
@@ -73,7 +101,7 @@ func (d *Downloader) FetchContext(ctx context.Context, cacheDir string, src Sour
 		return target, nil
 	}
 
-	if err := d.fetchURL(ctx, src, target); err != nil {
+	if err := d.fetchURL(ctx, src, target, onProgress); err != nil {
 		return "", err
 	}
 	if err := verifyIntegrity(target, src); err != nil {
@@ -86,24 +114,41 @@ func (d *Downloader) FetchContext(ctx context.Context, cacheDir string, src Sour
 // FetchAll downloads every source into cacheDir. Returns the absolute paths
 // in source order.
 func (d *Downloader) FetchAll(cacheDir string, sources []Source) ([]string, error) {
-	return d.FetchAllContext(context.Background(), cacheDir, sources)
+	return d.FetchAllContext(context.Background(), cacheDir, sources, nil)
 }
 
 // FetchAllContext downloads sources in order and stops promptly on cancellation.
-func (d *Downloader) FetchAllContext(ctx context.Context, cacheDir string, sources []Source) ([]string, error) {
-	out := make([]string, 0, len(sources))
+// onProgress (if non-nil) receives cumulative bytes across all sources against
+// their combined size.
+func (d *Downloader) FetchAllContext(ctx context.Context, cacheDir string, sources []Source, onProgress ProgressFunc) ([]string, error) {
+	var totalAll int64
 	for _, s := range sources {
-		path, err := d.FetchContext(ctx, cacheDir, s)
+		if s.Size > 0 {
+			totalAll += s.Size
+		}
+	}
+	out := make([]string, 0, len(sources))
+	var base int64
+	for _, s := range sources {
+		var cb ProgressFunc
+		if onProgress != nil {
+			b := base
+			cb = func(done, _ int64) { onProgress(b+done, totalAll) }
+		}
+		path, err := d.fetchContext(ctx, cacheDir, s, cb)
 		if err != nil {
 			return nil, fmt.Errorf("source %s: %w", s.URL, err)
 		}
 		out = append(out, path)
+		if s.Size > 0 {
+			base += s.Size
+		}
 	}
 	return out, nil
 }
 
 // fetchURL streams URL → target. Supports file:// for tests.
-func (d *Downloader) fetchURL(ctx context.Context, src Source, target string) error {
+func (d *Downloader) fetchURL(ctx context.Context, src Source, target string, onProgress ProgressFunc) error {
 	rawURL := src.URL
 	if strings.HasPrefix(rawURL, "file://") {
 		if err := ctx.Err(); err != nil {
@@ -131,7 +176,7 @@ func (d *Downloader) fetchURL(ctx context.Context, src Source, target string) er
 			case <-time.After(delay):
 			}
 		}
-		retry, err := d.fetchHTTPOnce(ctx, src, target)
+		retry, err := d.fetchHTTPOnce(ctx, src, target, onProgress)
 		if err == nil {
 			return nil
 		}
@@ -143,7 +188,7 @@ func (d *Downloader) fetchURL(ctx context.Context, src Source, target string) er
 	return fmt.Errorf("get %s: %w", rawURL, lastErr)
 }
 
-func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target string) (bool, error) {
+func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target string, onProgress ProgressFunc) (bool, error) {
 	part := target + ".part"
 	offset := int64(0)
 	if info, err := os.Lstat(part); err == nil {
@@ -200,7 +245,11 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 	if src.Size > 0 {
 		reader = io.LimitReader(resp.Body, src.Size-offset+1)
 	}
-	written, copyErr := io.Copy(file, reader)
+	dst := io.Writer(file)
+	if onProgress != nil {
+		dst = &progressWriter{w: file, done: offset, total: src.Size, report: onProgress}
+	}
+	written, copyErr := io.Copy(dst, reader)
 	closeErr := file.Close()
 	if copyErr != nil {
 		return true, copyErr
@@ -218,6 +267,9 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 	}
 	if err := os.Rename(part, target); err != nil {
 		return false, err
+	}
+	if onProgress != nil {
+		onProgress(total, src.Size) // final tick → 100%
 	}
 	return false, nil
 }

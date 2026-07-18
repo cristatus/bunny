@@ -5,45 +5,53 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/log"
+
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 var version = "dev"
 
 // CLI is the top-level Kong root.
 type CLI struct {
-	LogLevel string           `short:"l" default:"info" enum:"debug,info,warn,error" help:"Log level"`
-	Version  kong.VersionFlag `short:"v" help:"Print version"`
+	LogLevel   string           `short:"l" placeholder:"level" help:"Enable diagnostics at level: debug, info, warn, error"`
+	NoProgress bool             `help:"Disable interactive progress output"`
+	Version    kong.VersionFlag `short:"v" help:"Print version"`
 
-	Install              InstallCmd              `cmd:"" help:"Install a package"`
-	Uninstall            UninstallCmd            `cmd:"" help:"Uninstall a package"`
-	List                 ListCmd                 `cmd:"" help:"List installed packages; use --remote for the full catalog"`
-	Info                 InfoCmd                 `cmd:"" help:"Show package details"`
-	Search               SearchCmd               `cmd:"" help:"Search packages"`
-	Use                  UseCmd                  `cmd:"" help:"Switch active provider for a capability"`
-	Pin                  PinCmd                  `cmd:"" help:"Pin a capability to a version in ./.bunny-version"`
-	Unpin                UnpinCmd                `cmd:"" help:"Remove a capability's pin from ./.bunny-version"`
-	Which                WhichCmd                `cmd:"" help:"Show which package a shimmed command resolves to"`
-	Run                  RunCmd                  `cmd:"" help:"Run an installed package"`
-	Update               UpdateCmd               `cmd:"" help:"Check for updates; use --apply to install them"`
-	Doctor               DoctorCmd               `cmd:"" help:"Run health checks"`
-	Init                 InitCmd                 `cmd:"" help:"Print shell setup snippet"`
-	Setup                SetupCmd                `cmd:"" help:"Install session env, completions, and shell rc integration"`
-	Clean                CleanCmd                `cmd:"" help:"Prune cache and tmp dirs"`
-	Reshim               ReshimCmd               `cmd:"" help:"Regenerate shims for globally-installed executables (npm -g, etc.)"`
-	Toolchains           ToolchainsCmd           `cmd:"" help:"Regenerate Gradle/Maven JDK toolchain config from installed JDKs"`
-	Completion           CompletionCmd           `cmd:"" help:"Print shell completion script (bash, zsh, or fish)"`
+	// Listed flat in workflow order (Kong preserves declaration order); no
+	// groups. Maintainer/completion commands are hidden from the top-level help.
+	Install    InstallCmd    `cmd:"" help:"Install a package"`
+	Uninstall  UninstallCmd  `cmd:"" help:"Uninstall a package"`
+	List       ListCmd       `cmd:"" help:"List installed packages; use --remote for the full catalog"`
+	Search     SearchCmd     `cmd:"" help:"Search packages"`
+	Info       InfoCmd       `cmd:"" help:"Show package details"`
+	Update     UpdateCmd     `cmd:"" help:"Check for updates; use --apply to install them"`
+	Use        UseCmd        `cmd:"" help:"Switch active provider for a capability"`
+	Pin        PinCmd        `cmd:"" help:"Pin a capability to a version in ./.bunny-version"`
+	Unpin      UnpinCmd      `cmd:"" help:"Remove a capability's pin from ./.bunny-version"`
+	Which      WhichCmd      `cmd:"" help:"Show which package a shimmed command resolves to"`
+	Run        RunCmd        `cmd:"" help:"Run an installed package"`
+	Doctor     DoctorCmd     `cmd:"" help:"Run health checks"`
+	Clean      CleanCmd      `cmd:"" help:"Prune cache and tmp dirs"`
+	Reshim     ReshimCmd     `cmd:"" help:"Regenerate shims for globally-installed executables (npm -g, etc.)"`
+	Toolchains ToolchainsCmd `cmd:"" help:"Regenerate Gradle/Maven JDK toolchain config from installed JDKs"`
+	Setup      SetupCmd      `cmd:"" help:"Install session env, completions, and shell rc integration"`
+	Init       InitCmd       `cmd:"" help:"Print shell setup snippet"`
+	Completion CompletionCmd `cmd:"" help:"Print shell completion script (bash, zsh, or fish)"`
+
 	CompleteIds          CompleteIDsCmd          `cmd:"" hidden:"" help:"List package IDs for shell completion"`
 	CompleteCategories   CompleteCategoriesCmd   `cmd:"" hidden:"" help:"List catalog categories for shell completion"`
 	CompleteCapabilities CompleteCapabilitiesCmd `cmd:"" hidden:"" help:"List installed-provider capabilities for completion"`
 	CompleteCommands     CompleteCommandsCmd     `cmd:"" hidden:"" help:"List shimmed command names for completion"`
 
-	Dev DevCmd `cmd:"" help:"Catalog maintainer commands (rewrite manifests, etc.)"`
+	Dev DevCmd `cmd:"" hidden:"" help:"Catalog maintainer commands (rewrite manifests, etc.)"`
 }
 
 func main() {
@@ -55,10 +63,10 @@ func main() {
 	if base := filepath.Base(os.Args[0]); base != "bunny" && !strings.HasSuffix(base, ".test") {
 		app, err := New()
 		if err != nil {
-			log.Fatal("Failed to initialize", "error", err)
+			ui.Fatal(err)
 		}
 		if err := app.RunShim(base, os.Args[1:]); err != nil {
-			log.Fatal(err)
+			ui.Fatal(err)
 		}
 		return
 	}
@@ -72,12 +80,27 @@ func main() {
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 	)
 
-	level, _ := log.ParseLevel(cli.LogLevel)
-	log.SetLevel(level)
+	// Logging is off by default; -l turns it on at the requested level. Genuine
+	// failures still surface via ui.Fatal (returned errors), not the log channel.
+	if cli.LogLevel == "" {
+		log.SetLevel(log.FatalLevel + 1)
+	} else {
+		level, err := log.ParseLevel(cli.LogLevel)
+		if err != nil {
+			ui.Fatal(fmt.Errorf("invalid log level %q (want: debug, info, warn, or error)", cli.LogLevel))
+		}
+		log.SetLevel(level)
+	}
 
 	app, err := New()
 	if err != nil {
-		log.Fatal("Failed to initialize", "error", err)
+		ui.Fatal(err)
 	}
-	ctx.FatalIfErrorf(ctx.Run(app))
+	app.NoProgress = cli.NoProgress
+	if err := ctx.Run(app); err != nil {
+		if errors.Is(err, errHandled) {
+			os.Exit(1) // already reported (per-package lines + summary)
+		}
+		ui.Fatal(err)
+	}
 }

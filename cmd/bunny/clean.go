@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-
-	"github.com/charmbracelet/log"
+	"os"
 
 	"github.com/cristatus/bunny/internal/installer"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // CleanCmd prunes the download cache and tmp dirs.
@@ -26,16 +26,33 @@ func (c *CleanCmd) Run(a *App) error {
 		if report == nil {
 			return err
 		}
+		p := ui.New(os.Stdout)
+		p.Println()
 		if len(report.Removed) == 0 {
 			if err == nil {
-				log.Info("Nothing to clean")
+				p.Println("nothing to clean")
 			}
 			return err
 		}
-		for _, p := range report.Removed {
-			fmt.Println(p)
+		for _, item := range report.Removed {
+			p.Println(item)
 		}
-		log.Info("Cleaned", "items", len(report.Removed), "freed", fmt.Sprintf("%d bytes", report.Bytes))
+		p.Println() // blank before the summary, matching install/update
+		p.Printf("cleaned %d items, freed %s\n", len(report.Removed), humanBytes(report.Bytes))
 		return err
 	})
+}
+
+// humanBytes formats a byte count as a short human-readable size.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }

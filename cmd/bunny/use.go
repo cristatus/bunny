@@ -3,11 +3,13 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/state"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // UseCmd switches the active provider for a capability and re-points every
@@ -57,9 +59,11 @@ func (c *UseCmd) Run(a *App) error {
 			saveErr := a.State.Save(a.Paths.StateFile())
 			return errors.Join(fmt.Errorf("reshim after provider switch: %w", err), saveErr)
 		} else if len(added)+len(removed) > 0 {
-			log.Info("Reshimmed global tools", "capability", m.Provides, "added", len(added), "removed", len(removed))
+			log.Debug("Reshimmed global tools", "capability", m.Provides, "added", len(added), "removed", len(removed))
 		}
-		log.Info("Switched provider", "capability", m.Provides, "to", c.ID)
+		p := ui.New(os.Stdout)
+		p.Println()
+		p.Println(fmt.Sprintf("switched %s to %s", m.Provides, c.ID))
 		return nil
 	})
 }

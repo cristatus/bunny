@@ -257,3 +257,24 @@ func TestFetchResumesPartialDownload(t *testing.T) {
 		t.Fatalf("download = %q, %v", data, err)
 	}
 }
+
+func TestFetchReportsByteProgress(t *testing.T) {
+	body := "abcdefghij" // 10 bytes
+	d := &Downloader{Client: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}}
+	var lastDone, lastTotal int64
+	_, err := d.FetchAllContext(context.Background(), t.TempDir(),
+		[]Source{{URL: "https://example.com/x", File: "x", Size: int64(len(body)), SHA256: sha256Of(body)}},
+		func(done, total int64) { lastDone, lastTotal = done, total },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lastTotal != int64(len(body)) {
+		t.Errorf("total = %d, want %d", lastTotal, len(body))
+	}
+	if lastDone != int64(len(body)) {
+		t.Errorf("final done = %d, want %d (should reach 100%%)", lastDone, len(body))
+	}
+}

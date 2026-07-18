@@ -9,9 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/charmbracelet/log"
-
 	"github.com/cristatus/bunny/internal/fsutil"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // environmentDPath is where systemd's per-user environment generator reads
@@ -138,12 +137,14 @@ func (c *SetupCmd) Run(a *App) error {
 
 	return a.withMutation(a.context(), func() error {
 		bin, share := a.Paths.Bin(), a.Paths.Share()
+		p := ui.New(os.Stdout)
+		p.Println()
 
 		envPath, err := writeEnvironmentD(bin, share)
 		if err != nil {
 			return fmt.Errorf("write environment.d: %w", err)
 		}
-		log.Info("Wrote session env", "path", envPath)
+		p.Println("wrote session env to " + tildePath(envPath))
 
 		if err := writeCompletionFile(share, shell); err != nil {
 			return fmt.Errorf("write completion: %w", err)
@@ -159,12 +160,32 @@ func (c *SetupCmd) Run(a *App) error {
 			return fmt.Errorf("configure %s: %w", rcPath, err)
 		}
 		if added {
-			log.Info("Added bunny init to shell rc", "path", rcPath)
+			p.Println("added bunny init to " + tildePath(rcPath))
 		} else {
-			log.Info("Shell rc already configured", "path", rcPath)
+			p.Println(tildePath(rcPath) + " already configured")
 		}
 
-		log.Info("Setup complete — restart your session (or run: systemctl --user import-environment PATH XDG_DATA_DIRS) so the desktop picks up bunny's apps")
+		p.Println()
+		p.Println("setup complete — restart your shell to activate bunny,")
+		p.Println("or update the current session with:")
+		p.Println()
+		p.Println("  systemctl --user import-environment PATH XDG_DATA_DIRS")
 		return nil
 	})
+}
+
+// tildePath abbreviates a leading $HOME with ~ for friendlier output; returns
+// the path unchanged when it isn't under $HOME.
+func tildePath(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+string(os.PathSeparator)) {
+		return "~" + p[len(home):]
+	}
+	return p
 }

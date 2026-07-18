@@ -9,16 +9,18 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/charmbracelet/log"
+	"unicode/utf8"
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/checker"
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/progress"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // DevCmd groups maintainer/CI subcommands. They act on the local catalog
@@ -38,33 +40,35 @@ type DevUpdateCmd struct {
 
 func (c *DevUpdateCmd) Run(a *App) error {
 	return a.withMutation(a.context(), func() error {
-		results, err := writeUpdates(a.context(), a, c.ID)
-		if err != nil {
-			return err
-		}
-		if len(results) == 0 {
-			log.Info("Nothing to rewrite — all packages up to date")
-		}
-		return nil
+		return writeUpdates(a.context(), a, c.ID)
 	})
 }
 
-// writeUpdates walks every manifest with an update block, runs the checker,
-// and rewrites the on-disk manifest + index.json for any package whose
-// upstream tag has advanced. Primary source (sources[0]) bumps the manifest
-// version and the index entry; secondary sources rewrite in place.
-func writeUpdates(ctx context.Context, a *App, id string) ([]checker.Result, error) {
+// writeUpdates walks every manifest with an update block, checks each source
+// against upstream, and rewrites the on-disk manifest + index.json for any
+// package whose upstream tag has advanced. Primary source (sources[0]) bumps
+// the manifest version and the index entry; secondary sources rewrite in
+// place. Rewritten packages are collected and rendered together so the columns
+// align, closed by a summary line.
+func writeUpdates(ctx context.Context, a *App, id string) error {
 	if !a.local.Exists() {
-		return nil, fmt.Errorf("no local catalog at %s; 'bunny dev update' requires a local catalog to rewrite", a.Paths.Catalog())
+		return fmt.Errorf("no local catalog at %s; 'bunny dev update' requires a local catalog to rewrite", a.Paths.Catalog())
 	}
 
 	pkgs, err := a.local.List()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	var results []checker.Result
+	out := ui.New(os.Stdout)
+	out.Println() // leading blank, then the live status sits below it
+	status := progress.NewStatus(os.Stderr)
+
+	start := time.Now()
+	type row struct{ id, change, note string }
+	var rows []row
 	var errs []error
+	failed := 0
 	for _, p := range pkgs {
 		if id != "" && p.ID != id {
 			continue
@@ -72,6 +76,7 @@ func writeUpdates(ctx context.Context, a *App, id string) ([]checker.Result, err
 		m, err := a.local.Load(p.ID)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: load manifest: %w", p.ID, err))
+			failed++
 			continue
 		}
 		if len(m.Sources) == 0 {
@@ -79,7 +84,7 @@ func writeUpdates(ctx context.Context, a *App, id string) ([]checker.Result, err
 		}
 		manifestPath := filepath.Join(a.local.Root(), p.Category, p.ID, "manifest.yaml")
 		indexPath := filepath.Join(a.local.Root(), "index.json")
-
+		status.Update("checking " + p.ID + "…")
 		for i, s := range m.Sources {
 			if s.Update == nil {
 				continue
@@ -91,15 +96,18 @@ func writeUpdates(ctx context.Context, a *App, id string) ([]checker.Result, err
 			r, src, err := resolveSourceUpdate(ctx, p.ID, currentVer, s, s.Update)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s sources[%d]: %w", p.ID, i, err))
+				failed++
 				continue
 			}
 			if r == nil || !r.HasUpdate {
 				continue
 			}
+			change := ""
 			if i == 0 {
 				mw, err := catalog.PrepareManifestVersion(manifestPath, r.LatestVersion, src)
 				if err != nil {
 					errs = append(errs, fmt.Errorf("%s: prepare manifest: %w", p.ID, err))
+					failed++
 					continue
 				}
 				iw, err := catalog.PrepareIndexEntry(indexPath, p.ID, catalog.IndexEntry{
@@ -110,24 +118,62 @@ func writeUpdates(ctx context.Context, a *App, id string) ([]checker.Result, err
 				})
 				if err != nil {
 					errs = append(errs, fmt.Errorf("%s: prepare index: %w", p.ID, err))
+					failed++
 					continue
 				}
 				if err := catalog.Commit([]catalog.PreparedWrite{mw, iw}); err != nil {
 					errs = append(errs, fmt.Errorf("%s: commit manifest+index: %w", p.ID, err))
+					failed++
 					continue
 				}
-				log.Info("Rewrote manifest", "package", p.ID, "from", r.CurrentVersion, "to", r.LatestVersion)
+				change = fmt.Sprintf("%s → %s", r.CurrentVersion, r.LatestVersion)
 			} else {
 				if err := catalog.RewriteSource(manifestPath, i, src); err != nil {
 					errs = append(errs, fmt.Errorf("%s sources[%d]: rewrite: %w", p.ID, i, err))
+					failed++
 					continue
 				}
-				log.Info("Rewrote secondary source", "package", p.ID, "index", i, "from", currentVer, "to", r.LatestVersion)
+				change = fmt.Sprintf("%s → %s", currentVer, r.LatestVersion)
 			}
-			results = append(results, *r)
+			rw := row{id: p.ID, change: change}
+			if i > 0 {
+				rw.note = fmt.Sprintf("(source %d)", i+1)
+			}
+			rows = append(rows, rw)
 		}
 	}
-	return results, errors.Join(errs...)
+	status.Clear()
+
+	if len(rows) == 0 && failed == 0 {
+		out.Println("all packages up to date")
+		return nil
+	}
+
+	idWidth := 0
+	for _, rw := range rows {
+		if w := utf8.RuneCountInString(rw.id); w > idWidth {
+			idWidth = w
+		}
+	}
+	for _, rw := range rows {
+		line := padRight(rw.id, idWidth) + "  " + rw.change
+		if rw.note != "" {
+			line += "   " + out.PaintStatus(rw.note, ui.Faint)
+		}
+		out.Println(line)
+	}
+
+	out.Println()
+	out.Print(installSummary(out, "rewrote", len(rows), failed, time.Since(start)))
+	return errors.Join(errs...)
+}
+
+// padRight pads s with spaces to w display columns (rune-counted).
+func padRight(s string, w int) string {
+	if gap := w - utf8.RuneCountInString(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
+	}
+	return s
 }
 
 // resolveSourceUpdate runs the checker, picks a download URL, and produces

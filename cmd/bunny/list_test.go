@@ -1,20 +1,26 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 func TestRenderInstalled(t *testing.T) {
+	var b bytes.Buffer
+	p := ui.NewWithColor(&b, false)
 	rows := []installedRow{
-		{id: "bat", category: "cli", name: "bat", version: "1.0", provides: ""},
-		{id: "jbr-21", category: "sdk", name: "JetBrains Runtime", version: "21", provides: "jdk"},
-		{id: "jdk-21", category: "sdk", name: "Eclipse Temurin", version: "21", provides: "jdk", active: true},
+		{id: "bat", category: "cli", version: "1.0", provides: ""},
+		{id: "jbr-21", category: "sdk", version: "21", provides: "jdk"},
+		{id: "jdk-21", category: "sdk", version: "21", provides: "jdk", active: true},
 	}
 
-	out := renderInstalled(rows)
-	if !strings.Contains(out, "PROVIDES") {
-		t.Error("missing PROVIDES header")
+	out := renderInstalled(p, rows)
+	// Title-case header, no human-name column.
+	if !strings.Contains(out, "Provides") || strings.Contains(out, "NAME") || strings.Contains(out, "Name") {
+		t.Errorf("header wrong (want title-case, no name col): %q", out)
 	}
 	if !strings.Contains(out, "jdk (active)") {
 		t.Error("active provider should be marked (active)")
@@ -27,6 +33,9 @@ func TestRenderInstalled(t *testing.T) {
 	// A non-provider has no capability listed.
 	if batLine := lineWith(t, out, "bat"); strings.Contains(batLine, "jdk") {
 		t.Errorf("non-provider line should have no capability: %q", batLine)
+	}
+	if !strings.Contains(out, "3 packages") {
+		t.Errorf("count footer missing: %q", out)
 	}
 	// Plain text only — no ANSI styling.
 	if strings.Contains(out, "\x1b[") {

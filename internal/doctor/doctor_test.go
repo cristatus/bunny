@@ -108,7 +108,18 @@ func TestPinResolutionMixedSatisfaction(t *testing.T) {
 	if results[2].Severity != Fail {
 		t.Errorf("node pin should be Fail: %+v", results[2])
 	}
-	if !strings.Contains(results[2].Detail, "bunny install node-23") {
-		t.Errorf("missing install hint: %q", results[2].Detail)
+	if !strings.Contains(results[2].Fix, "bunny install node-23") {
+		t.Errorf("missing install hint in Fix: %q", results[2].Fix)
+	}
+}
+
+func TestPathCheckCarriesFix(t *testing.T) {
+	// A bin dir guaranteed not on PATH.
+	r := pathOnPathCheck("/definitely/not/on/path/bunny-xyz")
+	if r.Severity == OK {
+		t.Skip("bin dir unexpectedly on PATH")
+	}
+	if !strings.Contains(r.Fix, "bunny setup") {
+		t.Fatalf("PATH check Fix = %q, want it to mention 'bunny setup'", r.Fix)
 	}
 }

@@ -110,7 +110,7 @@ func TestInstallEndToEnd(t *testing.T) {
 	}
 
 	i := installerWith(t, map[string]*manifest.Manifest{"rg": m}, nil)
-	if err := i.Install(context.Background(), "rg", false); err != nil {
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !i.State.IsInstalled("rg") {
@@ -181,7 +181,7 @@ func TestInstallRequiresUnsatisfied(t *testing.T) {
 		Requires: []string{"jdk"},
 	}
 	i := installerWith(t, map[string]*manifest.Manifest{"maven": m}, nil)
-	err := i.Install(context.Background(), "maven", false)
+	err := i.Install(context.Background(), "maven", false, nil)
 	if err == nil || !strings.Contains(err.Error(), "requires") {
 		t.Errorf("expected requires error, got %v", err)
 	}
@@ -204,10 +204,10 @@ func TestInstallCommandConflict(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "shared", Path: "{app}/shared"}},
 	}
 	i := installerWith(t, map[string]*manifest.Manifest{"first": mA, "second": mB}, nil)
-	if err := i.Install(context.Background(), "first", false); err != nil {
+	if err := i.Install(context.Background(), "first", false, nil); err != nil {
 		t.Fatal(err)
 	}
-	err := i.Install(context.Background(), "second", false)
+	err := i.Install(context.Background(), "second", false, nil)
 	if err == nil || !strings.Contains(err.Error(), "shared") {
 		t.Errorf("expected conflict error, got %v", err)
 	}
@@ -236,10 +236,10 @@ func TestInstallProvidesSiblingsAllowed(t *testing.T) {
 		},
 	}
 	i := installerWith(t, map[string]*manifest.Manifest{"node-22": mA, "node-24": mB}, nil)
-	if err := i.Install(context.Background(), "node-22", false); err != nil {
+	if err := i.Install(context.Background(), "node-22", false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := i.Install(context.Background(), "node-24", false); err != nil {
+	if err := i.Install(context.Background(), "node-24", false, nil); err != nil {
 		t.Errorf("provides siblings should not conflict: %v", err)
 	}
 	// Installing the sibling does not steal the active slot: node-22 (first)
@@ -275,7 +275,7 @@ func TestInstallReturnsStateSaveError(t *testing.T) {
 		return errors.New("disk full")
 	}
 
-	err := i.Install(context.Background(), "rg", false)
+	err := i.Install(context.Background(), "rg", false, nil)
 	if err == nil || !strings.Contains(err.Error(), "save state") {
 		t.Fatalf("expected save state error, got %v", err)
 	}
@@ -312,12 +312,12 @@ func TestForceInstallReplacesCommandSet(t *testing.T) {
 	}
 	manifests := map[string]*manifest.Manifest{"tool": m1}
 	i := installerWith(t, manifests, nil)
-	if err := i.Install(context.Background(), "tool", false); err != nil {
+	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
 		t.Fatal(err)
 	}
 
 	manifests["tool"] = m2
-	if err := i.Install(context.Background(), "tool", true); err != nil {
+	if err := i.Install(context.Background(), "tool", true, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -358,7 +358,7 @@ func TestForceInstallRestoresPreviousAppOnStateSaveError(t *testing.T) {
 	}
 	manifests := map[string]*manifest.Manifest{"tool": m1}
 	i := installerWith(t, manifests, nil)
-	if err := i.Install(context.Background(), "tool", false); err != nil {
+	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	oldMarker := filepath.Join(i.Paths.AppDir("tool"), "old-only")
@@ -370,7 +370,7 @@ func TestForceInstallRestoresPreviousAppOnStateSaveError(t *testing.T) {
 	i.SaveState = func(st *state.State, path string) error {
 		return errors.New("disk full")
 	}
-	err := i.Install(context.Background(), "tool", true)
+	err := i.Install(context.Background(), "tool", true, nil)
 	if err == nil || !strings.Contains(err.Error(), "save state") {
 		t.Fatalf("expected save state error, got %v", err)
 	}
@@ -424,10 +424,10 @@ func TestUninstallRejectsBreakingLastRequiredProvider(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "mvn", Path: "{app}/mvn"}},
 	}
 	i := installerWith(t, map[string]*manifest.Manifest{"jdk-21": jdk, "maven": maven}, nil)
-	if err := i.Install(context.Background(), "jdk-21", false); err != nil {
+	if err := i.Install(context.Background(), "jdk-21", false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := i.Install(context.Background(), "maven", false); err != nil {
+	if err := i.Install(context.Background(), "maven", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := i.Uninstall("jdk-21", false); err == nil || !strings.Contains(err.Error(), "maven requires jdk") {
@@ -452,10 +452,10 @@ func TestUninstallActivatesFallbackProvider(t *testing.T) {
 		"node-24": makeNode("node-24", "24"),
 	}, nil)
 	// node-24 first so it's the active provider; node-22 is the inactive sibling.
-	if err := i.Install(context.Background(), "node-24", false); err != nil {
+	if err := i.Install(context.Background(), "node-24", false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := i.Install(context.Background(), "node-22", false); err != nil {
+	if err := i.Install(context.Background(), "node-22", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	// Uninstalling the active provider must promote the sibling and wire it up.
@@ -488,13 +488,13 @@ func TestInstallSecondProviderDoesNotStealActive(t *testing.T) {
 		"node-22": makeNode("node-22", "22"),
 		"node-24": makeNode("node-24", "24"),
 	}, nil)
-	if err := i.Install(context.Background(), "node-22", false); err != nil {
+	if err := i.Install(context.Background(), "node-22", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := i.State.ResolveProvider("node"); got != "node-22" {
 		t.Fatalf("first provider should be active: got %q", got)
 	}
-	if err := i.Install(context.Background(), "node-24", false); err != nil {
+	if err := i.Install(context.Background(), "node-24", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !i.State.IsInstalled("node-24") {
@@ -533,10 +533,10 @@ func TestUninstallActivatesFallbackWhenManifestMissing(t *testing.T) {
 	}
 	i := installerWith(t, manifests, nil)
 	// node-24 first so it's the active provider; node-22 is the inactive sibling.
-	if err := i.Install(context.Background(), "node-24", false); err != nil {
+	if err := i.Install(context.Background(), "node-24", false, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := i.Install(context.Background(), "node-22", false); err != nil {
+	if err := i.Install(context.Background(), "node-22", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	// node-24's manifest vanishes everywhere: dropped from the catalog and its
@@ -567,7 +567,7 @@ func TestUninstallCleansShimsAndState(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
 	}
 	i := installerWith(t, map[string]*manifest.Manifest{"rg": m}, nil)
-	if err := i.Install(context.Background(), "rg", false); err != nil {
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := i.Uninstall("rg", false); err != nil {
@@ -593,7 +593,7 @@ func TestUninstallReturnsStateSaveError(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
 	}
 	i := installerWith(t, map[string]*manifest.Manifest{"rg": m}, nil)
-	if err := i.Install(context.Background(), "rg", false); err != nil {
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	i.SaveState = func(st *state.State, path string) error {
@@ -625,7 +625,7 @@ func TestUninstallRemovesStateOwnedShimsWhenManifestMissing(t *testing.T) {
 	}
 	manifests := map[string]*manifest.Manifest{"rg": m}
 	i := installerWith(t, manifests, nil)
-	if err := i.Install(context.Background(), "rg", false); err != nil {
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	delete(manifests, "rg")
@@ -658,7 +658,7 @@ func TestUninstallUsesCachedManifestForCleanup(t *testing.T) {
 	}
 	manifests := map[string]*manifest.Manifest{"code": original}
 	i := installerWith(t, manifests, nil)
-	if err := i.Install(context.Background(), "code", false); err != nil {
+	if err := i.Install(context.Background(), "code", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	desktopFile := filepath.Join(i.Paths.Desktop(), "bunny-code.desktop")
@@ -682,5 +682,32 @@ func TestUninstallUsesCachedManifestForCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(i.Paths.ManifestFile("code")); !os.IsNotExist(err) {
 		t.Errorf("manifest cache should be removed after uninstall")
+	}
+}
+
+type recordingHook struct {
+	phases    []string
+	downloads int
+}
+
+func (h *recordingHook) Phase(name string)          { h.phases = append(h.phases, name) }
+func (h *recordingHook) Download(done, total int64) { h.downloads++ }
+
+func TestInstallEmitsPhasesInOrder(t *testing.T) {
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "rg.tar.gz")
+	os.WriteFile(srcFile, []byte("payload"), 0644)
+	m := &manifest.Manifest{
+		ID: "rg", Name: "ripgrep", Version: "14.1.0",
+		Sources: []manifest.Source{{URL: "file://" + srcFile, File: "rg.tar.gz", SHA256: sha256Of("payload")}},
+		Bin:     []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"rg": m}, nil)
+	h := &recordingHook{}
+	if err := i.Install(context.Background(), "rg", false, h); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(h.phases, ","); got != "downloading,extracting,installing" {
+		t.Fatalf("phases = %q, want downloading,extracting,installing", got)
 	}
 }

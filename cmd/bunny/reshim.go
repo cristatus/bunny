@@ -1,6 +1,10 @@
 package main
 
-import "github.com/charmbracelet/log"
+import (
+	"os"
+
+	"github.com/cristatus/bunny/internal/ui"
+)
 
 // ReshimCmd regenerates shims for runtime-installed global executables
 // (e.g. tools added via `npm install -g`).
@@ -30,7 +34,9 @@ func (c *ReshimCmd) Run(a *App) error {
 		if err != nil {
 			return err
 		}
-		log.Info("Reshim complete", "added", len(added), "removed", len(removed))
+		p := ui.New(os.Stdout)
+		p.Println()
+		p.Printf("reshimmed: %d added, %d removed\n", len(added), len(removed))
 		return nil
 	})
 }

@@ -271,3 +271,18 @@ func cacheManifest(t *testing.T, path string, m *manifest.Manifest) {
 		t.Fatal(err)
 	}
 }
+
+func TestRequireInCatalogSuggests(t *testing.T) {
+	pkgs := []catalog.PackageInfo{{ID: "jdk-21"}, {ID: "jdk-25"}, {ID: "maven"}}
+	err := requireInCatalog("jdk-2", pkgs)
+	if err == nil || !strings.Contains(err.Error(), `did you mean "jdk-21"`) {
+		t.Fatalf("err = %v, want suggestion of jdk-21", err)
+	}
+}
+
+func TestRequireInCatalogHit(t *testing.T) {
+	pkgs := []catalog.PackageInfo{{ID: "maven"}}
+	if err := requireInCatalog("maven", pkgs); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
