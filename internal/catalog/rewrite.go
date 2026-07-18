@@ -80,6 +80,18 @@ func PrepareIndexEntry(indexPath, id string, entry IndexEntry) (PreparedWrite, e
 	pkg["category"] = entry.Category
 	if entry.Description != "" {
 		pkg["description"] = entry.Description
+	} else {
+		delete(pkg, "description")
+	}
+	if entry.Provides != "" {
+		pkg["provides"] = entry.Provides
+	} else {
+		delete(pkg, "provides")
+	}
+	if len(entry.Requires) > 0 {
+		pkg["requires"] = entry.Requires
+	} else {
+		delete(pkg, "requires")
 	}
 	pkgs[id] = pkg
 	idx["updated"] = time.Now().UTC().Format(time.RFC3339)

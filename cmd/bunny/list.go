@@ -3,19 +3,23 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/ui"
 )
 
 // ListCmd prints installed packages by default. Pass --remote to see the full
 // catalog with install status.
 type ListCmd struct {
-	Category string `short:"c" help:"Filter by category"`
-	Remote   bool   `help:"List all packages in the catalog, not just installed"`
+	Category   string `short:"c" help:"Filter by category"`
+	Capability string `help:"Filter by provided capability"`
+	Active     bool   `help:"Show only active capability providers"`
+	Remote     bool   `help:"List all packages in the catalog, not just installed"`
 }
 
 func (c *ListCmd) Run(a *App) error {
@@ -30,6 +34,10 @@ func (c *ListCmd) Run(a *App) error {
 // installed and remote listings can never diverge on how they filter.
 func (c *ListCmd) matchesCategory(category string) bool {
 	return c.Category == "" || category == c.Category
+}
+
+func (c *ListCmd) matchesCapability(capability string) bool {
+	return c.Capability == "" || capability == c.Capability
 }
 
 func (c *ListCmd) listInstalled(a *App) error {
@@ -47,16 +55,19 @@ func (c *ListCmd) listInstalled(a *App) error {
 	}
 	var rows []installedRow
 	for id, pkg := range a.State.Packages {
-		category := ""
+		category, provides := "", pkg.Provides
 		if p, ok := catalogInfo[id]; ok {
 			category = p.Category
+			if provides == "" {
+				provides = p.Provides
+			}
 		}
-		if !c.matchesCategory(category) {
+		active := provides != "" && a.State.Providers[provides] == id
+		if !c.matchesCategory(category) || !c.matchesCapability(provides) || (c.Active && !active) {
 			continue
 		}
 		rows = append(rows, installedRow{
-			id: id, category: category, version: pkg.Version, provides: pkg.Provides,
-			active: pkg.Provides != "" && a.State.Providers[pkg.Provides] == id,
+			id: id, category: category, version: pkg.Version, provides: provides, active: active,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool {
@@ -66,9 +77,7 @@ func (c *ListCmd) listInstalled(a *App) error {
 		return rows[i].id < rows[j].id
 	})
 	p := ui.New(os.Stdout)
-	p.Println()
-	p.Print(renderInstalled(p, rows))
-	return nil
+	return a.pageOutput("\n" + renderInstalled(p, rows))
 }
 
 // installedRow is one line of the installed listing.
@@ -77,25 +86,23 @@ type installedRow struct {
 	active                          bool // active provider for its capability
 }
 
-// renderInstalled formats the installed listing (no human-name column). The
-// active provider for each capability is tagged "(active)" in green.
+// renderInstalled formats the installed listing (no human-name column).
 func renderInstalled(p *ui.Printer, rows []installedRow) string {
 	cells := make([][]ui.Cell, 0, len(rows))
 	for _, r := range rows {
-		provides := r.provides
-		style := ui.Plain
+		active, style := "", ui.Plain
 		if r.active {
-			provides += " (active)"
-			style = ui.Good
+			active, style = "yes", ui.Good
 		}
 		cells = append(cells, []ui.Cell{
 			{Text: r.id},
 			{Text: r.category},
+			{Text: r.provides},
 			{Text: r.version},
-			{Text: provides, Style: style},
+			{Text: active, Style: style},
 		})
 	}
-	out := p.Table([]string{"Package", "Category", "Version", "Provides"}, cells)
+	out := p.Table([]string{"Package", "Category", "Provides", "Version", "Active"}, cells)
 	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
@@ -110,11 +117,10 @@ func (c *ListCmd) listRemote(a *App) error {
 		}
 		return pkgs[i].ID < pkgs[j].ID
 	})
-	p := ui.New(os.Stdout)
-	p.Println()
-	var cells [][]ui.Cell
+	var rows []remoteRow
 	for _, pkg := range pkgs {
-		if !c.matchesCategory(pkg.Category) {
+		active := pkg.Provides != "" && a.State.Providers[pkg.Provides] == pkg.ID
+		if !c.matchesCategory(pkg.Category) || !c.matchesCapability(pkg.Provides) || (c.Active && !active) {
 			continue
 		}
 		status, style := "", ui.Plain
@@ -124,13 +130,34 @@ func (c *ListCmd) listRemote(a *App) error {
 				status = fmt.Sprintf("installed (%s)", info.Version)
 			}
 		}
+		rows = append(rows, remoteRow{pkg: pkg, active: active, status: status, statusStyle: style})
+	}
+	p := ui.New(os.Stdout)
+	return a.pageOutput("\n" + renderRemote(p, rows))
+}
+
+type remoteRow struct {
+	pkg         catalog.PackageInfo
+	active      bool
+	status      string
+	statusStyle ui.Style
+}
+
+func renderRemote(p *ui.Printer, rows []remoteRow) string {
+	cells := make([][]ui.Cell, 0, len(rows))
+	for _, r := range rows {
+		active, activeStyle := "", ui.Plain
+		if r.active {
+			active, activeStyle = "yes", ui.Good
+		}
 		cells = append(cells, []ui.Cell{
-			{Text: pkg.ID}, {Text: pkg.Category}, {Text: pkg.Version},
-			{Text: status, Style: style},
+			{Text: r.pkg.ID}, {Text: r.pkg.Category}, {Text: r.pkg.Provides},
+			{Text: r.pkg.Version}, {Text: active, Style: activeStyle},
+			{Text: r.status, Style: r.statusStyle},
 		})
 	}
-	p.Print(p.Table([]string{"Package", "Category", "Version", "Status"}, cells))
-	return nil
+	out := p.Table([]string{"Package", "Category", "Provides", "Version", "Active", "Status"}, cells)
+	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
 // InfoCmd prints details about a single package.
@@ -147,10 +174,39 @@ func (c *InfoCmd) Run(a *App) error {
 	if info, ok := a.State.Packages[m.ID]; ok {
 		installedVersion, installed = info.Version, true
 	}
+	detail := infoDetail{installedVersion: installedVersion, installed: installed}
+	if m.Provides != "" {
+		detail.activeProvider = a.State.Providers[m.Provides]
+		if cwd, err := os.Getwd(); err == nil {
+			if pin, err := shim.ResolveProjectVersion(cwd, m.Provides); err == nil && pin != nil {
+				detail.projectPin = pin.Version + " (" + filepath.Base(pin.Source) + ")"
+			}
+		}
+	}
+	if pkgs, err := a.Catalog.List(); err == nil {
+		for _, pkg := range pkgs {
+			for _, req := range pkg.Requires {
+				capability, _, _ := manifest.ParseRequirement(req)
+				if capability == m.ID || (m.Provides != "" && capability == m.Provides) {
+					detail.dependents = append(detail.dependents, pkg.ID)
+					break
+				}
+			}
+		}
+		sort.Strings(detail.dependents)
+	}
 	p := ui.New(os.Stdout)
 	p.Println()
-	p.Print(renderInfo(p, m, installedVersion, installed))
+	p.Print(renderInfo(p, m, detail))
 	return nil
+}
+
+type infoDetail struct {
+	installedVersion string
+	installed        bool
+	activeProvider   string
+	projectPin       string
+	dependents       []string
 }
 
 // renderInfo prints a single aligned key/value block for a package. Version
@@ -158,13 +214,13 @@ func (c *InfoCmd) Run(a *App) error {
 // catalog version differs from the installed one (inequality, no network).
 // Rows for optional metadata appear only when the manifest carries them; a
 // not-installed package gets a trailing install hint.
-func renderInfo(p *ui.Printer, m *manifest.Manifest, installedVersion string, installed bool) string {
+func renderInfo(p *ui.Printer, m *manifest.Manifest, detail infoDetail) string {
 	version := m.Version
 	status := "not installed"
-	if installed {
-		version = installedVersion
+	if detail.installed {
+		version = detail.installedVersion
 		status = p.PaintStatus("installed", ui.Good)
-		if installedVersion != m.Version {
+		if detail.installedVersion != m.Version {
 			status += "  ·  " + p.Faint("update available ("+m.Version+")")
 		}
 	}
@@ -176,9 +232,22 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, installedVersion string, in
 	if m.Description != "" {
 		rows = append(rows, ui.KVRow{Key: "Description", Value: m.Description})
 	}
+	if m.Category != "" {
+		rows = append(rows, ui.KVRow{Key: "Category", Value: m.Category})
+	}
 	rows = append(rows, ui.KVRow{Key: "Version", Value: version + "  " + status})
 	if m.Provides != "" {
 		rows = append(rows, ui.KVRow{Key: "Provides", Value: m.Provides})
+		active := "no"
+		if detail.activeProvider == m.ID {
+			active = p.PaintStatus("yes", ui.Good)
+		} else if detail.activeProvider != "" {
+			active += " (" + detail.activeProvider + ")"
+		}
+		rows = append(rows, ui.KVRow{Key: "Active", Value: active})
+		if detail.projectPin != "" {
+			rows = append(rows, ui.KVRow{Key: "Project pin", Value: detail.projectPin})
+		}
 	}
 	if len(m.Requires) > 0 {
 		rows = append(rows, ui.KVRow{Key: "Requires", Value: strings.Join(m.Requires, ", ")})
@@ -190,6 +259,9 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, installedVersion string, in
 		}
 		rows = append(rows, ui.KVRow{Key: "Binaries", Value: strings.Join(names, ", ")})
 	}
+	if len(detail.dependents) > 0 {
+		rows = append(rows, ui.KVRow{Key: "Used by", Value: strings.Join(detail.dependents, ", ")})
+	}
 	if m.Homepage != "" {
 		rows = append(rows, ui.KVRow{Key: "Homepage", Value: m.Homepage})
 	}
@@ -198,13 +270,14 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, installedVersion string, in
 	}
 
 	out := p.KV(rows)
-	if !installed {
+	if !detail.installed {
 		out += "\n" + "run 'bunny install " + m.ID + "' to add\n"
 	}
 	return out
 }
 
-// SearchCmd does a substring match on ID, name, and description.
+// SearchCmd does a substring match on catalog summary metadata, including
+// provided capabilities and runtime requirements.
 type SearchCmd struct {
 	Query string `arg:"" help:"Search query"`
 }
@@ -219,7 +292,9 @@ func (c *SearchCmd) Run(a *App) error {
 	for _, pkg := range pkgs {
 		if strings.Contains(strings.ToLower(pkg.ID), q) ||
 			strings.Contains(strings.ToLower(pkg.Name), q) ||
-			strings.Contains(strings.ToLower(pkg.Description), q) {
+			strings.Contains(strings.ToLower(pkg.Description), q) ||
+			strings.Contains(strings.ToLower(pkg.Provides), q) ||
+			containsFold(pkg.Requires, q) {
 			matches = append(matches, pkg)
 		}
 	}
@@ -229,9 +304,17 @@ func (c *SearchCmd) Run(a *App) error {
 		installed[id] = true
 	}
 	p := ui.New(os.Stdout)
-	p.Println()
-	p.Print(renderSearch(p, c.Query, matches, installed))
-	return nil
+	return a.pageOutput("\n" + renderSearch(p, c.Query, matches, installed))
+}
+
+func containsFold(values []string, query string) bool {
+	query = strings.ToLower(query)
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
+		}
+	}
+	return false
 }
 
 // renderSearch prints a match table (Package / Version / Status / Description),
@@ -248,11 +331,11 @@ func renderSearch(p *ui.Printer, query string, pkgs []catalog.PackageInfo, insta
 			status, style = "installed", ui.Good
 		}
 		cells = append(cells, []ui.Cell{
-			{Text: pkg.ID}, {Text: pkg.Version},
+			{Text: pkg.ID}, {Text: pkg.Provides}, {Text: pkg.Version},
 			{Text: status, Style: style},
 			{Text: pkg.Description},
 		})
 	}
-	out := p.Table([]string{"Package", "Version", "Status", "Description"}, cells)
+	out := p.Table([]string{"Package", "Provides", "Version", "Status", "Description"}, cells)
 	return out + "\n" + fmt.Sprintf("%d matches\n", len(pkgs))
 }

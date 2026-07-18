@@ -273,6 +273,8 @@ func TestRewriteIndexEntry(t *testing.T) {
 		Version:     "1.119.0",
 		Category:    "editor",
 		Description: "Code editor from Microsoft",
+		Provides:    "editor",
+		Requires:    []string{"jdk>=17"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -286,6 +288,13 @@ func TestRewriteIndexEntry(t *testing.T) {
 	vscode := pkgs["vscode"].(map[string]any)
 	if vscode["version"] != "1.119.0" {
 		t.Errorf("vscode.version = %v, want 1.119.0", vscode["version"])
+	}
+	if vscode["provides"] != "editor" {
+		t.Errorf("vscode.provides = %v, want editor", vscode["provides"])
+	}
+	requires, _ := vscode["requires"].([]any)
+	if len(requires) != 1 || requires[0] != "jdk>=17" {
+		t.Errorf("vscode.requires = %v, want [jdk>=17]", vscode["requires"])
 	}
 	// Other packages untouched:
 	node := pkgs["node-22"].(map[string]any)

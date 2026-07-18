@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/ui"
 )
 
@@ -22,12 +23,12 @@ func TestRenderInstalled(t *testing.T) {
 	if !strings.Contains(out, "Provides") || strings.Contains(out, "NAME") || strings.Contains(out, "Name") {
 		t.Errorf("header wrong (want title-case, no name col): %q", out)
 	}
-	if !strings.Contains(out, "jdk (active)") {
-		t.Error("active provider should be marked (active)")
+	if !strings.Contains(out, "Active") || !strings.Contains(lineWith(t, out, "jdk-21"), "yes") {
+		t.Error("active provider should have a separate active marker")
 	}
 	// The inactive sibling shows the bare capability, not the marker.
 	jbrLine := lineWith(t, out, "jbr-21")
-	if !strings.Contains(jbrLine, "jdk") || strings.Contains(jbrLine, "active") {
+	if !strings.Contains(jbrLine, "jdk") || strings.Contains(jbrLine, "yes") {
 		t.Errorf("inactive provider line wrong: %q", jbrLine)
 	}
 	// A non-provider has no capability listed.
@@ -40,6 +41,31 @@ func TestRenderInstalled(t *testing.T) {
 	// Plain text only — no ANSI styling.
 	if strings.Contains(out, "\x1b[") {
 		t.Error("list output must not contain ANSI escapes")
+	}
+}
+
+func TestRenderRemoteShowsCapabilityAndActive(t *testing.T) {
+	var b bytes.Buffer
+	p := ui.NewWithColor(&b, false)
+	rows := []remoteRow{{
+		pkg:    catalog.PackageInfo{ID: "zulu-21", Category: "sdk", Provides: "jdk", Version: "21"},
+		active: true, status: "installed", statusStyle: ui.Good,
+	}}
+	out := renderRemote(p, rows)
+	for _, want := range []string{"Provides", "Active", "jdk", "yes", "installed", "1 packages"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("remote output missing %q: %q", want, out)
+		}
+	}
+}
+
+func TestListFilters(t *testing.T) {
+	c := &ListCmd{Category: "sdk", Capability: "jdk"}
+	if !c.matchesCategory("sdk") || c.matchesCategory("cli") {
+		t.Fatal("category filter mismatch")
+	}
+	if !c.matchesCapability("jdk") || c.matchesCapability("node") {
+		t.Fatal("capability filter mismatch")
 	}
 }
 

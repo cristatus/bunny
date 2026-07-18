@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
+	"strings"
 
 	"github.com/charmbracelet/log"
 
@@ -34,6 +36,8 @@ func (c *UseCmd) Run(a *App) error {
 		for _, b := range m.Bin {
 			names = append(names, b.Name)
 		}
+		sort.Strings(names)
+		previous := a.State.Providers[m.Provides]
 		oldNames := a.State.CommandsForCapability(m.Provides)
 		stateBefore := a.State.Clone()
 		bunnyPath, err := shim.BunnyBinaryPath(a.Paths.Bin())
@@ -63,9 +67,21 @@ func (c *UseCmd) Run(a *App) error {
 		}
 		p := ui.New(os.Stdout)
 		p.Println()
-		p.Println(fmt.Sprintf("switched %s to %s", m.Provides, c.ID))
+		p.Print(renderUse(m.Provides, c.ID, m.Version, previous, names))
 		return nil
 	})
+}
+
+func renderUse(capability, id, version, previous string, shims []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "active %s provider: %s (%s)\n", capability, id, version)
+	if previous != "" && previous != id {
+		fmt.Fprintf(&b, "replaced: %s\n", previous)
+	}
+	if len(shims) > 0 {
+		fmt.Fprintf(&b, "reshimmed: %s\n", strings.Join(shims, ", "))
+	}
+	return b.String()
 }
 
 func rollbackProviderSwitch(a *App, before *state.State, oldNames, newNames []string, bunnyPath string) {

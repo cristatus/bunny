@@ -144,6 +144,8 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 				Version:     r.LatestVersion,
 				Category:    j.pkg.Category,
 				Description: j.m.Description,
+				Provides:    j.m.Provides,
+				Requires:    append([]string(nil), j.m.Requires...),
 			})
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s: prepare index: %w", j.pkg.ID, err))

@@ -81,6 +81,8 @@ func (l *Local) List() ([]PackageInfo, error) {
 				Name:        m.Name,
 				Description: m.Description,
 				Version:     m.Version,
+				Provides:    m.Provides,
+				Requires:    append([]string(nil), m.Requires...),
 			})
 		}
 	}

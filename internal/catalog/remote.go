@@ -42,10 +42,12 @@ type Index struct {
 
 // IndexEntry is the per-package summary stored in the index.
 type IndexEntry struct {
-	Name        string `json:"name"`
-	Version     string `json:"version"`
-	Category    string `json:"category"`
-	Description string `json:"description"`
+	Name        string   `json:"name"`
+	Version     string   `json:"version"`
+	Category    string   `json:"category"`
+	Description string   `json:"description"`
+	Provides    string   `json:"provides,omitempty"`
+	Requires    []string `json:"requires,omitempty"`
 }
 
 // HTTPGet matches the small subset of net/http we need; injectable for tests.
@@ -117,6 +119,8 @@ func (r *Remote) List() ([]PackageInfo, error) {
 			Name:        e.Name,
 			Description: e.Description,
 			Version:     e.Version,
+			Provides:    e.Provides,
+			Requires:    append([]string(nil), e.Requires...),
 		})
 	}
 	return out, nil
@@ -141,6 +145,8 @@ func (r *Remote) ListCached() ([]PackageInfo, error) {
 			Name:        e.Name,
 			Description: e.Description,
 			Version:     e.Version,
+			Provides:    e.Provides,
+			Requires:    append([]string(nil), e.Requires...),
 		})
 	}
 	return out, nil

@@ -13,7 +13,7 @@ func TestRenderSearch(t *testing.T) {
 	var b bytes.Buffer
 	p := ui.NewWithColor(&b, false)
 	pkgs := []catalog.PackageInfo{
-		{ID: "jdk-21", Version: "21.0.11", Description: "Temurin 21"},
+		{ID: "jdk-21", Version: "21.0.11", Description: "Temurin 21", Provides: "jdk"},
 		{ID: "corretto-21", Version: "21.0.11", Description: "Amazon 21"},
 	}
 	got := renderSearch(p, "jdk", pkgs, map[string]bool{"jdk-21": true})
@@ -22,6 +22,15 @@ func TestRenderSearch(t *testing.T) {
 	}
 	if !strings.Contains(got, "2 matches") {
 		t.Fatalf("count missing: %q", got)
+	}
+	if !strings.Contains(got, "Provides") || !strings.Contains(got, "jdk") {
+		t.Fatalf("capability column missing: %q", got)
+	}
+}
+
+func TestContainsFoldMatchesRequirements(t *testing.T) {
+	if !containsFold([]string{"jdk>=17"}, "JDK") {
+		t.Fatal("requirement should match case-insensitively")
 	}
 }
 

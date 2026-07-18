@@ -34,7 +34,7 @@ const testIndex = `{
   "version": 1,
   "updated": "2026-01-01T00:00:00Z",
   "packages": {
-    "rg": {"name": "ripgrep", "version": "14.1.0", "category": "cli", "description": "fast grep"},
+    "rg": {"name": "ripgrep", "version": "14.1.0", "category": "cli", "description": "fast grep", "provides": "search", "requires": ["jdk>=17"]},
     "code": {"name": "VS Code", "version": "1.98.2", "category": "editor", "description": "editor"}
   }
 }`
@@ -64,6 +64,11 @@ func TestRemoteListAndLoad(t *testing.T) {
 	}
 	if len(pkgs) != 2 {
 		t.Errorf("expected 2 pkgs, got %d", len(pkgs))
+	}
+	for _, pkg := range pkgs {
+		if pkg.ID == "rg" && (pkg.Provides != "search" || len(pkg.Requires) != 1 || pkg.Requires[0] != "jdk>=17") {
+			t.Errorf("rg capability metadata = provides %q, requires %v", pkg.Provides, pkg.Requires)
+		}
 	}
 
 	m, err := r.Load("rg")

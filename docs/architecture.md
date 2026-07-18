@@ -42,6 +42,9 @@ manifest.
 Remote index responses and checker metadata are size-bounded and timeout-bound.
 The index cache is atomically replaced and uses a six-hour
 stale-while-revalidate policy, so an expired cache remains usable offline.
+Each index package summary includes `provides` and `requires` when present in
+the manifest. List, search, completion, and reverse-dependency discovery can
+therefore remain lightweight instead of fetching every remote manifest.
 
 ## Mutation transactions
 

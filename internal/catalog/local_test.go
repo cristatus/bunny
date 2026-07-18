@@ -11,6 +11,8 @@ import (
 const testManifestTemplate = `id: %s
 name: %s
 version: "1.0.0"
+provides: search
+requires: ["jdk>=17"]
 sources:
   - url: https://example.com/x.tar.gz
     sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -46,6 +48,15 @@ func TestLocalListAndLoad(t *testing.T) {
 	}
 	if len(pkgs) != 2 {
 		t.Fatalf("expected 2 packages, got %d: %v", len(pkgs), pkgs)
+	}
+	var rg PackageInfo
+	for _, pkg := range pkgs {
+		if pkg.ID == "rg" {
+			rg = pkg
+		}
+	}
+	if rg.Provides != "search" || len(rg.Requires) != 1 || rg.Requires[0] != "jdk>=17" {
+		t.Errorf("capability metadata missing from local list: %+v", rg)
 	}
 
 	m, err := l.Load("rg")

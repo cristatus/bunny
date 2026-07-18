@@ -64,11 +64,17 @@ func (a *App) completionProviderIDs() []string {
 	return ids
 }
 
-// completionCapabilities returns the distinct capabilities provided by
-// installed packages, sorted — for `pin`/`unpin` argument completion.
+// completionCapabilities returns the distinct capabilities known from the
+// catalog or installed state, sorted.
 func (a *App) completionCapabilities() []string {
 	seen := map[string]bool{}
 	var caps []string
+	for _, pkg := range a.catalogPackages() {
+		if pkg.Provides != "" && !seen[pkg.Provides] {
+			seen[pkg.Provides] = true
+			caps = append(caps, pkg.Provides)
+		}
+	}
 	for _, id := range a.State.Installed() {
 		if c := a.State.Packages[id].Provides; c != "" && !seen[c] {
 			seen[c] = true
@@ -155,7 +161,7 @@ var completionSubcommands = []string{
 
 // completionGlobalFlags are the top-level flags accepted before any subcommand
 // (from the CLI struct in main.go); bash/zsh embed them via __GLOBALS__.
-var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "--version"}
+var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "--pager", "--no-pager", "--version"}
 
 // completionLogLevels are the values --log-level accepts (mirrors the enum on
 // CLI.LogLevel in main.go); scripts embed them via __LOGLEVELS__.
@@ -190,7 +196,7 @@ const bashCompletion = `_bunny() {
     for (( i=1; i < COMP_CWORD; i++ )); do
         w="${COMP_WORDS[i]}"
         case "$w" in
-            --log-level|-l|--category|-c|--command|--shell) (( i++ )); continue ;;
+            --log-level|-l|--pager|--category|-c|--capability|--command|--shell) (( i++ )); continue ;;
             -*) continue ;;
         esac
         if [[ -z "$sub" ]]; then sub="$w"; else operand="$w"; break; fi
@@ -199,7 +205,9 @@ const bashCompletion = `_bunny() {
     # Value completion for the flag immediately before the cursor.
     case "$prev" in
         --log-level|-l) COMPREPLY=( $(compgen -W "__LOGLEVELS__" -- "$cur") ); return ;;
+        --pager)        COMPREPLY=( $(compgen -W "auto always never" -- "$cur") ); return ;;
         --category)     COMPREPLY=( $(compgen -W "$(bunny complete-categories 2>/dev/null)" -- "$cur") ); return ;;
+        --capability)   COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ); return ;;
         -c) [[ "$sub" == list ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-categories 2>/dev/null)" -- "$cur") ); return; } ;;
         --shell)        COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return ;;
     esac
@@ -210,7 +218,7 @@ const bashCompletion = `_bunny() {
         case "$sub" in
             install)      flags="$flags --force" ;;
             uninstall)    flags="$flags --purge" ;;
-            list)         flags="$flags --category --remote" ;;
+            list)         flags="$flags --category --capability --active --remote" ;;
             run)          flags="$flags --command" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
@@ -268,7 +276,7 @@ local sub="" operand="" w i
 for (( i = 2; i < CURRENT; i++ )); do
     w=${words[i]}
     case $w in
-        --log-level|-l|--category|-c|--command|--shell) (( i++ )); continue ;;
+        --log-level|-l|--pager|--category|-c|--capability|--command|--shell) (( i++ )); continue ;;
         -*) continue ;;
     esac
     if [[ -z $sub ]]; then sub=$w; else operand=$w; break; fi
@@ -277,7 +285,9 @@ done
 # Value completion for the flag before the cursor.
 case $prev in
     --log-level|-l) compadd -- __LOGLEVELS__; return ;;
+    --pager) compadd -- auto always never; return ;;
     --category) compadd -- ${(f)"$(bunny complete-categories 2>/dev/null)"}; return ;;
+    --capability) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"}; return ;;
     -c) [[ $sub == list ]] && { compadd -- ${(f)"$(bunny complete-categories 2>/dev/null)"}; return } ;;
     --shell) compadd -- bash zsh fish; return ;;
 esac
@@ -289,7 +299,7 @@ if [[ $cur == -* ]]; then
     case $sub in
         install) flags+=(--force) ;;
         uninstall) flags+=(--purge) ;;
-        list) flags+=(--category --remote) ;;
+        list) flags+=(--category --capability --active --remote) ;;
         run) flags+=(--command) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
@@ -350,6 +360,8 @@ complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 complete -c bunny -l help -d 'Show help'
 complete -c bunny -s l -l log-level -r -f -a '__LOGLEVELS__' -d 'Log level'
 complete -c bunny -l no-progress -d 'Disable interactive progress output'
+complete -c bunny -l pager -r -f -a 'auto always never' -d 'Page long list/search output'
+complete -c bunny -l no-pager -d 'Disable paged output'
 complete -c bunny -l version -d 'Print version'
 # positional operands per subcommand
 complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(__bunny_ids)'
@@ -363,6 +375,8 @@ complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcom
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d 'Also remove the per-app data dir'
 complete -c bunny -n '__fish_seen_subcommand_from list' -s c -l category -r -f -a '(__bunny_categories)' -d 'Filter by category'
+complete -c bunny -n '__fish_seen_subcommand_from list' -l capability -r -f -a '(__bunny_capabilities)' -d 'Filter by provided capability'
+complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only active providers'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l remote -d 'List all packages in the catalog'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'

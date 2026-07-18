@@ -7,7 +7,9 @@ Bunny is a small, opinionated tool. This page states its scope and lists a handf
 We ship packages whose canonical distribution is a **standalone binary or tarball**, downloaded once and run indefinitely. If a tool's canonical install is `npm install -g X` or `pip install X`, it is out of scope — install it within the project that needs it.
 
 - **JVM ecosystem.** JDK distros (Temurin, Corretto, GraalVM, Liberica, OpenJ9), build tools (Maven, Gradle, sbt, Ant, JBang), language compilers (Kotlin, Scala), profilers (JMC, VisualVM, async-profiler).
-- **JavaScript runtimes.** Node LTS lines, Bun, Deno. Package managers that ship a standalone binary (pnpm). npm comes with Node — we don't ship it separately.
+- **JavaScript runtimes.** Node LTS lines, Bun, and Deno.
+- **Node ecosystem tools.** Package managers that ship a standalone binary
+  (currently pnpm). npm comes with Node, so we don't ship it separately.
 - **Editors / IDEs that target the above.** JetBrains IDEs (via the Toolbox app), Eclipse, VS Code, Cursor, Zed.
 - **General-purpose CLI tools that show up in nearly every dev workflow.** ripgrep, fd, bat, fzf, jq, gh, lazygit, delta, eza.
 
@@ -20,12 +22,6 @@ We ship packages whose canonical distribution is a **standalone binary or tarbal
 - **Operating systems other than Linux.** macOS users are well served by brew and sdkman.
 - **Replacing your distro's package manager.** `apt`, `dnf`, `pacman` still own system-level packages.
 - **Sandboxing as a security boundary.** Bunny isolates SDK data per-version via launcher `env:`; GUI apps run native. Neither is a security model.
-
-## Things that are likely to land
-
-No promises, no order:
-
-- More JVM-ecosystem manifests as the team needs them (sbt, Scala compiler, Ant, async-profiler). Kotlin, JBang, Quarkus, Micronaut, Spring Boot, and Helidon CLIs already ship.
 
 ## Anti-roadmap
 

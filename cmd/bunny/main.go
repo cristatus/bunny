@@ -23,6 +23,8 @@ var version = "dev"
 type CLI struct {
 	LogLevel   string           `short:"l" placeholder:"level" help:"Enable diagnostics at level: debug, info, warn, error"`
 	NoProgress bool             `help:"Disable interactive progress output"`
+	Pager      string           `enum:"auto,always,never" default:"auto" help:"Page long list/search output: auto, always, or never"`
+	NoPager    bool             `help:"Disable paged output"`
 	Version    kong.VersionFlag `short:"v" help:"Print version"`
 
 	// Listed flat in workflow order (Kong preserves declaration order); no
@@ -95,6 +97,10 @@ func main() {
 		ui.Fatal(err)
 	}
 	app.NoProgress = cli.NoProgress
+	app.Pager = cli.Pager
+	if cli.NoPager {
+		app.Pager = "never"
+	}
 	if err := ctx.Run(app); err != nil {
 		if errors.Is(err, errHandled) {
 			os.Exit(1) // already reported (per-package lines + summary)

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/cristatus/bunny/internal/manifest"
@@ -58,5 +59,18 @@ func TestUseSwitchesProviderCommandShims(t *testing.T) {
 	}
 	if owner, ok := a.State.CommandOwner("new-only"); !ok || owner != "node-24" {
 		t.Fatalf("new provider command owner = %q, %v", owner, ok)
+	}
+}
+
+func TestRenderUse(t *testing.T) {
+	got := renderUse("jdk", "zulu-21", "21.0.11", "jdk-21", []string{"jar", "java"})
+	for _, want := range []string{
+		"active jdk provider: zulu-21 (21.0.11)",
+		"replaced: jdk-21",
+		"reshimmed: jar, java",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("use output missing %q: %q", want, got)
+		}
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/state"
 	"github.com/cristatus/bunny/internal/suggest"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // App is the orchestration root the CLI handlers call into. Holds the
@@ -37,10 +38,15 @@ type App struct {
 	Catalog    catalog.Loader
 	Installed  catalog.Loader
 	Installer  *installer.Installer
-	NoProgress bool // force plain (final-line-only) progress output
+	NoProgress bool   // force plain (final-line-only) progress output
+	Pager      string // auto, always, or never for pageable result commands
 
 	local  *catalog.Local
 	remote *catalog.Remote
+}
+
+func (a *App) pageOutput(output string) error {
+	return ui.Page(os.Stdout, output, a.Pager)
 }
 
 // reporter returns the progress Reporter for install/uninstall/update: a plain

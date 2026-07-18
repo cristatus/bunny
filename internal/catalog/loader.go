@@ -12,6 +12,8 @@ type PackageInfo struct {
 	Name        string
 	Description string
 	Version     string
+	Provides    string
+	Requires    []string
 }
 
 // Loader is the interface every catalog source implements.
