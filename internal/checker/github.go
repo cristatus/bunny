@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/verparse"
 )
 
 func init() { Register(&GitHub{}) }
@@ -59,7 +60,7 @@ func (g *GitHub) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 	version := g.extractVersion(tag, cfg.TagPattern)
 	log.Debug("GitHub version", "tag", tag, "version", version)
 
-	r := &Result{LatestVersion: version, HasUpdate: version != currentVersion}
+	r := &Result{LatestVersion: version, HasUpdate: verparse.Compare(version, currentVersion) > 0}
 
 	if assets == nil {
 		assets, err = g.fetchAssets(ctx, cfg.Repo, tag)
@@ -75,7 +76,7 @@ func (g *GitHub) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 			tag = altTag
 			version = g.extractVersion(tag, cfg.TagPattern)
 			r.LatestVersion = version
-			r.HasUpdate = version != currentVersion
+			r.HasUpdate = verparse.Compare(version, currentVersion) > 0
 			asset = g.findAsset(altAssets, cfg.Asset, version)
 		}
 	}

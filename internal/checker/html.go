@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/verparse"
 )
 
 func init() { Register(&HTML{}) }
@@ -51,7 +52,7 @@ func (h *HTML) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 
 	r := &Result{
 		LatestVersion: version,
-		HasUpdate:     version != currentVersion,
+		HasUpdate:     verparse.Compare(version, currentVersion) > 0,
 		DownloadURL:   ExpandTemplate(urlTemplate, version),
 	}
 	if r.DownloadURL != "" {

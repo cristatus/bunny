@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/verparse"
 )
 
 func init() { Register(&JSON{}) }
@@ -65,7 +66,7 @@ func (j *JSON) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 	}
 	log.Debug("JSON version", "version", version, "tag", tag)
 
-	r := &Result{LatestVersion: version, HasUpdate: version != currentVersion}
+	r := &Result{LatestVersion: version, HasUpdate: verparse.Compare(version, currentVersion) > 0}
 
 	if cfg.URLQuery != "" {
 		q := strings.ReplaceAll(cfg.URLQuery, "{tag}", tag)

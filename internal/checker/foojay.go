@@ -70,7 +70,7 @@ func (f *Foojay) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 	r := &Result{
 		LatestVersion: pkg.JavaVersion,
 		Size:          pkg.Size,
-		HasUpdate:     pkg.JavaVersion != currentVersion,
+		HasUpdate:     verparse.Compare(pkg.JavaVersion, currentVersion) > 0,
 	}
 
 	info, err := httpReadAll(ctx, foojayBaseURL+"/ids/"+pkg.ID)

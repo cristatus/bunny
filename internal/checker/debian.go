@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/verparse"
 )
 
 func init() { Register(&Debian{}) }
@@ -57,7 +58,7 @@ func (d *Debian) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 		Hash:          pkg.sha256,
 		HashAlgorithm: "sha256",
 		Size:          pkg.size,
-		HasUpdate:     pkg.version != currentVersion,
+		HasUpdate:     verparse.Compare(pkg.version, currentVersion) > 0,
 	}
 	if pkg.filename != "" {
 		r.DownloadURL = root + "/" + pkg.filename
