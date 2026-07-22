@@ -53,7 +53,7 @@ java -version
 code .
 ```
 
-Pin a bunny version with `BUNNY_VERSION=v0.2.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
+Pin a bunny version with `BUNNY_VERSION=v0.3.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
 
 ## A typical Java workflow
 
@@ -94,9 +94,10 @@ Each Node version's npm prefix and cache, pnpm store, and Yarn cache and global 
 ```
 bunny install <id>          install a package
 bunny uninstall <id>        remove (use --purge to also drop per-version SDK data)
-bunny list                  list installed packages (--remote for full catalog)
-bunny info <id>             show package details
-bunny search <query>        substring search across catalog
+bunny list                  list category, capability, version, and active provider
+bunny list --remote         list the full catalog (--capability jdk / --active)
+bunny info <id>             show capability, requirements, pins, and dependents
+bunny search <query>        search names, descriptions, capabilities, and requirements
 bunny use <id>              switch active SDK version (e.g. jdk-17 → jdk-21)
 bunny run <id> [-- args]    run a package binary
 bunny update                check for updates (installed packages)
@@ -113,6 +114,12 @@ bunny toolchains            regenerate Gradle/Maven JDK toolchain config from in
 `bunny setup` also drops bunny's own completion into `share/`, discovered by the same PATH/XDG/fpath wiring — so after setup, `bunny <TAB>` completes subcommands and `bunny install <TAB>` completes package IDs (installed-only for `uninstall`/`use`/`run`).
 
 Maintainer/CI commands live under `bunny dev`.
+
+Long `list` and `search` results automatically open in `less -FRX` (falling
+back to `more`) when stdout is an interactive terminal. Set `BUNNY_PAGER` or
+`PAGER` to choose another command, `--no-pager` to disable paging, or
+`--pager=always|never` to override the length check. Piped and redirected
+output is always written directly.
 
 ## Documentation
 
