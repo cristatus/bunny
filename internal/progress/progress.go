@@ -158,19 +158,26 @@ func (s *Status) Clear() {
 	s.active = false
 }
 
-// bar renders a fixed-width filled/empty progress bar.
-func bar(done, total int64, width int) string {
-	if total <= 0 {
-		return strings.Repeat("░", width)
+// bar renders a fixed-width filled/empty progress bar. On a color terminal the
+// filled run is reverse-video spaces, so it reads as one continuous block; a
+// run of "█" glyphs is used only when color is off, since many fonts leave a
+// faint seam between adjacent full blocks.
+func bar(done, total int64, width int, color bool) string {
+	filled := 0
+	if total > 0 {
+		filled = int(int64(width) * done / total)
 	}
-	filled := int(int64(width) * done / total)
 	if filled > width {
 		filled = width
 	}
 	if filled < 0 {
 		filled = 0
 	}
-	return strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+	empty := strings.Repeat("░", width-filled)
+	if !color {
+		return strings.Repeat("█", filled) + empty
+	}
+	return ansiReverse + strings.Repeat(" ", filled) + ansiReset + empty
 }
 
 // pct returns the integer percentage of done/total, clamped to 0..100.

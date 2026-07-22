@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	ansiReset = "\x1b[0m"
-	ansiGreen = "\x1b[32m"
-	ansiRed   = "\x1b[31m"
-	ansiDim   = "\x1b[2m"
+	ansiReset   = "\x1b[0m"
+	ansiGreen   = "\x1b[32m"
+	ansiRed     = "\x1b[31m"
+	ansiDim     = "\x1b[2m"
+	ansiReverse = "\x1b[7m"
 
 	hideCursor = "\x1b[?25l"
 	showCursor = "\x1b[?25h"
@@ -182,7 +183,7 @@ func (r *liveReporter) activeLineLocked() string {
 	sp := spinnerFrames[r.frame]
 	switch {
 	case r.hasBar:
-		trailing := fmt.Sprintf("%s  %3d%%   %s", bar(r.done, r.total, barWidth),
+		trailing := fmt.Sprintf("%s  %3d%%   %s", bar(r.done, r.total, barWidth, r.color),
 			pct(r.done, r.total), r.paint(ansiDim, fmt.Sprintf("%.1f/%.1f MiB", mib(r.done), mib(r.total))))
 		return r.compose(r.pkg, sp, "", "downloading", trailing)
 	case r.phase == "downloading" && r.done > 0:

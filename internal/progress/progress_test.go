@@ -33,14 +33,19 @@ func TestPlainDonePadsIDColumn(t *testing.T) {
 }
 
 func TestBarAndPct(t *testing.T) {
-	if got := bar(5, 10, 10); got != "█████░░░░░" {
+	if got := bar(5, 10, 10, false); got != "█████░░░░░" {
 		t.Fatalf("bar(5,10,10) = %q", got)
 	}
-	if got := bar(0, 0, 4); got != "░░░░" {
+	if got := bar(0, 0, 4, false); got != "░░░░" {
 		t.Fatalf("bar with unknown total = %q", got)
 	}
-	if got := bar(30, 10, 10); got != "██████████" {
+	if got := bar(30, 10, 10, false); got != "██████████" {
 		t.Fatalf("bar overshoot should clamp full: %q", got)
+	}
+	// On color terminals the filled run is one continuous reverse-video block
+	// (no per-glyph seams), the empty track stays shaded.
+	if got := bar(5, 10, 10, true); got != "\x1b[7m     \x1b[0m░░░░░" {
+		t.Fatalf("colored bar = %q", got)
 	}
 	if p := pct(1, 4); p != 25 {
 		t.Fatalf("pct(1,4) = %d", p)
