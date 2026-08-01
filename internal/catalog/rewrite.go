@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -96,11 +97,14 @@ func PrepareIndexEntry(indexPath, id string, entry IndexEntry) (PreparedWrite, e
 	pkgs[id] = pkg
 	idx["updated"] = time.Now().UTC().Format(time.RFC3339)
 
-	out, err := json.MarshalIndent(idx, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(idx); err != nil {
 		return PreparedWrite{}, err
 	}
-	out = append(out, '\n')
+	out := buf.Bytes()
 	return PreparedWrite{path: indexPath, data: out, perm: 0644}, nil
 }
 
