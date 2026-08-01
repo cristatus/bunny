@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +25,16 @@ import (
 // directory and aren't part of the day-to-day install/update workflow
 // regular bunny users see.
 type DevCmd struct {
-	Update DevUpdateCmd `cmd:"" help:"Rewrite local manifests and index.json with newer upstream versions"`
+	Validate DevValidateCmd `cmd:"" help:"Validate local catalog manifests and index.json"`
+	Update   DevUpdateCmd   `cmd:"" help:"Rewrite local manifests and index.json with newer upstream versions"`
+}
+
+// DevValidateCmd validates every local manifest and its index without using
+// the network. It is intended for catalog CI before publishing changes.
+type DevValidateCmd struct{}
+
+func (c *DevValidateCmd) Run(a *App) error {
+	return validateCatalog(a.local.Root())
 }
 
 // DevUpdateCmd rewrites local manifests with newer upstream versions and
@@ -38,6 +49,79 @@ func (c *DevUpdateCmd) Run(a *App) error {
 	return a.withMutation(a.context(), func() error {
 		return writeUpdates(a.context(), a, c.ID)
 	})
+}
+
+func validateCatalog(root string) error {
+	if _, err := os.Stat(root); err != nil {
+		return fmt.Errorf("catalog: %w", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "index.json"))
+	if err != nil {
+		return fmt.Errorf("read index.json: %w", err)
+	}
+	var index catalog.Index
+	if err := json.Unmarshal(data, &index); err != nil {
+		return fmt.Errorf("parse index.json: %w", err)
+	}
+
+	seen := make(map[string]bool)
+	count := 0
+	categories, err := os.ReadDir(root)
+	if err != nil {
+		return fmt.Errorf("read catalog: %w", err)
+	}
+	for _, category := range categories {
+		if !category.IsDir() || strings.HasPrefix(category.Name(), ".") {
+			continue
+		}
+		packages, err := os.ReadDir(filepath.Join(root, category.Name()))
+		if err != nil {
+			return fmt.Errorf("read category %q: %w", category.Name(), err)
+		}
+		for _, pkg := range packages {
+			if !pkg.IsDir() || strings.HasPrefix(pkg.Name(), ".") {
+				continue
+			}
+			path := filepath.Join(root, category.Name(), pkg.Name(), "manifest.yaml")
+			f, err := os.Open(path)
+			if err != nil {
+				return fmt.Errorf("%s: open manifest: %w", pkg.Name(), err)
+			}
+			m, parseErr := manifest.Parse(f)
+			f.Close()
+			if parseErr != nil {
+				return fmt.Errorf("%s: %w", pkg.Name(), parseErr)
+			}
+			if m.ID != pkg.Name() {
+				return fmt.Errorf("%s: manifest id %q does not match directory", pkg.Name(), m.ID)
+			}
+			if seen[m.ID] {
+				return fmt.Errorf("duplicate package id %q", m.ID)
+			}
+			seen[m.ID] = true
+			count++
+
+			e, ok := index.Packages[m.ID]
+			if !ok {
+				return fmt.Errorf("%s: missing from index.json", m.ID)
+			}
+			if e.Name != m.Name || e.Version != m.Version || e.Category != category.Name() ||
+				e.Description != m.Description || e.Provides != m.Provides || !slices.Equal(e.Requires, m.Requires) {
+				return fmt.Errorf("%s: index.json metadata does not match manifest", m.ID)
+			}
+		}
+	}
+	if len(index.Packages) != count {
+		return fmt.Errorf("index.json has %d packages, catalog has %d manifests", len(index.Packages), count)
+	}
+	for id := range index.Packages {
+		if !seen[id] {
+			return fmt.Errorf("index.json contains unknown package %q", id)
+		}
+	}
+	fmt.Printf("catalog valid: %d packages\n", count)
+	return nil
 }
 
 // devCheckConcurrency bounds how many upstream source checks run at once.
