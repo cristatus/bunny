@@ -145,12 +145,12 @@ type devJob struct {
 	err       error
 }
 
-// writeUpdates walks every manifest with an update block, checks each source
-// against upstream (concurrently), and rewrites the on-disk manifest +
-// index.json for any package whose upstream tag has advanced. Primary source
-// (sources[0]) bumps the manifest version and the index entry; secondary
-// sources rewrite in place. Checks run in parallel; the file writes run
-// sequentially so index.json is never raced and output stays deterministic.
+// writeUpdates walks every manifest with an update block, checks primary
+// sources first, and only checks/rewrites secondary sources for packages whose
+// primary source advanced. Primary source (sources[0]) bumps the manifest
+// version and index entry; secondary sources rewrite in place. Checks run in
+// parallel within each phase; writes run sequentially and output reports only
+// primary package updates.
 func writeUpdates(ctx context.Context, a *App, id string) error {
 	if !a.local.Exists() {
 		return fmt.Errorf("no local catalog at %s; 'bunny dev update' requires a local catalog to rewrite", a.Paths.Catalog())
@@ -198,14 +198,41 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 	out := ui.New(os.Stdout)
 	out.Println() // leading blank, then the live counter sits below it
 
-	// Phase 1: check upstream concurrently (bounded), with a live counter.
-	runDevChecks(ctx, jobs)
+	// Phase 1: primary sources decide which packages are eligible for updates.
+	var primaryJobs []*devJob
+	for _, j := range jobs {
+		if j.sourceIdx == 0 {
+			primaryJobs = append(primaryJobs, j)
+		}
+	}
+	runDevChecks(ctx, primaryJobs)
+
+	primaryAdvanced := map[string]bool{}
+	for _, j := range primaryJobs {
+		if j.err == nil && j.result != nil && j.result.HasUpdate {
+			primaryAdvanced[j.pkg.ID] = true
+		}
+	}
+
+	// Phase 2: secondary sources are relevant only for packages with a
+	// primary update. This avoids plugin/tool-only bumps and their confusing
+	// package-level output when the main package did not move.
+	var secondaryJobs []*devJob
+	for _, j := range jobs {
+		if j.sourceIdx > 0 && primaryAdvanced[j.pkg.ID] {
+			secondaryJobs = append(secondaryJobs, j)
+		}
+	}
+	runDevChecks(ctx, secondaryJobs)
 
 	// Phase 2: apply rewrites sequentially, in order, collecting a row per
 	// rewritten package so the whole set aligns.
 	type row struct{ id, change, note string }
 	var rows []row
 	for _, j := range jobs {
+		if j.sourceIdx > 0 && !primaryAdvanced[j.pkg.ID] {
+			continue
+		}
 		if j.err != nil {
 			errs = append(errs, fmt.Errorf("%s sources[%d]: %w", j.pkg.ID, j.sourceIdx, j.err))
 			failed++
@@ -250,11 +277,9 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 			}
 			change = fmt.Sprintf("%s → %s", j.currentVer, r.LatestVersion)
 		}
-		rw := row{id: j.pkg.ID, change: change}
-		if j.sourceIdx > 0 {
-			rw.note = fmt.Sprintf("(source %d)", j.sourceIdx+1)
+		if j.sourceIdx == 0 {
+			rows = append(rows, row{id: j.pkg.ID, change: change})
 		}
-		rows = append(rows, rw)
 	}
 
 	if len(rows) == 0 && failed == 0 {
