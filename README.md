@@ -51,7 +51,7 @@ java -version
 code .
 ```
 
-Pin a bunny version with `BUNNY_VERSION=v0.3.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
+Pin a bunny version with `BUNNY_VERSION=v0.4.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
 
 ## A typical Java workflow
 
