@@ -7,6 +7,21 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- `bunny dev validate` checks every local catalog manifest against
+  `index.json` without network access, for catalog CI.
+
+### Fixed
+
+- `bunny dev update` only rewrites a package's secondary sources (e.g. a
+  bundled plugin) when its primary source also advanced, instead of bumping
+  them independently.
+- Catalog index writes no longer HTML-escape `requires` operators, so
+  constraints like `jdk>=17` survive a rewrite intact.
+- JDK update checks now follow Foojay's `checksum_uri` when its inline
+  checksum is blank (affects some vendor builds, e.g. JBR JCEF).
+
 ## [0.3.0] - 2026-07-22
 
 ### Added
