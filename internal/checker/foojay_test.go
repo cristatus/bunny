@@ -119,6 +119,32 @@ func TestFoojayConfiguredChecksumFallback(t *testing.T) {
 	}
 }
 
+func TestFoojayChecksumURIFallback(t *testing.T) {
+	sum := strings.Repeat("c", 128)
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/packages", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"result":[{"id":"abc","java_version":"25.0.4+10","size":1}]}`)
+	})
+	mux.HandleFunc("/ids/abc", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"result":[{"direct_download_uri":"%[1]s/jbrsdk_jcef-25.0.4.tar.gz","checksum":"","checksum_type":"sha512","checksum_uri":"%[1]s/jbrsdk_jcef-25.0.4.tar.gz.checksum"}]}`, srv.URL)
+	})
+	mux.HandleFunc("/jbrsdk_jcef-25.0.4.tar.gz.checksum", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "%s  jbrsdk_jcef-25.0.4.tar.gz\n", sum)
+	})
+	srv = httptest.NewServer(mux)
+	defer srv.Close()
+	withFoojayBase(t, srv.URL)
+
+	r, err := (&Foojay{}).Check(context.Background(), &manifest.UpdateConfig{Distribution: "jetbrains"}, "25.0.3", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Hash != sum || r.HashAlgorithm != "sha512" {
+		t.Fatalf("checksum_uri fallback = %+v", r)
+	}
+}
+
 func TestFoojayGitHubDigestRejectsNonReleaseURL(t *testing.T) {
 	if hash, ok := foojayGitHubDigest(context.Background(), "https://example.com/file.tar.gz"); ok || hash != "" {
 		t.Fatalf("got hash %q, ok %v", hash, ok)

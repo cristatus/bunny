@@ -82,6 +82,7 @@ func (f *Foojay) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 			DirectDownloadURI string `json:"direct_download_uri"`
 			Checksum          string `json:"checksum"`
 			ChecksumType      string `json:"checksum_type"`
+			ChecksumURI       string `json:"checksum_uri"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(info), &ids); err != nil {
@@ -102,9 +103,15 @@ func (f *Foojay) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 			r.Hash, r.HashAlgorithm = d.Checksum, "sha512"
 		}
 	}
+	target := path.Base(d.DirectDownloadURI)
+	// checksum_uri: vendor's own checksum file, when Foojay's inline one is blank.
+	if r.Hash == "" && d.ChecksumURI != "" {
+		if hash, algorithm, err := FetchChecksumFromURL(ctx, d.ChecksumURI, target, ""); err == nil {
+			r.Hash, r.HashAlgorithm = hash, algorithm
+		}
+	}
 	if r.Hash == "" && cfg.HashURL != "" {
 		hashURL := ExpandTemplate(cfg.HashURL, pkg.JavaVersion)
-		target := path.Base(d.DirectDownloadURI)
 		if hash, algorithm, err := FetchChecksumFromURL(ctx, hashURL, target, cfg.HashPattern); err == nil {
 			r.Hash, r.HashAlgorithm = hash, algorithm
 		}
