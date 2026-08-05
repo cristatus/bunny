@@ -173,7 +173,7 @@ make install    # copy ./bin/bunny → ~/.bunny/bin/bunny
 | Container-friendly | yes | via shell hooks | yes | yes | yes |
 | Single binary | yes | no | yes | no | no |
 | Forkable team catalog | yes | no | yes | tap-style | yes |
-| Catalog size | ~35, growing | ~50 (JVM only) | thousands (varies) | tens of thousands | 100k+ |
+| Catalog size | ~85, growing | ~50 (JVM only) | thousands (varies) | tens of thousands | 100k+ |
 
 Bunny is intentionally narrower than mise/brew/nix and intentionally broader than sdkman.
 
