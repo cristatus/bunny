@@ -4,7 +4,7 @@ Bunny is a small, opinionated tool. This page states its scope and lists a handf
 
 ## What's in scope
 
-We ship packages whose canonical distribution is a **standalone binary or tarball**, downloaded once and run indefinitely. If a tool's canonical install is `npm install -g X` or `pip install X`, it is out of scope — install it within the project that needs it.
+We ship packages whose canonical distribution is a **standalone binary or tarball**, downloaded once and run indefinitely. If a tool's canonical install is `npm install -g X` or `pip install X`, it is out of scope: install it within the project that needs it.
 
 - **JVM ecosystem.** JDK distros (Temurin, Corretto, GraalVM, Liberica, OpenJ9), build tools (Maven, Gradle, sbt, Ant, JBang), language compilers (Kotlin, Scala), profilers (JMC, VisualVM, async-profiler).
 - **JavaScript runtimes.** Node LTS lines, Bun, and Deno.
@@ -31,7 +31,7 @@ Things people sometimes ask for that we're explicitly not doing:
 - **Building from source.** We curate prebuilt upstream releases. If you need a custom build, vendor it as a catalog manifest with a `prepare:` step that drives the build.
 - **A plugin system.** The catalog format is the extension point. Anything more is premature.
 - **A package registry beyond the catalog.** The catalog is just YAML in git. Forks are encouraged.
-- **Repackaging npm/pip/cargo packages as bunny manifests.** Those ecosystems have their own package managers — that's not the layer bunny operates at.
+- **Repackaging npm/pip/cargo packages as bunny manifests.** Those ecosystems have their own package managers; that's not the layer bunny operates at.
 - **macOS / Windows.** Linux only. Install-time `prepare:` isolation relies on bwrap (Linux-only); runtime launch is plain exec and the `env:` redirection is portable in principle, but the rest of the codebase has Linux assumptions baked in.
 - **Fleet management, telemetry, signed catalogs, snapshot/restore.** Real features, real engineering, no current plan.
 

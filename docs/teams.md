@@ -1,8 +1,6 @@
 # Team deployment
 
-Bunny is built to be forked. The catalog is just a directory of YAML manifests in a git repo, and the bunny CLI reads its catalog URL from `~/.bunny/config.yaml`. Together, that's enough to give a team a single source of truth for "the official toolchain".
-
-This doc walks through the practical setup.
+Bunny is built to be forked. The catalog is a directory of YAML manifests in a git repo, and the CLI reads its catalog URL from `~/.bunny/config.yaml`, enough for a team to have one source of truth for "the official toolchain".
 
 ## The shape of a team deployment
 
@@ -40,7 +38,7 @@ catalog:
   remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
 ```
 
-The URL needs to serve `index.json` at its root and `<category>/<id>/manifest.yaml` for each package. Anything that does that works — GitHub raw, GitLab raw, an internal pages site, an S3 bucket with directory listing, even a file:// path.
+The URL needs to serve `index.json` at its root and `<category>/<id>/manifest.yaml` for each package. Anything that does that works: GitHub raw, GitLab raw, an internal pages site, an S3 bucket with directory listing, even a file:// path.
 
 For a private GitHub/GitLab repo, the simplest options are:
 
@@ -58,7 +56,7 @@ Per-package overrides go into `~/.bunny/catalog/<category>/<id>/manifest.yaml`. 
 
 ## Vendoring an internal JDK build
 
-If your org distributes its own JDK build (custom CA bundles, security policies, vendored `lib/security/cacerts`), publish it like any other manifest:
+If your org distributes its own JDK build (custom CA bundles, vendored `lib/security/cacerts`), publish it like any other manifest:
 
 ```yaml
 id: jdk-21-corp
@@ -98,7 +96,7 @@ For tighter control, run `bunny dev update <id>` manually for the packages you t
 
 ## Auditing what a team member has installed
 
-`~/.bunny/var/state.json` is a flat JSON file listing installed packages and versions. A short script gathered across machines (or surfaced via your existing MDM) gives you the picture. There's no built-in fleet view yet — see [ROADMAP](../ROADMAP.md).
+`~/.bunny/var/state.json` is a flat JSON file listing installed packages and versions. A short script gathered across machines (or surfaced via your existing MDM) gives you the picture. There's no built-in fleet view yet; see [ROADMAP](../ROADMAP.md).
 
 ## Lockfiles
 

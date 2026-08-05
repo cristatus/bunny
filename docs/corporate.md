@@ -1,16 +1,16 @@
 # Corporate environments
 
-Bunny is designed to coexist with corporate developer environments without breaking them. Apps run as normal processes — there is no sandbox at runtime — so host paths and env vars apply directly: corp CA bundles, SSO tokens, ssh-agent sockets, and the rest of `$HOME` are simply there. This doc covers the few interactions that need explicit setup.
+Bunny apps run as normal processes, with no runtime sandbox, so host paths and env vars apply directly: corp CA bundles, SSO tokens, ssh-agent sockets, and the rest of `$HOME` are simply there. This doc covers the few interactions that need explicit setup.
 
 ## Network access
 
-Bunny-launched apps have full network access — they're ordinary host processes. Maven/Gradle reach your internal Nexus, npm reaches your internal registry, IDEs reach your license server. Nothing extra needed.
+Bunny-launched apps have full network access: they're ordinary host processes. Maven/Gradle reach your internal Nexus, npm reaches your internal registry, IDEs reach your license server. Nothing extra needed.
 
 ## Custom CA bundles
 
 The host's CA store is read at its real path (typically `/etc/ssl/certs/ca-certificates.crt` on Debian/Ubuntu, `/etc/pki/tls/certs/ca-bundle.crt` on RHEL). Tools that read these system paths just work.
 
-For Java, the JDK's own `cacerts` keystore is used. If your org ships an internal Temurin/Corretto build with a pre-populated `cacerts`, vendor it as a custom manifest (see [Team deployment](teams.md#vendoring-an-internal-jdk-build)). For an upstream JDK with extra corp roots, the standard `keytool -import` workflow lands the cert in `{app}/lib/security/cacerts` — survives reinstall only if your team manifest's `prepare:` step does the import; otherwise re-run after each update.
+For Java, the JDK's own `cacerts` keystore is used. Ship a pre-populated one via a vendored manifest (see [Team deployment](teams.md#vendoring-an-internal-jdk-build)), or `keytool -import` extra corp roots into `{app}/lib/security/cacerts`; that survives reinstall only if a `prepare:` step redoes the import, otherwise repeat after each update.
 
 For Node, set `NODE_EXTRA_CA_CERTS` either globally (in `~/.bunny/config.yaml` shell setup) or per-project in `.envrc` / `.env`.
 
@@ -24,7 +24,7 @@ If your proxy needs a TLS-intercepting cert, include it in your system CA bundle
 
 ## Maven `~/.m2/settings.xml`
 
-Bunny only redirects Maven's **local repository**, not the whole of `~/.m2`. The manifest sets `MAVEN_ARGS=-Dmaven.repo.local={data}/repository`, so each Maven version downloads its artifacts into its own dir under `~/.bunny/var/app/maven/`. Your `~/.m2/settings.xml` is read at its normal host path — Maven runs as a normal process, so there is nothing special to find or relocate.
+Bunny only redirects Maven's **local repository** (`MAVEN_ARGS=-Dmaven.repo.local={data}/repository`), so each Maven version downloads into its own dir under `~/.bunny/var/app/maven/`. Your `~/.m2/settings.xml` is read at its normal host path: nothing special to find or relocate.
 
 Practical setup for an internal Nexus:
 
@@ -36,7 +36,7 @@ For a team rollout you can instead ship a custom Maven manifest with `prepare:` 
 
 ## Gradle daemon and caches
 
-Gradle's daemon and cache live under `~/.gradle/` (`GRADLE_USER_HOME`). The manifest sets `GRADLE_USER_HOME={data}/gradle` per version, so each Gradle install keeps its own daemon and cache under `~/.bunny/var/app/gradle/`. This is usually the desired behavior: Gradle's daemon caches are a common source of hard-to-diagnose build failures, and per-version isolation keeps a JDK 21 → 25 switch from corrupting a daemon.
+Gradle's daemon and cache live under `~/.gradle/` (`GRADLE_USER_HOME`). Bunny sets `GRADLE_USER_HOME={data}/gradle` per version, so each Gradle install keeps its own daemon and cache under `~/.bunny/var/app/gradle/`: a JDK 21 → 25 switch can't corrupt a shared daemon.
 
 ## SSH and Git credentials
 
@@ -44,9 +44,9 @@ Gradle's daemon and cache live under `~/.gradle/` (`GRADLE_USER_HOME`). The mani
 
 ## SSO / company credentials
 
-`~/.aws/`, `~/.kube/`, `~/.gcloud/`, `~/.azure/`, browser-stored cookies under `~/.config/<browser>/` — all read at host paths. Bunny doesn't mask host paths; if you don't want a specific app to see one of these, drop access at the OS level (file permissions / parent dir ACL).
+`~/.aws/`, `~/.kube/`, `~/.gcloud/`, `~/.azure/`, browser-stored cookies under `~/.config/<browser>/`: all read at host paths. Bunny doesn't mask host paths; if you don't want a specific app to see one of these, drop access at the OS level (file permissions / parent dir ACL).
 
-Java apps that read `~/.aws/credentials` (e.g. AWS SDK in an integration test) just work — they're ordinary host processes reading ordinary host paths.
+Java apps that read `~/.aws/credentials` (e.g. AWS SDK in an integration test) just work: they're ordinary host processes reading ordinary host paths.
 
 ## Air-gapped / offline installs
 
@@ -62,7 +62,7 @@ For a permanent setup, host the catalog and an HTTPS mirror of the source archiv
 
 ## Backups
 
-`~/.bunny` is self-contained, so backing it up captures everything — but `var/cache/` (downloads) and `var/tmp/` (install work dirs) are regenerable. bunny tags both with a `CACHEDIR.TAG` (the [Cache Directory Tagging](https://bford.info/cachedir/) standard) and a `.nobackup` file, so backup tools that honor them skip those dirs automatically:
+`~/.bunny` is self-contained, so backing it up captures everything, but `var/cache/` (downloads) and `var/tmp/` (install work dirs) are regenerable. bunny tags both with a `CACHEDIR.TAG` (the [Cache Directory Tagging](https://bford.info/cachedir/) standard) and a `.nobackup` file, so backup tools that honor them skip those dirs automatically:
 
 - **borg** / **restic**: `--exclude-caches`
 - **GNU tar**: `--exclude-caches`

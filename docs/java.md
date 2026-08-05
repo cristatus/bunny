@@ -23,14 +23,14 @@ bunny run zulu-21 -- java -version   # one-off, without switching the default
 
 JDK manifests update through the vendor-neutral [Foojay Disco
 API](https://api.foojay.io/), so adding a new vendor or major line is a
-one-line manifest (`update: {type: foojay, distribution: <vendor>}`) — no
+one-line manifest (`update: {type: foojay, distribution: <vendor>}`), with no
 per-vendor scraping. Installs are checksum-verified end to end.
 
 ## Build toolchains (Gradle & Maven)
 
 The JDK that *launches* Gradle or Maven is not always the JDK a project should
 *compile* with. You might run everything under JDK 21 while a legacy module
-must target 17. Both build tools solve this with "toolchains" — they select a
+must target 17. Both build tools solve this with "toolchains": they select a
 JDK by version from a list of known installations. Bunny generates that list.
 
 `bunny toolchains` writes toolchain config pointing at every installed
@@ -38,7 +38,7 @@ JDK by version from a list of known installations. Bunny generates that list.
 uninstall a JDK (or a tool that declares `toolchains:`), so the list stays in
 sync; run it by hand only to force a refresh.
 
-**Gradle** — a managed block is merged into the Gradle user home's
+**Gradle**: a managed block is merged into the Gradle user home's
 `gradle.properties` (the rest of the file is preserved):
 
 ```properties
@@ -49,10 +49,10 @@ org.gradle.java.installations.auto-download=false
 ```
 
 A build declaring `java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }`
-now resolves to bunny's JDK 17 — no `auto-download`, no manual `-Dorg.gradle...`
+now resolves to bunny's JDK 17, with no `auto-download` and no manual `-Dorg.gradle...`
 flags.
 
-**Maven** — a `toolchains.xml` is generated and passed via `MAVEN_ARGS`
+**Maven**: a `toolchains.xml` is generated and passed via `MAVEN_ARGS`
 (`--toolchains …`), so `maven-toolchains-plugin` matches `<jdk><version>17`
 against bunny's installs:
 
@@ -74,8 +74,8 @@ requires: ["jdk>=17"]
 
 Bunny enforces this both ways. At **install** time it refuses unless a JDK that
 satisfies the constraint is installed. At **run** time it sets `JAVA_HOME` to a
-*satisfying* JDK — preferring the active one, otherwise the newest installed
-JDK that qualifies — even when your global default is older.
+*satisfying* JDK, preferring the active one, otherwise the newest installed
+JDK that qualifies, even when your global default is older.
 
 This is not theoretical: the Micronaut CLI ships class files compiled for Java
 25, so its manifest declares `jdk>=25`. With JDK 21 as your default and JDK 25
@@ -86,4 +86,4 @@ under 25.
 
 You don't have to convert anything. Alongside its own `.bunny-version`, bunny
 reads `.sdkmanrc` (SDKMAN), `.tool-versions` (asdf/mise), and `.java-version`
-(jenv) — see [Per-project pinning](pinning.md).
+(jenv); see [Per-project pinning](pinning.md).
