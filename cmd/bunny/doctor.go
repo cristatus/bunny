@@ -48,7 +48,7 @@ func renderDoctor(p *ui.Printer, results []doctor.Result) (warnings, failures in
 		if gap := maxName - len(r.Name); gap > 0 {
 			pad = fmt.Sprintf("%*s", gap, "")
 		}
-		p.Printf("%s %s%s  %s\n", p.Sym(glyph, style), r.Name, pad, r.Detail)
+		p.Printf("%s %s%s  %s\n", p.PaintStatus(glyph, style), r.Name, pad, r.Detail)
 		if r.Fix != "" {
 			p.Println(p.Faint(fmt.Sprintf("  fix: run '%s'", r.Fix)))
 		}

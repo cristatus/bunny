@@ -18,21 +18,11 @@ func Distance(a, b string) int {
 			if ra[i-1] == rb[j-1] {
 				cost = 0
 			}
-			curr[j] = min3(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
+			curr[j] = min(prev[j]+1, curr[j-1]+1, prev[j-1]+cost)
 		}
 		prev, curr = curr, prev
 	}
 	return prev[len(rb)]
-}
-
-func min3(a, b, c int) int {
-	if b < a {
-		a = b
-	}
-	if c < a {
-		a = c
-	}
-	return a
 }
 
 // Closest returns the best candidate within a length-scaled edit distance of

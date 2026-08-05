@@ -1,6 +1,11 @@
 package checker
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+
+	"github.com/cristatus/bunny/internal/manifest"
+)
 
 // VersionParts holds parsed version components used for URL templating.
 type VersionParts struct {
@@ -28,19 +33,14 @@ func ParseVersion(version string) VersionParts {
 }
 
 // ExpandTemplate substitutes {version}, {major}, {minor}, {patch}, {versionN}.
-// {versionN} is replaced first so it can't be eaten by a partial {version} match.
 func ExpandTemplate(template, version string) string {
 	if template == "" {
 		return ""
 	}
 	v := ParseVersion(version)
-	out := template
+	vars := map[string]string{"version": v.Full, "major": v.Major, "minor": v.Minor, "patch": v.Patch}
 	for i, p := range v.Parts {
-		out = strings.ReplaceAll(out, "{version"+string(rune('0'+i))+"}", p)
+		vars["version"+strconv.Itoa(i)] = p
 	}
-	out = strings.ReplaceAll(out, "{version}", v.Full)
-	out = strings.ReplaceAll(out, "{major}", v.Major)
-	out = strings.ReplaceAll(out, "{minor}", v.Minor)
-	out = strings.ReplaceAll(out, "{patch}", v.Patch)
-	return out
+	return manifest.Expand(template, vars)
 }

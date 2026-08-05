@@ -1,6 +1,9 @@
 package manifest
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 // ParseRequirement splits a `requires:` entry into its capability and an
 // optional minimum major version:
@@ -14,7 +17,7 @@ import "strconv"
 // can reject it.
 func ParseRequirement(req string) (capability string, minMajor int, hasMin bool) {
 	const op = ">="
-	i := indexOf(req, op)
+	i := strings.Index(req, op)
 	if i < 0 {
 		return req, 0, false
 	}
@@ -23,13 +26,4 @@ func ParseRequirement(req string) (capability string, minMajor int, hasMin bool)
 		minMajor = n
 	}
 	return capability, minMajor, true
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
 }

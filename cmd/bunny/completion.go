@@ -113,9 +113,7 @@ func (c *CompleteIDsCmd) Run(a *App) error {
 	if c.Providers {
 		ids = a.completionProviderIDs()
 	}
-	for _, id := range ids {
-		fmt.Println(id)
-	}
+	printLines(ids)
 	return nil
 }
 
@@ -123,9 +121,7 @@ func (c *CompleteIDsCmd) Run(a *App) error {
 type CompleteCategoriesCmd struct{}
 
 func (c *CompleteCategoriesCmd) Run(a *App) error {
-	for _, cat := range a.completionCategories() {
-		fmt.Println(cat)
-	}
+	printLines(a.completionCategories())
 	return nil
 }
 
@@ -133,10 +129,14 @@ func (c *CompleteCategoriesCmd) Run(a *App) error {
 type CompleteCapabilitiesCmd struct{}
 
 func (c *CompleteCapabilitiesCmd) Run(a *App) error {
-	for _, cap := range a.completionCapabilities() {
-		fmt.Println(cap)
-	}
+	printLines(a.completionCapabilities())
 	return nil
+}
+
+func printLines(lines []string) {
+	for _, l := range lines {
+		fmt.Println(l)
+	}
 }
 
 // CompletionCmd prints the static shell-completion script for the given shell.

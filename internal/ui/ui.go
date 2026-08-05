@@ -78,11 +78,8 @@ func (p *Printer) Print(a ...any)                 { fmt.Fprint(p.w, a...) }
 func (p *Printer) Println(a ...any)               { fmt.Fprintln(p.w, a...) }
 func (p *Printer) Printf(format string, a ...any) { fmt.Fprintf(p.w, format, a...) }
 
-// PaintStatus styles a short status token (installed/failed/etc).
+// PaintStatus styles a short status token or glyph (installed/failed/etc).
 func (p *Printer) PaintStatus(s string, st Style) string { return p.paint(s, st) }
-
-// Sym colors a status glyph with the given style.
-func (p *Printer) Sym(glyph string, st Style) string { return p.paint(glyph, st) }
 
 // Faint styles s as secondary text.
 func (p *Printer) Faint(s string) string { return p.paint(s, Faint) }
