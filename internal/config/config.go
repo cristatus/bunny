@@ -48,9 +48,15 @@ type Config struct {
 	Install map[string]string `yaml:"install,omitempty"`
 }
 
-// Catalog selects which remote catalog bunny reads packages from.
+// Catalog selects where bunny reads package manifests from.
 type Catalog struct {
+	// Remote is the HTTP catalog bunny falls back to.
 	Remote string `yaml:"remote,omitempty"`
+
+	// Local is a catalog checkout that takes precedence over Remote, for
+	// working on a catalog or shipping a vendored one. Defaults to
+	// <data>/catalog. A leading ~/ is expanded.
+	Local string `yaml:"local,omitempty"`
 }
 
 // Load reads path. A missing file is not an error: it yields an empty config,
@@ -104,19 +110,36 @@ func (c *Config) Validate() error {
 		if !manifest.KnownKind(kind) {
 			return fmt.Errorf("install.%s: must be one of %s", kind, strings.Join(manifest.Kinds, ", "))
 		}
-		root, err := expandHome(c.Install[kind])
+		root, err := absPath("install."+kind, c.Install[kind])
 		if err != nil {
-			return fmt.Errorf("install.%s: %w", kind, err)
+			return err
 		}
-		if !filepath.IsAbs(root) {
-			return fmt.Errorf("install.%s: must be an absolute path or start with ~/, got %q", kind, c.Install[kind])
-		}
-		if filepath.Clean(root) == string(filepath.Separator) {
+		if root == string(filepath.Separator) {
 			return fmt.Errorf("install.%s: refusing to install into the filesystem root", kind)
 		}
-		c.Install[kind] = filepath.Clean(root)
+		c.Install[kind] = root
+	}
+	if c.Catalog.Local != "" {
+		local, err := absPath("catalog.local", c.Catalog.Local)
+		if err != nil {
+			return err
+		}
+		c.Catalog.Local = local
 	}
 	return nil
+}
+
+// absPath expands a leading ~/ and requires the result to be absolute, so a
+// config path is never resolved against whatever directory bunny was run from.
+func absPath(field, value string) (string, error) {
+	expanded, err := expandHome(value)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", field, err)
+	}
+	if !filepath.IsAbs(expanded) {
+		return "", fmt.Errorf("%s: must be an absolute path or start with ~/, got %q", field, value)
+	}
+	return filepath.Clean(expanded), nil
 }
 
 // InstallRoots returns the configured roots keyed by kind, with placeholders

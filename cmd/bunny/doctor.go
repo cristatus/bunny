@@ -12,7 +12,7 @@ import (
 type DoctorCmd struct{}
 
 func (c *DoctorCmd) Run(a *App) error {
-	results := doctor.RunAll(a.Paths)
+	results := doctor.RunAll(a.Paths, a.local.Root(), a.Config.Catalog.Remote)
 	if cwd, err := os.Getwd(); err == nil {
 		results = append(results, doctor.PinResolution(a.State, cwd)...)
 	}

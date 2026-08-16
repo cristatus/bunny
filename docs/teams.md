@@ -44,7 +44,7 @@ For a private GitHub/GitLab repo, the simplest options are:
 
 - a public mirror via internal CI (push to a public-readable bucket)
 - a self-hosted reverse proxy that injects an auth token
-- distribute a pre-populated `~/.local/share/bunny/catalog/` directory (a local catalog under that path always wins over the remote)
+- distribute a pre-populated catalog directory, at `~/.local/share/bunny/catalog/` or anywhere `catalog.local` points (a local catalog always wins over the remote)
 
 ## Local catalog override
 

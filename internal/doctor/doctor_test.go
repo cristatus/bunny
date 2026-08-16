@@ -93,7 +93,7 @@ func TestShimsCheck(t *testing.T) {
 }
 
 func TestRunAllProducesAllChecks(t *testing.T) {
-	results := RunAll(paths.At(t.TempDir()))
+	results := RunAll(paths.At(t.TempDir()), t.TempDir(), "")
 	if len(results) < 5 {
 		t.Errorf("expected several checks, got %d", len(results))
 	}
@@ -160,5 +160,21 @@ func TestInstallRootsCheckReportsConfiguredRoots(t *testing.T) {
 	}
 	if !strings.Contains(got, "cli=~/b/cli") {
 		t.Errorf("unconfigured kinds should still show their default: %q", got)
+	}
+}
+
+// A catalog.local pointing somewhere absent falls through to the remote
+// silently, so doctor states which one is actually in play.
+func TestCatalogCheckReportsSource(t *testing.T) {
+	present := t.TempDir()
+	if got := catalogCheck(present, "https://example.com/cat").Detail; !strings.HasPrefix(got, "local:") {
+		t.Errorf("an existing local catalog wins: %q", got)
+	}
+	absent := filepath.Join(t.TempDir(), "nope")
+	if got := catalogCheck(absent, "https://example.com/cat").Detail; got != "remote: https://example.com/cat" {
+		t.Errorf("missing local catalog should report the remote: %q", got)
+	}
+	if got := catalogCheck(absent, "").Detail; got != "remote: default" {
+		t.Errorf("unset remote should be named: %q", got)
 	}
 }

@@ -197,3 +197,23 @@ func TestExampleConfigIsValidAndInert(t *testing.T) {
 		t.Errorf("the example must be entirely commented out, got %+v", cfg)
 	}
 }
+
+func TestLoadCatalogLocal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg, err := Load(write(t, "catalog:\n  local: ~/src/bunny-catalog\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := cfg.Catalog.Local, filepath.Join(home, "src", "bunny-catalog"); got != want {
+		t.Errorf("catalog.local = %q, want %q", got, want)
+	}
+}
+
+// A relative path would resolve against whatever directory bunny happened to
+// be run from, which is never what someone means.
+func TestLoadRejectsRelativeCatalogLocal(t *testing.T) {
+	if _, err := Load(write(t, "catalog:\n  local: ../catalog\n")); err == nil {
+		t.Fatal("expected a relative catalog.local to be rejected")
+	}
+}

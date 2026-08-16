@@ -41,11 +41,31 @@ dirs:
 Unknown top-level keys are rejected rather than ignored, so a typo fails loudly
 on the next command instead of silently doing nothing.
 
-### `catalog.remote`
+### `catalog`
 
-The git repository bunny pulls package manifests from. Defaults to the public
-[bunny-catalog](https://github.com/cristatus/bunny-catalog). See
-[Team deployment](teams.md).
+Where package manifests come from. A local checkout takes precedence over the
+remote, package by package, so a local override shadows one package without
+forking the rest.
+
+```yaml
+catalog:
+  remote: https://github.com/acme/bunny-catalog
+  local: ~/src/bunny-catalog
+```
+
+`remote` defaults to the public
+[bunny-catalog](https://github.com/cristatus/bunny-catalog). `local` defaults
+to `~/.local/share/bunny/catalog`, and setting it is the usual way to work on
+a catalog: point bunny at your checkout and `bunny dev validate` and
+`bunny dev update` operate on it directly. A path that does not exist is not an
+error, bunny simply uses the remote, so `bunny doctor` reports which one is in
+play:
+
+```
+✓ catalog  local: ~/src/bunny-catalog
+```
+
+See [Team deployment](teams.md).
 
 ### `install`
 

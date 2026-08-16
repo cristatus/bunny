@@ -55,8 +55,12 @@
 
 # --- Catalog ----------------------------------------------------------------
 #
-# A forked or internal catalog, for teams with their own manifests.
+# Where manifests come from. "remote" is a forked or internal catalog, for
+# teams with their own packages. "local" is a checkout that takes precedence
+# over it, which is how you work on a catalog; it defaults to
+# ~/.local/share/bunny/catalog. `bunny doctor` reports which is in play.
 # See docs/teams.md.
 
 # catalog:
 #   remote: https://github.com/acme/bunny-catalog
+#   local: ~/src/bunny-catalog

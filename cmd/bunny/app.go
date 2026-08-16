@@ -93,7 +93,11 @@ func New() (*App, error) {
 	p = p.WithLayout(cfg.InstallRoots(), func(id string) (string, string) { return app.State.Location(id) })
 	app.Paths = p
 
-	local := catalog.NewLocal(p.Catalog())
+	catalogDir := cfg.Catalog.Local
+	if catalogDir == "" {
+		catalogDir = p.Catalog()
+	}
+	local := catalog.NewLocal(catalogDir)
 	remote := catalog.NewRemote(cfg.Catalog.Remote, p.Cache())
 
 	var cat catalog.Loader

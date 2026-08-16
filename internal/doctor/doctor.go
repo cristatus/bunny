@@ -41,10 +41,11 @@ type Result struct {
 }
 
 // RunAll runs the standard set of checks and returns one Result per check.
-func RunAll(p *paths.Paths) []Result {
+func RunAll(p *paths.Paths, catalogDir, remote string) []Result {
 	return []Result{
 		layoutCheck(p),
 		configCheck(p),
+		catalogCheck(catalogDir, remote),
 		installRootsCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
@@ -91,6 +92,19 @@ func configCheck(p *paths.Paths) Result {
 		return Result{Name: "config", Detail: "using defaults, none at " + path, Severity: OK}
 	}
 	return Result{Name: "config", Detail: path, Severity: OK}
+}
+
+// catalogCheck reports which catalog is in play. A local checkout takes
+// precedence when it exists, and a path pointing somewhere absent falls
+// through to the remote silently, so it is worth stating which happened.
+func catalogCheck(dir, remote string) Result {
+	if _, err := os.Stat(dir); err == nil {
+		return Result{Name: "catalog", Detail: "local: " + tilde(dir), Severity: OK}
+	}
+	if remote == "" {
+		remote = "default"
+	}
+	return Result{Name: "catalog", Detail: "remote: " + remote, Severity: OK}
 }
 
 // installRootsCheck reports where each kind of package actually installs.

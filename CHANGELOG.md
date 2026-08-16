@@ -12,6 +12,10 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - `env:` and `dirs:` blocks in `config.yaml`, keyed by package id, capability,
   or `*`. This is where per-version data isolation now lives; see
   [Configuration](docs/config.md) for recipes reproducing the old defaults.
+- `catalog.local` in `config.yaml` points bunny at a catalog checkout, which
+  takes precedence over the remote. Previously the local catalog was fixed at
+  `~/.local/share/bunny/catalog` and the only way to use a working copy was a
+  symlink.
 - `install:` in `config.yaml` sets where each kind of package is installed.
   `install.sdk: ~/opt` puts every JDK and build tool where an IDE's file
   picker can reach it.
