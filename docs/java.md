@@ -39,7 +39,9 @@ uninstall a JDK (or a tool that declares `toolchains:`), so the list stays in
 sync; run it by hand only to force a refresh.
 
 **Gradle**: a managed block is merged into the Gradle user home's
-`gradle.properties` (the rest of the file is preserved):
+`gradle.properties`, which by default is the real `~/.gradle/gradle.properties`
+(the rest of the file is preserved; set `GRADLE_USER_HOME` in
+[config.yaml](config.md) and the block follows it):
 
 ```properties
 # >>> bunny managed (jdk toolchains) >>>

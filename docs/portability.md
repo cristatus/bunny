@@ -1,61 +1,98 @@
 ## Portability model
 
-Bunny installs each package into `~/.bunny/app/<id>/`. Whether bunny touches an app's persistent data at all depends on a single principle:
+Bunny installs each package into an install root chosen by its kind (`sdk/`,
+`cli/`, `app/`, all configurable). Whether it touches an app's persistent data
+follows a single principle:
 
-**Isolate only where the upstream tool does not already isolate itself.**
+**Nothing is isolated by default.**
 
-Most tools fall cleanly into one of two buckets.
+A tool run through bunny writes where it would have written had you installed it
+yourself. `mvn` populates `~/.m2/repository`, `gradle` uses `~/.gradle`, `npm`
+caches in `~/.npm`, VS Code reads `~/.config/Code`. Bunny installs the binary,
+resolves which version to run, and gets out of the way. Nothing is redirected
+unless you ask for it in `~/.config/bunny/config.yaml`.
 
-### SDKs (isolated by bunny)
+This matches what `mise`, `sdkman`, `pyenv`, and `rustup` do, and it is the
+behaviour most build caches are designed for: a Maven artifact or an npm tarball
+is content-addressed and version-agnostic, so a private copy per SDK version
+buys correctness you already had while costing gigabytes and cold caches.
 
-SDKs (node, jdk, gradle, maven, deno, bun, graalvm) do **not** self-namespace by version: every Node wants `~/.npm`, every Gradle wants `~/.gradle`, every Maven wants `~/.m2`. Install two versions and they'd collide on one global directory.
+### What manifests still set
 
-So bunny redirects them per-manifest via `env:` (and, where needed, a `prepare:` step), pointing each version at its own dir under `~/.bunny/var/app/<id>/`, then execs the binary directly with that environment. Anything spawned from it sees the host's normal `$HOME`; only the specific env var bunny set steers the SDK's global dir.
+Manifests keep an `env:` block. It carries the wiring a package cannot run
+without, not policy:
 
-### GUI apps (run native)
+```yaml
+env:
+  JAVA_HOME: "{app}"
+```
 
-GUI apps (VS Code, Cursor, Zed, JetBrains Toolbox) **already** namespace their own config directories: VS Code → `~/.config/Code`, Cursor → `~/.config/Cursor`, Zed → `~/.config/zed`, JetBrains → per-version dirs. Bunny adds nothing here, so it runs them **natively**: they read and write their normal host paths, exactly as if you had installed them yourself. There is no redirection, and settings and extensions remain where each application normally stores them.
+```yaml
+env:
+  # Point Maven at the toolchains.xml bunny generates from the installed JDKs.
+  MAVEN_ARGS: "--toolchains {data}/toolchains.xml"
+```
+
+Those values point at the install tree (`{app}`) or at a file bunny itself
+generates (`{data}/toolchains.xml`). They are not redirecting your data
+anywhere, and a forked catalog can put whatever it likes in `env:`.
+
+### Where global installs land
+
+`npm -g` installs into node's own prefix, which is that version's install tree,
+so globals belong to the Node version that installed them and go away when it
+does. This is how `nvm` behaves. Everything else (the npm cache, the pnpm store,
+corepack, Yarn) uses its native host location and is shared across versions.
+
+### GUI apps
+
+VS Code, Cursor, Zed, and JetBrains Toolbox already namespace their own config
+directories per application, and bunny adds nothing on top. They read and write
+their normal host paths exactly as if you had installed them yourself.
 
 ### Not a sandbox
 
-The model is **not** a security sandbox. Runtime launch is a plain direct exec. Don't run untrusted software through bunny.
+The model is **not** a security sandbox. Runtime launch is a plain direct exec.
+Don't run untrusted software through bunny.
 
-## Examples
+## Opting into isolation
 
-SDK isolation is expressed in the manifest. VS Code, Zed, and the other GUI apps carry none of this: their `bin:` entries are just `name` + `path`.
-
-Maven and Gradle redirect their global dirs with env vars:
-
-```yaml
-env:
-  GRADLE_USER_HOME: "{data}/gradle"
-```
+Isolation lives in `~/.config/bunny/config.yaml`, keyed by package id, capability, or
+`*` for everything. Values expand the same placeholders manifests use, so
+`{data}` resolves per package version:
 
 ```yaml
 env:
-  MAVEN_ARGS: "-Dmaven.repo.local={data}/repository"
+  node:
+    NPM_CONFIG_PREFIX: "{data}/npm-global"
+  gradle:
+    GRADLE_USER_HOME: "{data}/gradle"
+  maven:
+    MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
 ```
 
-Eclipse points its OSGi config area via `eclipse.ini`, written at install time:
+Precedence at launch, lowest to highest: the host environment, each
+dependency's manifest `env:`, the package's own manifest `env:`, then your
+config. Config always wins, which is what makes it an override rather than a
+suggestion.
 
-```yaml
-prepare:
-  - |
-    cat >> {pkg}/eclipse.ini <<EOF
-    -Dosgi.configuration.area={data}/configuration
-    EOF
-```
+Note the Maven line: `MAVEN_ARGS` is a single variable doing two jobs, so
+overriding it means restating the toolchains flag the manifest set. The
+manifest's current value is in `~/.local/share/bunny/data/maven/manifest.yaml`.
 
-In each case bunny invokes the binary with the right env, the SDK routes its global state to `{data}/...`, and **child processes see the host's normal `$HOME` view**.
+See [Configuration](config.md) for the full file reference.
 
 ## What survives uninstall
 
-- `app/<id>/` (the install tree): removed on uninstall.
-- `var/app/<id>/manifest.yaml` (cache used by runtime + uninstall): removed.
-- `var/app/<id>/<bunny-data-paths>` (an SDK's per-version global dir, e.g. the redirected `.m2`/`.gradle`): kept unless `--purge`.
+- the install tree (including `npm -g` globals): removed on uninstall, at the
+  location recorded when it was installed.
+- `data/<id>/manifest.yaml` (cache used by runtime + uninstall): removed.
+- `data/<id>/<your configured dirs>`: kept unless `--purge`.
 
-GUI apps run native, so their settings live at their normal host paths (`~/.config/Code`, etc.) and are untouched by `bunny uninstall` either way.
+Data at native host paths (`~/.m2`, `~/.gradle`, `~/.npm`, `~/.config/Code`) is
+never touched by `bunny uninstall`, with or without `--purge`. Bunny did not
+create it and does not claim it.
 
-Bunny's own bookkeeping (`state.json`, the download cache, and cached manifests) lives under `~/.bunny/var/` and is independent of any single package.
-
-The split is deliberate: `bunny uninstall` is reversible for SDK data (reinstall and the per-version directory is still present), while `bunny uninstall --purge` removes that data as well.
+Bunny's own bookkeeping (`state.json`, the download cache, and cached manifests)
+lives under `~/.local/share/bunny/` and `~/.cache/bunny/`, independent of any
+single package.

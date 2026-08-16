@@ -1,6 +1,6 @@
 # Team deployment
 
-Bunny is built to be forked. The catalog is a directory of YAML manifests in a git repo, and the CLI reads its catalog URL from `~/.bunny/config.yaml`, enough for a team to have one source of truth for "the official toolchain".
+Bunny is built to be forked. The catalog is a directory of YAML manifests in a git repo, and the CLI reads its catalog URL from `~/.config/bunny/config.yaml`, enough for a team to have one source of truth for "the official toolchain".
 
 ## The shape of a team deployment
 
@@ -22,8 +22,8 @@ Team members:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
-~/.bunny/bin/bunny init >> ~/.zshrc && exec $SHELL
-cp /path/to/dotfiles/bunny/config.yaml ~/.bunny/config.yaml
+~/.local/bin/bunny init >> ~/.zshrc && exec $SHELL
+cp /path/to/dotfiles/bunny/config.yaml ~/.config/bunny/config.yaml
 bunny install jdk-21 maven gradle node-22
 ```
 
@@ -31,7 +31,7 @@ That is the entire onboarding: a new hire goes from zero to a matching toolchain
 
 ## Pointing at your fork
 
-`~/.bunny/config.yaml`:
+`~/.config/bunny/config.yaml`:
 
 ```yaml
 catalog:
@@ -44,11 +44,11 @@ For a private GitHub/GitLab repo, the simplest options are:
 
 - a public mirror via internal CI (push to a public-readable bucket)
 - a self-hosted reverse proxy that injects an auth token
-- distribute a pre-populated `~/.bunny/catalog/` directory (a local catalog under that path always wins over the remote)
+- distribute a pre-populated `~/.local/share/bunny/catalog/` directory (a local catalog under that path always wins over the remote)
 
 ## Local catalog override
 
-Per-package overrides go into `~/.bunny/catalog/<category>/<id>/manifest.yaml`. If a package id exists in both local and remote, local wins. Use this for:
+Per-package overrides go into `~/.local/share/bunny/catalog/<category>/<id>/manifest.yaml`. If a package id exists in both local and remote, local wins. Use this for:
 
 - pinning a package to a specific version while the team catalog moves
 - testing a manifest change before opening a PR upstream
@@ -96,7 +96,7 @@ For tighter control, run `bunny dev update <id>` manually for the packages you t
 
 ## Auditing what a team member has installed
 
-`~/.bunny/var/state.json` is a flat JSON file listing installed packages and versions. A short script gathered across machines (or surfaced via your existing MDM) gives you the picture. There's no built-in fleet view yet; see [ROADMAP](../ROADMAP.md).
+`~/.local/share/bunny/state.json` is a flat JSON file listing installed packages and versions. A short script gathered across machines (or surfaced via your existing MDM) gives you the picture. There's no built-in fleet view yet; see [ROADMAP](../ROADMAP.md).
 
 ## Lockfiles
 

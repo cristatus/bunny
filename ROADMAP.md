@@ -21,7 +21,7 @@ We ship packages whose canonical distribution is a **standalone binary or tarbal
 - **Toolchains outside the JVM/Node families.** mise and asdf already do this well; we will not compete.
 - **Operating systems other than Linux.** macOS users are well served by brew and sdkman.
 - **Replacing your distro's package manager.** `apt`, `dnf`, `pacman` still own system-level packages.
-- **Sandboxing as a security boundary.** Bunny isolates SDK data per-version via launcher `env:`; GUI apps run native. Neither is a security model.
+- **Sandboxing as a security boundary.** Bunny execs directly against the host's `$HOME`, and the opt-in `env:` redirection in `config.yaml` only moves a path. Neither is a security model.
 
 ## Anti-roadmap
 
@@ -32,7 +32,7 @@ Things people sometimes ask for that we're explicitly not doing:
 - **A plugin system.** The catalog format is the extension point. Anything more is premature.
 - **A package registry beyond the catalog.** The catalog is just YAML in git. Forks are encouraged.
 - **Repackaging npm/pip/cargo packages as bunny manifests.** Those ecosystems have their own package managers; that's not the layer bunny operates at.
-- **macOS / Windows.** Linux only. Install-time `prepare:` isolation relies on bwrap (Linux-only); runtime launch is plain exec and the `env:` redirection is portable in principle, but the rest of the codebase has Linux assumptions baked in.
+- **macOS / Windows.** Linux only. Install-time `prepare:` isolation relies on bwrap (Linux-only); runtime launch is plain exec and the config `env:` redirection is portable in principle, but the rest of the codebase has Linux assumptions baked in.
 - **Fleet management, telemetry, signed catalogs, snapshot/restore.** Real features, real engineering, no current plan.
 
 ## How to influence this

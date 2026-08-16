@@ -1,12 +1,29 @@
 # Bunny 🐰
 
-A toolchain manager for Java and Node developers: a single-binary alternative to sdkman. Bunny installs JDKs, Node, Maven, Gradle, and the editors/IDEs that target them into a self-contained `~/.bunny`. Each SDK version gets its own scoped data directory (`~/.m2`, `~/.gradle`, `~/.npm`), so JDK 21's caches never mix with JDK 25's, and `bunny uninstall` leaves your home directory clean. No sudo, no shell hooks, one Go binary, with identical behavior in your terminal, your IDE, your CI pipeline, and over SSH.
+A toolchain manager for Java and Node developers: a single-binary alternative to sdkman. Bunny installs JDKs, Node, Maven, Gradle, and the editors/IDEs that target them into standard XDG directories, then execs them directly against your normal environment: `~/.m2`, `~/.gradle`, and `~/.npm` stay exactly where every other tool expects them, and per-version isolation is available as an opt-in when you want it. No sudo, no shell hooks, one Go binary, with identical behavior in your terminal, your IDE, your CI pipeline, and over SSH.
 
 Bunny currently supports Linux on `x86_64`/`amd64`.
 
+> [!WARNING]
+> **Work in progress, and highly experimental.** Bunny is pre-1.0 and nothing
+> about it is stable yet: command names and flags, the manifest schema, the
+> config format, and the on-disk layout all still change between releases,
+> sometimes without a migration path. A recent release moved every installed
+> package to new directories and simply stopped reading the old ones.
+>
+> Expect to reinstall your packages occasionally, and to re-read the changelog
+> before upgrading. Do not build anything you care about on top of the manifest
+> or config formats until 1.0.
+>
+> There is no support commitment. Issues and pull requests are welcome, but
+> there is no release cadence, no backporting, and no guarantee that a bug
+> affecting you gets fixed. If you need a toolchain manager you can rely on
+> today, use [sdkman](https://sdkman.io/), [mise](https://mise.jdx.dev/), or
+> [asdf](https://asdf-vm.com/).
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
-~/.bunny/bin/bunny setup && exec $SHELL
+~/.local/bin/bunny setup && exec $SHELL
 
 bunny install jdk-21 maven gradle node-22 jetbrains-toolbox
 bunny use jdk-21
@@ -19,14 +36,14 @@ Most developers assemble a Java + Node workstation from some combination of `sdk
 
 Its scope is deliberately narrow:
 
-- **Per-tool data isolation.** `~/.m2`, `~/.gradle`, and Node's npm/pnpm/Yarn caches are redirected per version through manifest-declared env vars. Switching from JDK 21 to 25 leaves Gradle daemons intact, and uninstalling Node 22 takes its caches with it: no orphaned multi-gigabyte `~/.m2`.
-- **One binary, symlink shims.** `bunny init` adds a single env-only line (PATH, `XDG_DATA_DIRS`, zsh `fpath`), with no command-wrapping shell functions. Every tool dispatches through a real symlink via `argv[0]`, so what runs is exactly what's on disk, in any terminal, IDE, or container.
+- **No surprises in `$HOME`.** Nothing is redirected by default: `mvn` fills `~/.m2`, `gradle` uses `~/.gradle`, `npm` caches in `~/.npm`, exactly as if you had installed them yourself. Per-version isolation is one opt-in block in `~/.config/bunny/config.yaml` when you want it, and never a thing you have to discover after the fact.
+- **One binary, symlink shims.** `bunny init` adds a single env-only line (PATH, plus zsh `fpath`), with no command-wrapping shell functions. Every tool dispatches through a real symlink via `argv[0]`, so what runs is exactly what's on disk, in any terminal, IDE, or container.
 - **Per-project version pinning.** Place a `.bunny-version` file in a project root and `mvn`, `node`, and `java` resolve to that project's pinned versions automatically, with no shell hooks and no `cd` listeners. Bunny also reads `.sdkmanrc`, `.tool-versions`, and `.java-version`, so existing projects work without conversion.
 - **First-class Java.** Multiple JDK vendors (Temurin, Corretto, Zulu, GraalVM) via the [Foojay](https://api.foojay.io/) API; generated Gradle/Maven **toolchains**, so a build compiles against the correct JDK regardless of which one launched it; and `requires: ["jdk>=17"]` constraints that select a satisfying JDK at run time. See [First-class Java](docs/java.md).
 - **Bounded, curated catalog.** The Java and Node ecosystems, plus the editors and IDEs used to write Java and Node code. It does not attempt parity with brew or nixpkgs. See [bunny-catalog](https://github.com/cristatus/bunny-catalog).
 - **Forkable for teams.** Point `catalog.remote` at your team's internal git repository, vendor a corporate JDK with custom certificates, and onboarding reduces to a single `curl | sh`. See [Team deployment](docs/teams.md).
 
-Portability without surprises: bunny isolates only where the upstream tool doesn't already isolate itself. SDKs get redirected via the launcher's `env:`; GUI apps (VS Code, Cursor, Zed, JetBrains Toolbox) run natively against their normal host config. Either way, everything execs directly against the host's normal `$HOME`. See [Portability model](docs/portability.md).
+Portability without surprises: bunny isolates nothing by default. SDKs and GUI apps alike exec directly against the host's normal `$HOME` and write where they natively would. Redirection is opt-in, per package or per capability, in `~/.config/bunny/config.yaml`. See [Portability model](docs/portability.md) and [Configuration](docs/config.md).
 
 ## Quick start
 
@@ -34,10 +51,10 @@ Portability without surprises: bunny isolates only where the upstream tool doesn
 # Install bunny itself (downloads the latest release, verifies checksum)
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
 
-# One-step setup: session env (so the desktop sees bunny's apps),
-# shell completions, and your shell rc. Auto-detects your shell.
-~/.bunny/bin/bunny setup
-exec $SHELL          # or: systemctl --user import-environment PATH XDG_DATA_DIRS
+# One-step setup: session env (so the desktop sees bunny's apps), shell
+# completions, and your shell rc. Auto-detects your shell.
+~/.local/bin/bunny setup
+exec $SHELL          # or: systemctl --user import-environment PATH
 bunny doctor         # verify environment
 
 # Install a Java + Node workstation
@@ -51,7 +68,7 @@ java -version
 code .
 ```
 
-Pin a bunny version with `BUNNY_VERSION=v0.4.0 curl ... | sh`, or pick a different install root with `BUNNY_HOME=/opt/bunny`.
+Pin a bunny version with `BUNNY_VERSION=v0.4.0 curl ... | sh`. Set `BUNNY_HOME=/opt/bunny` to collapse everything under one root instead of the XDG directories.
 
 ## A typical Java workflow
 
@@ -85,7 +102,7 @@ bunny pin node 24
 node --version    # → 24.x
 ```
 
-Each Node version's npm prefix and cache, pnpm store, and Yarn cache and global folder are isolated per package (via `NPM_CONFIG_*`, `PNPM_*`, `YARN_*`), so a cache populated under Node 18 never leaks into your Node 22 environment.
+`npm -g` installs into node's own prefix, so globals belong to the Node version that installed them and go away when it does, the same as `nvm`. The npm cache, pnpm store, and Yarn cache stay at their native host paths and are shared, since their contents are version-agnostic. To split them per version anyway, see [Configuration](docs/config.md).
 
 ## Commands
 
@@ -106,12 +123,12 @@ bunny doctor                health check (env, bwrap, display/audio/GPU, shims, 
 bunny setup                 one-step: session env (desktop) + completions + shell rc
 bunny init <shell>          print the shell setup snippet (used by setup / eval)
 bunny completion <shell>    print the shell completion script (bash, zsh, fish)
-bunny clean                 prune download cache and tmp dirs
+bunny clean                 prune download cache and abandoned staged installs
 bunny reshim                regenerate shims for globally-installed executables (npm -g, etc.)
 bunny toolchains            regenerate Gradle/Maven JDK toolchain config from installed JDKs
 ```
 
-`bunny setup` also drops bunny's own completion into `share/`, discovered by the same PATH/XDG/fpath wiring, so after setup, `bunny <TAB>` completes subcommands and `bunny install <TAB>` completes package IDs (installed-only for `uninstall`/`use`/`run`).
+`bunny setup` also drops bunny's own completion where your shell already looks for it, so after setup, `bunny <TAB>` completes subcommands and `bunny install <TAB>` completes package IDs (installed-only for `uninstall`/`use`/`run`).
 
 Maintainer/CI commands live under `bunny dev`.
 
@@ -124,7 +141,8 @@ output is always written directly.
 ## Documentation
 
 - [First-class Java](docs/java.md): multi-vendor JDKs, Gradle/Maven toolchains, `requires` version constraints
-- [Portability model](docs/portability.md): isolate only where the upstream tool doesn't; SDKs redirected per-version via `env:`, GUI apps run native
+- [Portability model](docs/portability.md): nothing is isolated by default; SDKs and GUI apps run native against host paths
+- [Configuration](docs/config.md): `config.yaml`, install locations, the catalog remote, and opting into per-version data isolation (see [`config.example.yaml`](config.example.yaml))
 - [Per-project pinning](docs/pinning.md): `.bunny-version` plus `.sdkmanrc`/`.tool-versions`/`.java-version`, lookup order, IDE integration tips
 - [Team deployment](docs/teams.md): fork the catalog, host internally, onboard with one command
 - [Corporate environments](docs/corporate.md): proxies, custom CA bundles, `~/.m2/settings.xml`, internal artifact repos
@@ -134,31 +152,41 @@ output is always written directly.
 
 ## Directory layout
 
+Bunny follows the XDG base directories, so its files sit where a Linux desktop
+already looks for them. Desktop entries are found with no `XDG_DATA_DIRS`
+plumbing, and `~/.local/bin` is on `PATH` on most distributions.
+
 ```
-~/.bunny/
-├── app/{id}/                   installed app files
-├── bin/                        bunny binary + symlink shims
-│   ├── bunny
-│   ├── java -> bunny           shims dispatch via argv[0]
-│   └── code  -> bunny
-├── catalog/{category}/{id}/    optional local manifests (override remote)
-├── share/                      icons, .desktop files, completions
-├── config.yaml                 user config (catalog URL)
-└── var/
-    ├── app/{id}/               manifest-defined per-version SDK data (e.g. redirected .m2/, .gradle/)
-    │   └── manifest.yaml       install-time manifest cache (drives runtime + uninstall)
-    ├── cache/                  download cache
-    ├── mutation.lock           serializes state-changing commands
-    ├── state.json              installed packages, providers
-    └── tmp/                    temp build dirs
+~/.local/share/bunny/
+├── sdk/{id}/          JDKs, Node, Maven, Gradle: anything a tool may need a path to
+├── cli/{id}/          plain commands (ripgrep, jq, gh)
+├── app/{id}/          GUI applications (code, zed, jetbrains-toolbox)
+├── data/{id}/         per-package data, the {data} placeholder
+│   └── manifest.yaml  install-time manifest cache (drives runtime + uninstall)
+├── catalog/{category}/{id}/   optional local manifests (override remote)
+├── state.json         installed packages, providers, install locations
+└── mutation.lock      serializes state-changing commands
+
+~/.config/bunny/config.yaml     user config
+~/.cache/bunny/                 download cache and catalog index
+~/.local/bin/                   bunny binary + symlink shims (dispatch via argv[0])
+~/.local/share/applications/    .desktop files, alongside everything else's
+~/.local/share/icons/           icons
 ```
+
+The three install roots let you move a whole class at once: `install.sdk: ~/opt`
+puts every JDK and build tool where an IDE's file picker can reach it. See
+[Configuration](docs/config.md).
+
+Set `BUNNY_HOME` and the layout collapses under that single root instead, which
+is what containers, CI, and fleet images want.
 
 ## Building from source
 
 ```bash
 make build      # → ./bin/bunny
 make test
-make install    # copy ./bin/bunny → ~/.bunny/bin/bunny
+make install    # copy ./bin/bunny → ~/.local/bin/bunny
 ```
 
 ## Comparison
@@ -167,7 +195,7 @@ make install    # copy ./bin/bunny → ~/.bunny/bin/bunny
 |---|---|---|---|---|---|
 | Java + Node toolchain | first-class | Java only | yes | yes | yes |
 | GUI editors / IDEs | yes | no | no | partial | yes |
-| Per-version SDK isolation | yes (env) | no | no | no | partial |
+| Per-version SDK isolation | opt-in (config) | no | per-project `[env]` | no | partial |
 | Per-project version pinning | `.bunny-version` (+ reads `.sdkmanrc` / `.tool-versions`) | `.sdkmanrc` | `mise.toml` | no | `flake.nix` |
 | Shell startup cost | none (symlink shims) | bash function | shim binary | none | none |
 | Container-friendly | yes | via shell hooks | yes | yes | yes |

@@ -72,7 +72,7 @@ The global default (set by `bunny use jdk-21`) only kicks in outside any pinned 
 
 Because resolution happens in the shim binary (not in a shell hook), IDEs that spawn `java` / `mvn` / `node` directly through `$PATH` get the right version automatically as long as they inherit the project working directory. That's typical for IntelliJ, Eclipse, VS Code, and most JDK auto-detection plugins.
 
-If your IDE shells out from a different working directory, point its tool path at `~/.bunny/bin/<shim>` and either:
+If your IDE shells out from a different working directory, point its tool path at `~/.local/bin/<shim>` and either:
 
 - set the IDE's working directory to the project root, or
 - have the IDE pass the project root explicitly (e.g. `mvn -f /path/to/project/pom.xml`).

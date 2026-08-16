@@ -7,6 +7,71 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- `env:` and `dirs:` blocks in `config.yaml`, keyed by package id, capability,
+  or `*`. This is where per-version data isolation now lives; see
+  [Configuration](docs/config.md) for recipes reproducing the old defaults.
+- `install:` in `config.yaml` sets where each kind of package is installed.
+  `install.sdk: ~/opt` puts every JDK and build tool where an IDE's file
+  picker can reach it.
+- `config.example.yaml`, a commented copy of every setting, to copy to
+  `~/.config/bunny/config.yaml`. `bunny doctor` reports the path bunny reads,
+  whether or not the file exists.
+- [Configuration](docs/config.md), documenting the file, the env precedence
+  order, and the placeholders.
+
+### Changed
+
+- **Nothing is isolated by default.** `mvn` fills `~/.m2`, `gradle` uses
+  `~/.gradle`, and npm, pnpm, Yarn, deno, and bun use their native caches and
+  install roots. Per-version isolation is now opt-in through `env:`.
+- **Bunny follows the XDG base directories**: installs, catalog, and state in
+  `~/.local/share/bunny`, config in `~/.config/bunny`, downloads in
+  `~/.cache/bunny`, shims in `~/.local/bin`. Desktop entries and icons go to
+  the real XDG directories, so `bunny init` no longer sets `XDG_DATA_DIRS` and
+  an installed IDE appears in the launcher without logging out.
+- `BUNNY_HOME` now collapses the whole layout under one root instead of naming
+  the default, for containers, CI, and fleet images.
+- Packages install into one of three roots by kind: `sdk/`, `cli/`, `app/`,
+  each configurable. Manifests declare `kind:`; an undeclared one is inferred,
+  and a desktop entry implies `app`.
+- `state.json` records each package's kind, and a path only when it sits
+  outside the default root. Changing a root affects the next install only.
+- `npm -g` installs into node's own prefix, matching `nvm`: globals belong to
+  the Node version that installed them.
+- Gradle's generated toolchain block goes to whichever `gradle.properties`
+  Gradle actually reads, now `~/.gradle/gradle.properties` by default.
+- `global-bins:` may point at `{app}` as well as `{data}`, but not `{home}`:
+  global shims stay a per-package-tree feature.
+- Installs stage inside their destination root, so the rename that completes
+  an install never crosses a filesystem. `bunny clean` sweeps every root.
+- `bunny setup` skips `environment.d/bunny.conf` when the systemd session
+  already exports the shim dir, since the generator does not deduplicate.
+- `bunny doctor` reports the active layout and checks each root it writes to.
+
+### Fixed
+
+- `bunny install --force` no longer deletes a directory bunny did not create.
+  Install trees carry a `.bunny-package` marker, and force-replacement and
+  uninstall verify ownership first.
+- Desktop entries carry an `X-Bunny-Package` key, and bunny only overwrites or
+  removes entries that have it, now that they share
+  `~/.local/share/applications` with everything else.
+- Shim install and removal verify that an existing symlink is one bunny
+  created, instead of assuming every symlink in the shim dir is bunny's.
+- A package with no `kind:` is no longer assumed to be a cli tool, which put
+  GUI editors beside `ripgrep`.
+- A clean first install of a GUI package writes its desktop entry and icon.
+  Integration resolved `{app}` before state recorded the install location.
+- `make install` copies the binary to `~/.local/bin`, or `$BUNNY_HOME/bin`.
+
+### Migration
+
+None. Bunny is pre-1.0 and this release changes the on-disk layout without an
+automatic migration: an existing `~/.bunny` is no longer read. Delete it and
+reinstall, which is quick and leaves no residue now that nothing is isolated.
+
 ## [0.4.0] - 2026-08-05
 
 ### Added

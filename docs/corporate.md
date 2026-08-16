@@ -12,9 +12,9 @@ The host's CA store is read at its real path (typically `/etc/ssl/certs/ca-certi
 
 For Java, the JDK's own `cacerts` keystore is used. Ship a pre-populated one via a vendored manifest (see [Team deployment](teams.md#vendoring-an-internal-jdk-build)), or `keytool -import` extra corp roots into `{app}/lib/security/cacerts`; that survives reinstall only if a `prepare:` step redoes the import, otherwise repeat after each update.
 
-For Node, set `NODE_EXTRA_CA_CERTS` either globally (in `~/.bunny/config.yaml` shell setup) or per-project in `.envrc` / `.env`.
+For Node, set `NODE_EXTRA_CA_CERTS` either globally (in your shell setup) or per-project in `.envrc` / `.env`.
 
-For npm/pnpm, point `~/.npmrc` at your internal registry as you would on any setup. Each Node version's global npm cache is redirected under `~/.bunny/var/app/<id>/` via `env:`, so caches don't collide across versions; the registry config in `~/.npmrc` is read at its normal host path and shared.
+For npm/pnpm, point `~/.npmrc` at your internal registry as you would on any setup. Both the registry config and the npm cache are read at their normal host paths, so nothing bunny-specific is involved.
 
 ## HTTP(S) proxies
 
@@ -24,19 +24,21 @@ If your proxy needs a TLS-intercepting cert, include it in your system CA bundle
 
 ## Maven `~/.m2/settings.xml`
 
-Bunny only redirects Maven's **local repository** (`MAVEN_ARGS=-Dmaven.repo.local={data}/repository`), so each Maven version downloads into its own dir under `~/.bunny/var/app/maven/`. Your `~/.m2/settings.xml` is read at its normal host path: nothing special to find or relocate.
+Bunny does not redirect anything in `~/.m2`. Your `settings.xml` is read at its normal host path and artifacts download into `~/.m2/repository`, exactly as on a hand-installed Maven. The only thing bunny injects is `MAVEN_ARGS=--toolchains {data}/toolchains.xml`, pointing at the JDK toolchains file it generates.
 
 Practical setup for an internal Nexus:
 
 1. Install Maven: `bunny install maven`.
 2. Drop your `settings.xml` at the usual `~/.m2/settings.xml`.
-3. Run `mvn -version`; the `<mirrors>`/`<servers>` config is picked up from the host path, while downloaded artifacts land in the per-version `{data}/repository`.
+3. Run `mvn -version`; the `<mirrors>`/`<servers>` config is picked up from the host path, and artifacts land in `~/.m2/repository`.
 
 For a team rollout you can instead ship a custom Maven manifest with `prepare:` that copies a `settings.xml` template into `{app}/conf/settings.xml`, and document the `mvn --settings` flag for users who want overrides.
 
 ## Gradle daemon and caches
 
-Gradle's daemon and cache live under `~/.gradle/` (`GRADLE_USER_HOME`). Bunny sets `GRADLE_USER_HOME={data}/gradle` per version, so each Gradle install keeps its own daemon and cache under `~/.bunny/var/app/gradle/`: a JDK 21 → 25 switch can't corrupt a shared daemon.
+Gradle's daemon and cache live under `~/.gradle/`, and bunny leaves them there. Your `~/.gradle/gradle.properties` (credentials, `org.gradle.jvmargs`) keeps working, and Gradle's own namespacing (`~/.gradle/caches/<version>/`, daemons keyed by JVM and JVM args) already keeps versions apart.
+
+Bunny writes its generated JDK toolchain block into `~/.gradle/gradle.properties`, between `# >>> bunny managed` markers. Everything outside those markers is preserved. To keep bunny out of that file, set `GRADLE_USER_HOME` in `~/.config/bunny/config.yaml`; the block then follows it. See [Configuration](config.md).
 
 ## SSH and Git credentials
 
@@ -53,7 +55,7 @@ Java apps that read `~/.aws/credentials` (e.g. AWS SDK in an integration test) j
 `bunny install` needs network access to fetch source archives. For an air-gapped environment:
 
 1. On a connected machine, run `bunny install <ids>` for everything you want.
-2. Tar up `~/.bunny/var/cache/` (the download cache) and the `~/.bunny/catalog/` directory if you want a local catalog.
+2. Tar up `~/.cache/bunny/` (the download cache) and `~/.local/share/bunny/catalog/` if you want a local catalog.
 3. Move the tarball into the air-gapped network.
 4. Extract to the same paths on the target machine.
 5. `bunny install <id>` will hash-match against the local cache and skip the download.
@@ -62,13 +64,13 @@ For a permanent setup, host the catalog and an HTTPS mirror of the source archiv
 
 ## Backups
 
-`~/.bunny` is self-contained, so backing it up captures everything, but `var/cache/` (downloads) and `var/tmp/` (install work dirs) are regenerable. bunny tags both with a `CACHEDIR.TAG` (the [Cache Directory Tagging](https://bford.info/cachedir/) standard) and a `.nobackup` file, so backup tools that honor them skip those dirs automatically:
+Back up `~/.local/share/bunny/` and `~/.config/bunny/`. The download cache (`~/.cache/bunny/`) and the `.staging/` dirs inside each install root are regenerable. bunny tags both with a `CACHEDIR.TAG` (the [Cache Directory Tagging](https://bford.info/cachedir/) standard) and a `.nobackup` file, so backup tools that honor them skip those dirs automatically:
 
 - **borg** / **restic**: `--exclude-caches`
 - **GNU tar**: `--exclude-caches`
 - tools with `--exclude-if-present`: point them at `.nobackup`
 
-Tools without cache-tag support (rsync, `cp`, Time Machine) need an explicit exclude of `~/.bunny/var/cache` and `~/.bunny/var/tmp`.
+Tools without cache-tag support (rsync, `cp`, Time Machine) need an explicit exclude of `~/.cache/bunny` and any `.staging` directory.
 
 ## Logging and audit trails
 
@@ -78,4 +80,4 @@ Tools without cache-tag support (rsync, `cp`, Time Machine) need an explicit exc
 bunny --log-level debug install jdk-21 2> jdk-21-install.log
 ```
 
-For an org-wide audit, `~/.bunny/var/state.json` is a JSON file with installed packages + versions, easy to scrape from a fleet-management tool.
+For an org-wide audit, `~/.local/share/bunny/state.json` is a JSON file with installed packages + versions, easy to scrape from a fleet-management tool.

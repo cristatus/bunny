@@ -11,14 +11,26 @@ cmd/bunny
   ├── installer ── desktop, runtime, shim
   ├── reshim
   ├── toolchains
-  └── state + paths
+  └── state + paths + config
 
 shared primitives: manifest, fsutil
 ```
 
 ## Durable state and ownership
 
-`internal/paths` is the source of truth for every path below `BUNNY_HOME`.
+`internal/paths` is the source of truth for every path bunny reads or writes.
+It resolves one logical layout under two possible prefix sets, the XDG base
+directories by default and a single root when `$BUNNY_HOME` is set, so no other
+package branches on which is active. Install locations additionally come from
+two sources: the user's configured roots decide where a *new* install goes, and
+the path recorded in state says where an existing one already is. Reading the
+recorded path is what makes the roots safe to change.
+`internal/config` is the source of truth for user policy: it owns
+`config.yaml` and is the only place that decides whether a tool's global data
+is redirected. Manifests describe how to install and wire a package; they never
+express isolation policy. `runtime.Launcher` layers the two in a fixed order
+(host, dependency env, manifest env, config env), so a user override cannot be
+silently outranked by a catalog change.
 `internal/state` is the source of truth for installed packages, active
 capability providers, command ownership, and runtime-installed global commands.
 State is schema-versioned, validated on load and save, and replaced atomically.
@@ -34,7 +46,7 @@ name `bunny` is reserved at manifest validation and shim layers.
 ## Catalog views
 
 The live catalog is used for discovery and new installs. Runtime and cleanup
-use the install-time manifest snapshot in `var/app/{id}/manifest.yaml`, falling
+use the install-time manifest snapshot in `data/{id}/manifest.yaml`, falling
 back to the live catalog only when that snapshot is absent. A corrupt snapshot
 is an error rather than a reason to silently use a potentially different live
 manifest.
