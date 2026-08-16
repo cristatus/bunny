@@ -78,7 +78,7 @@ suggestion.
 
 Note the Maven line: `MAVEN_ARGS` is a single variable doing two jobs, so
 overriding it means restating the toolchains flag the manifest set. The
-manifest's current value is in `~/.local/share/bunny/data/maven/manifest.yaml`.
+manifest's current value is in `~/.local/share/bunny/manifests/maven.yaml`.
 
 See [Configuration](config.md) for the full file reference.
 
@@ -86,7 +86,8 @@ See [Configuration](config.md) for the full file reference.
 
 - the install tree (including `npm -g` globals): removed on uninstall, at the
   location recorded when it was installed.
-- `data/<id>/manifest.yaml` (cache used by runtime + uninstall): removed.
+- `manifests/<id>.yaml` (the install-time snapshot runtime and uninstall
+  read): removed.
 - `data/<id>/<your configured dirs>`: kept unless `--purge`.
 
 Data at native host paths (`~/.m2`, `~/.gradle`, `~/.npm`, `~/.config/Code`) is

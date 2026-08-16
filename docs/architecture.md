@@ -25,19 +25,21 @@ package branches on which is active. Install locations additionally come from
 two sources: the user's configured roots decide where a *new* install goes, and
 the path recorded in state says where an existing one already is. Reading the
 recorded path is what makes the roots safe to change.
+
 `internal/config` is the source of truth for user policy: it owns
 `config.yaml` and is the only place that decides whether a tool's global data
 is redirected. Manifests describe how to install and wire a package; they never
 express isolation policy. `runtime.Launcher` layers the two in a fixed order
 (host, dependency env, manifest env, config env), so a user override cannot be
 silently outranked by a catalog change.
+
 `internal/state` is the source of truth for installed packages, active
 capability providers, command ownership, and runtime-installed global commands.
 State is schema-versioned, validated on load and save, and replaced atomically.
 
-Every state-changing CLI command holds `var/mutation.lock`. State is reloaded
-after acquiring the lock, so two Bunny processes cannot commit mutations based
-on the same stale snapshot. New mutating commands should use
+Every state-changing CLI command holds `mutation.lock`, beside `state.json`.
+State is reloaded after acquiring the lock, so two Bunny processes cannot
+commit mutations based on the same stale snapshot. New mutating commands should use
 `App.withMutation`; read-only commands should not take the lock.
 
 Regular files in `bin/` are never treated as Bunny-owned shims. The command

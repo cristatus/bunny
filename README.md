@@ -108,18 +108,18 @@ node --version    # → 24.x
 
 ```
 bunny install <id>          install a package
-bunny uninstall <id>        remove (use --purge to also drop per-version SDK data)
+bunny uninstall <id>        remove (use --purge to also drop the package's data dir)
 bunny list                  list kind, capability, version, and active provider
 bunny list --remote         list the full catalog (--tag java / --capability jdk / --active)
 bunny info <id>             show capability, requirements, pins, and dependents
-bunny search <query>        search names, descriptions, capabilities, and requirements
+bunny search <query>        search names, descriptions, tags, capabilities, and requirements
 bunny use <id>              switch active SDK version (e.g. jdk-17 → jdk-21)
 bunny pin <cap> <version>   pin a capability to a version in ./.bunny-version
 bunny unpin <cap>           remove a capability's pin from ./.bunny-version
 bunny run <id> [-- args]    run a package binary
 bunny update                check for updates (installed packages)
 bunny update --apply        apply available updates
-bunny doctor                health check (env, bwrap, display/audio/GPU, shims, pins)
+bunny doctor                health check (layout, config, catalog, install roots, shims, pins)
 bunny setup                 one-step: session env (desktop) + completions + shell rc
 bunny init <shell>          print the shell setup snippet (used by setup / eval)
 bunny completion <shell>    print the shell completion script (bash, zsh, fish)
@@ -156,14 +156,14 @@ plumbing, and `~/.local/bin` is on `PATH` on most distributions.
 
 ```
 ~/.local/share/bunny/
-├── sdk/{id}/          JDKs, Node, Maven, Gradle: anything a tool may need a path to
-├── cli/{id}/          plain commands (ripgrep, jq, gh)
-├── app/{id}/          GUI applications (code, zed, jetbrains-toolbox)
-├── data/{id}/         per-package data, the {data} placeholder
-├── manifests/{id}.yaml        install-time snapshots (drive runtime + uninstall)
-├── catalog/packages/{id}/     optional local manifests (override remote)
-├── state.json         installed packages, providers, install locations
-└── mutation.lock      serializes state-changing commands
+├── sdk/{id}/               JDKs, Node, Maven, Gradle: anything needing a path
+├── cli/{id}/               plain commands (ripgrep, jq, gh)
+├── app/{id}/               GUI applications (code, zed, jetbrains-toolbox)
+├── data/{id}/              per-package data, the {data} placeholder
+├── manifests/{id}.yaml     install-time snapshots (drive runtime + uninstall)
+├── catalog/packages/{id}/  optional local manifests (override remote)
+├── state.json              installed packages, kinds, providers, locations
+└── mutation.lock           serializes state-changing commands
 
 ~/.config/bunny/config.yaml     user config
 ~/.cache/bunny/                 download cache and catalog index
