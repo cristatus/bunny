@@ -185,16 +185,27 @@ func (p *Paths) MutationLock() string              { return filepath.Join(p.data
 
 // --- staging ---
 
+// stagingDirName is the in-progress install directory inside an install root.
+const stagingDirName = ".staging"
+
 // Staging holds in-progress installs, inside the install root rather than
 // beside the cache: an install ends by renaming the staged tree into place,
 // and rename(2) cannot cross filesystems. Downloads stay in the cache, which
 // may live anywhere, since they are copied rather than renamed.
 func (p *Paths) Staging(kind string) string {
-	return filepath.Join(p.InstallRoot(kind), ".staging")
+	return filepath.Join(p.InstallRoot(kind), stagingDirName)
 }
 
 func (p *Paths) AppStaging(id, kind string) string {
 	return filepath.Join(p.Staging(kind), id)
+}
+
+// StagingBeside is where to stage a tree destined for dir. An install that
+// updates a package in place lands wherever that package already is, which is
+// not necessarily under the root currently configured for its kind, and the
+// rename that completes it still has to stay on one filesystem.
+func (p *Paths) StagingBeside(dir string) string {
+	return filepath.Join(filepath.Dir(dir), stagingDirName, filepath.Base(dir))
 }
 
 // StagingRoots returns the staging dir for every install root, so cleanup can
@@ -203,7 +214,7 @@ func (p *Paths) StagingRoots() []string {
 	roots := p.InstallRoots()
 	out := make([]string, 0, len(roots))
 	for _, root := range roots {
-		out = append(out, filepath.Join(root, ".staging"))
+		out = append(out, filepath.Join(root, stagingDirName))
 	}
 	return out
 }

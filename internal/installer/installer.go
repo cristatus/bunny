@@ -124,13 +124,14 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	kind := m.KindOf()
-	workDir := i.Paths.AppStaging(id, kind)
+	destDir := i.destination(id, kind)
+	workDir := i.Paths.StagingBeside(destDir)
 	srcDir := filepath.Join(workDir, "src")
 	pkgDir := filepath.Join(workDir, "pkg")
 	cleanup := func() { os.RemoveAll(workDir) }
 
 	log.Debug("Install layout", "package", id, "kind", kind,
-		"target", i.Paths.InstallDir(id, kind), "staging", workDir,
+		"target", destDir, "staging", workDir,
 		"downloads", i.Paths.AppDownloadCache(id), "data", i.Paths.AppData(id),
 		"manifest", i.Paths.ManifestFile(id))
 
@@ -146,7 +147,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	// Tag the download cache and the staging root as disposable so backup
 	// tools skip them.
 	markDisposable(i.Paths.Cache())
-	markDisposable(i.Paths.Staging(kind))
+	markDisposable(filepath.Dir(workDir))
 
 	prepareVars := map[string]string{
 		"id":      id,
@@ -176,7 +177,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	hook.Phase("installing")
-	placed, err := i.place(id, kind, pkgDir, force)
+	placed, err := i.place(id, destDir, pkgDir, force)
 	if err != nil {
 		cleanup()
 		return err
@@ -227,14 +228,9 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		return fmt.Errorf("remove stale shims: %w", err)
 	}
 
-	// Record the path only when it is not the default root for this kind, so a
-	// default-layout state describes an installation without naming any
-	// absolute location.
-	recordedPath := placed.finalDir
-	if recordedPath == i.Paths.InstallDir(id, kind) {
-		recordedPath = ""
-	}
-	i.State.SetInstalled(id, m.Version, m.Provides, kind, recordedPath)
+	// Always record where the tree went. Anything conditional here is a bet
+	// that the roots will not move, and losing that bet strands the install.
+	i.State.SetInstalled(id, m.Version, m.Provides, kind, placed.finalDir)
 	switch {
 	case m.Provides != "" && becomeActive:
 		if err := i.State.SetProviderCommands(m.Provides, id, newCommands); err != nil {
@@ -613,12 +609,24 @@ func (p *placement) Rollback() error {
 	return os.RemoveAll(p.finalDir)
 }
 
-// place atomically swaps pkgDir into the install root for kind. For non-force installs
+// destination is where an install lands: the tree a package already occupies,
+// otherwise the configured root for its kind. An installed package is updated
+// in place because both inputs to that default can move underneath it — the
+// user can repoint a root, the catalog can change a kind — and either would
+// otherwise build a second tree and abandon the first, still recorded and
+// still on disk.
+func (i *Installer) destination(id, kind string) string {
+	if i.State.IsInstalled(id) {
+		return i.Paths.AppDir(id)
+	}
+	return i.Paths.InstallDir(id, kind)
+}
+
+// place atomically swaps pkgDir into finalDir. For non-force installs
 // an existing target is an error. For force installs the existing dir is
 // renamed aside and kept there until the caller commits after state save. If
 // the swap itself fails, the previous install is restored before returning.
-func (i *Installer) place(id, kind, pkgDir string, force bool) (*placement, error) {
-	finalDir := i.Paths.InstallDir(id, kind)
+func (i *Installer) place(id, finalDir, pkgDir string, force bool) (*placement, error) {
 	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
 		return nil, err
 	}

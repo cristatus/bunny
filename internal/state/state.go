@@ -54,14 +54,16 @@ type Package struct {
 	Provides  string    `json:"provides,omitempty"`
 	// Kind is the install root the package belongs to ("app", "cli", "sdk").
 	Kind string `json:"kind,omitempty"`
-	// Path is the install location, recorded only when it is somewhere other
-	// than the default root for Kind. Reading a recorded location instead of
-	// recomputing one is what lets the user change config, or the catalog
-	// change a package's kind, without stranding a tree already on disk.
+	// Path is where the package actually is, always recorded. Reading a
+	// location instead of recomputing one is what lets the user repoint an
+	// install root, or the catalog change a package's kind, without stranding
+	// a tree already on disk.
 	//
-	// Leaving it empty in the common case is deliberate: state then holds no
-	// absolute paths at all, so a backup taken on one machine describes the
-	// same installation on another whose roots differ.
+	// Recording it only when it differed from the default was the same idea
+	// applied too cleverly, and it did not work: a package installed under the
+	// default root had nothing written down, so moving that root lost it. The
+	// tree bunny cannot find is exactly the one whose location it declined to
+	// record. Absolute paths in state are the price.
 	Path string `json:"path,omitempty"`
 }
 
