@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/shim"
 )
@@ -44,6 +45,7 @@ func RunAll(p *paths.Paths) []Result {
 	return []Result{
 		layoutCheck(p),
 		configCheck(p),
+		installRootsCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
 		waylandCheck(),
@@ -89,6 +91,33 @@ func configCheck(p *paths.Paths) Result {
 		return Result{Name: "config", Detail: "using defaults, none at " + path, Severity: OK}
 	}
 	return Result{Name: "config", Detail: path, Severity: OK}
+}
+
+// installRootsCheck reports where each kind of package actually installs.
+// Config is easy to get subtly wrong (a setting left commented, a typo in a
+// kind), and until this existed the only way to find out was to install
+// something and go looking for it.
+func installRootsCheck(p *paths.Paths) Result {
+	var parts []string
+	for _, kind := range manifest.Kinds {
+		parts = append(parts, kind+"="+tilde(p.InstallRoot(kind)))
+	}
+	return Result{Name: "install", Detail: strings.Join(parts, "  "), Severity: OK}
+}
+
+// tilde abbreviates $HOME so the roots stay readable on one line.
+func tilde(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if path == home {
+		return "~"
+	}
+	if after, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok {
+		return "~" + string(os.PathSeparator) + after
+	}
+	return path
 }
 
 func pathOnPathCheck(binDir string) Result {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/shim"
 )
@@ -138,5 +139,26 @@ func TestPathCheckCarriesFix(t *testing.T) {
 	}
 	if !strings.Contains(r.Fix, "bunny setup") {
 		t.Fatalf("PATH check Fix = %q, want it to mention 'bunny setup'", r.Fix)
+	}
+}
+
+// Reporting the effective roots is what makes "did my config take effect?"
+// answerable without installing something and going to look for it.
+func TestInstallRootsCheckReportsConfiguredRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	p := paths.At(filepath.Join(home, "b"))
+	if got := installRootsCheck(p).Detail; !strings.Contains(got, "sdk=~/b/sdk") {
+		t.Errorf("default roots not reported: %q", got)
+	}
+
+	custom := p.WithLayout(map[string]string{manifest.KindSDK: filepath.Join(home, "opt")}, nil)
+	got := installRootsCheck(custom).Detail
+	if !strings.Contains(got, "sdk=~/opt") {
+		t.Errorf("configured root not reported: %q", got)
+	}
+	if !strings.Contains(got, "cli=~/b/cli") {
+		t.Errorf("unconfigured kinds should still show their default: %q", got)
 	}
 }

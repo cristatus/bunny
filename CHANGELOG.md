@@ -53,7 +53,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   an install never crosses a filesystem. `bunny clean` sweeps every root.
 - `bunny setup` skips `environment.d/bunny.conf` when the systemd session
   already exports the shim dir, since the generator does not deduplicate.
-- `bunny doctor` reports the active layout and checks each root it writes to.
+- `bunny doctor` reports the active layout, the config path, and the effective
+  install root for each kind, so a setting left commented out is visible
+  without installing something to find out where it landed.
 
 ### Fixed
 

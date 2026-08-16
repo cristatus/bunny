@@ -14,7 +14,13 @@ cp config.example.yaml ~/.config/bunny/config.yaml
 ```
 
 Copying it changes nothing until you uncomment something. `bunny doctor` prints
-the path bunny reads, whether or not the file is there.
+the path bunny reads and the install root each kind resolves to, which is the
+quickest way to confirm a setting is actually in effect:
+
+```
+✓ config   ~/.config/bunny/config.yaml
+✓ install  app=~/.local/share/bunny/app  cli=~/.local/share/bunny/cli  sdk=~/opt
+```
 
 ```yaml
 catalog:
