@@ -34,30 +34,6 @@ func (c reportCatalog) Load(id string) (*manifest.Manifest, error) {
 }
 func (c reportCatalog) LoadFile(string, string) ([]byte, error) { return nil, errors.New("missing") }
 
-func TestLoadUserConfigEmptyFile(t *testing.T) {
-	for _, tc := range []struct {
-		name, body string
-	}{
-		{"empty", ""},
-		{"comment-only", "# just a comment\n"},
-		{"trailing-separator", "catalog:\n  remote: https://example.com\n---\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.yaml")
-			if err := os.WriteFile(path, []byte(tc.body), 0644); err != nil {
-				t.Fatal(err)
-			}
-			cfg, err := loadUserConfig(path)
-			if err != nil {
-				t.Fatalf("config should be valid, got: %v", err)
-			}
-			if cfg == nil {
-				t.Fatal("expected non-nil config")
-			}
-		})
-	}
-}
-
 func TestFindGlobalExe(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}

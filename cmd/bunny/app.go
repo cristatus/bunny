@@ -1,21 +1,18 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 
 	"github.com/charmbracelet/log"
-	"gopkg.in/yaml.v3"
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/checker"
+	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/installer"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
@@ -35,6 +32,7 @@ type App struct {
 	Context    context.Context
 	Paths      *paths.Paths
 	State      *state.State
+	Config     *config.Config
 	Catalog    catalog.Loader
 	Installed  catalog.Loader
 	Installer  *installer.Installer
@@ -70,13 +68,6 @@ type reporterHook struct {
 func (h reporterHook) Phase(name string)          { h.rep.Phase(h.pkg, name) }
 func (h reporterHook) Download(done, total int64) { h.rep.Download(h.pkg, done, total) }
 
-// userConfig is the on-disk shape of $BUNNY_HOME/config.yaml.
-type userConfig struct {
-	Catalog struct {
-		Remote string `yaml:"remote,omitempty"`
-	} `yaml:"catalog,omitempty"`
-}
-
 // New constructs an App from $BUNNY_HOME, with the catalog wired
 // local→remote and state loaded from disk.
 func New() (*App, error) {
@@ -88,7 +79,7 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load state: %w", err)
 	}
-	cfg, err := loadUserConfig(p.UserConfigFile())
+	cfg, err := config.Load(p.UserConfigFile())
 	if err != nil {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
@@ -103,13 +94,13 @@ func New() (*App, error) {
 		cat = remote
 	}
 
-	installed := catalog.NewInstalled(cat, p.ManifestFile)
 	return &App{
 		Context:   context.Background(),
 		Paths:     p,
 		State:     st,
+		Config:    cfg,
 		Catalog:   cat,
-		Installed: installed,
+		Installed: catalog.NewInstalled(cat, p.ManifestFile),
 		Installer: installer.New(p, cat, st),
 		local:     local,
 		remote:    remote,
@@ -144,38 +135,15 @@ func (a *App) withMutation(ctx context.Context, fn func() error) error {
 	return fn()
 }
 
-func loadUserConfig(path string) (*userConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return &userConfig{}, nil
-		}
-		return nil, err
+// launcher wires the runtime with everything a launch consults, including the
+// user config that supplies any env beyond what the manifest declares.
+func (a *App) launcher() *runtime.Launcher {
+	return &runtime.Launcher{
+		Paths:   a.Paths,
+		Catalog: a.installedCatalog(),
+		State:   a.State,
+		Config:  a.Config,
 	}
-	cfg := &userConfig{}
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(cfg); err != nil {
-		if errors.Is(err, io.EOF) {
-			return cfg, nil // empty or comment-only config is valid
-		}
-		return nil, fmt.Errorf("parse user config: %w", err)
-	}
-	// A trailing "---" is not a second document; reject only a real one.
-	for {
-		var extra any
-		err := dec.Decode(&extra)
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("parse user config trailer: %w", err)
-		}
-		if extra != nil {
-			return nil, fmt.Errorf("parse user config: multiple YAML documents are not allowed")
-		}
-	}
-	return cfg, nil
 }
 
 // loadInstalledManifest reads the per-package manifest cache the installer
@@ -202,7 +170,7 @@ func (a *App) run(id, command string, args []string) error {
 	if err != nil {
 		return err
 	}
-	prep, err := runtime.Prepare(a.Paths, a.installedCatalog(), a.State, m, command, args)
+	prep, err := a.launcher().Prepare(m, command, args)
 	if err != nil {
 		return err
 	}
@@ -290,7 +258,7 @@ func (a *App) runGlobal(name string, args []string) error {
 	if err != nil {
 		return err
 	}
-	prep, err := runtime.PrepareGlobal(a.Paths, a.installedCatalog(), a.State, m, exe, args)
+	prep, err := a.launcher().PrepareGlobal(m, exe, args)
 	if err != nil {
 		return err
 	}

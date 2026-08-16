@@ -211,7 +211,7 @@ global-bins:
 	}
 }
 
-func TestValidateGlobalBinsRequiresData(t *testing.T) {
+func TestValidateGlobalBinsRejectsPlainPath(t *testing.T) {
 	src := `
 id: node-24
 name: Node 24
@@ -222,7 +222,7 @@ global-bins:
   - "/usr/local/bin"
 `
 	if _, err := ParseBytes([]byte(src)); err == nil {
-		t.Error("expected validation error for global-bins entry without {data}")
+		t.Error("expected validation error for a global-bins entry with no placeholder root")
 	}
 }
 
@@ -347,5 +347,36 @@ bin: [{name: foo, path: "{app}/foo"}]
 `
 	if _, err := ParseBytes([]byte(src)); err != nil {
 		t.Errorf("valid jdk>=17 rejected: %v", err)
+	}
+}
+
+// global-bins may live in either per-package tree bunny owns, but never in a
+// shared host directory: there would be no version to dispatch on, and bunny
+// would be claiming command names for binaries it did not install.
+func TestValidateGlobalBinsRoots(t *testing.T) {
+	for _, tc := range []struct {
+		path    string
+		wantErr bool
+	}{
+		{"{data}/npm-global/bin", false},
+		{"{app}/bin", false},
+		{"{home}/.local/share/pnpm", true},
+		{"/usr/local/bin", true},
+	} {
+		src := `
+id: node-24
+name: Node 24
+version: "24.0.0"
+sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]
+bin: [{name: node, path: "{app}/bin/node"}]
+global-bins: ["` + tc.path + `"]
+`
+		_, err := ParseBytes([]byte(src))
+		if tc.wantErr && err == nil {
+			t.Errorf("%s: expected rejection", tc.path)
+		}
+		if !tc.wantErr && err != nil {
+			t.Errorf("%s: unexpected error: %v", tc.path, err)
+		}
 	}
 }

@@ -93,13 +93,8 @@ func (m *Manifest) Validate() error {
 		}
 		seenBins[b.Name] = true
 	}
-	for key, value := range m.Env {
-		if !envPattern.MatchString(key) {
-			return vErr("env."+key, "invalid environment variable name")
-		}
-		if strings.ContainsRune(value, '\x00') {
-			return vErr("env."+key, "value contains NUL")
-		}
+	if err := ValidateEnv("env", m.Env); err != nil {
+		return err
 	}
 	for i, req := range m.Requires {
 		cap, min, hasMin := ParseRequirement(req)
@@ -111,10 +106,7 @@ func (m *Manifest) Validate() error {
 		}
 	}
 	for i, gb := range m.GlobalBins {
-		if !strings.Contains(gb, "{data}") {
-			return vErr(fmt.Sprintf("global-bins[%d]", i), "must reference {data} (global bins live under the package data dir)")
-		}
-		if err := validateDataPath(gb); err != nil {
+		if err := validateRootedPath(gb); err != nil {
 			return vErr(fmt.Sprintf("global-bins[%d]", i), err.Error())
 		}
 	}
@@ -174,16 +166,51 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
-func validateDataPath(path string) error {
-	expanded := strings.ReplaceAll(path, "{data}", "/data")
-	if strings.ContainsAny(expanded, "{}") {
-		return fmt.Errorf("may only use the {data} placeholder")
-	}
-	rel, err := filepath.Rel("/data", filepath.Clean(expanded))
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
-		return fmt.Errorf("must remain inside {data}")
+// ValidateEnv checks that every name is a usable environment-variable name and
+// that no value carries a NUL. field prefixes the reported path, so manifests
+// report "env.FOO" and the user config reports "env.node.FOO".
+func ValidateEnv(field string, env map[string]string) error {
+	for key, value := range env {
+		if !envPattern.MatchString(key) {
+			return vErr(field+"."+key, "invalid environment variable name")
+		}
+		if strings.ContainsRune(value, '\x00') {
+			return vErr(field+"."+key, "value contains NUL")
+		}
 	}
 	return nil
+}
+
+// globalBinRoots are the placeholders a global-bins entry may be anchored to.
+// Both are per-package trees bunny owns: {data} is the package's data dir and
+// {app} its install tree.
+//
+// {home} is deliberately excluded. A tool's native global dir (pnpm's
+// ~/.local/share/pnpm, say) is shared across every version and is usually
+// already on PATH via that tool's own setup, so shimming it would give bunny
+// no version to dispatch on and would have it claim command names for
+// binaries it did not install. Global shims only make sense over a directory
+// that belongs to one package version.
+var globalBinRoots = []string{"{data}", "{app}"}
+
+// validateRootedPath requires a path to start at one of the known placeholder
+// roots and stay inside it, so a manifest cannot walk out with "..".
+func validateRootedPath(path string) error {
+	for _, root := range globalBinRoots {
+		if !strings.HasPrefix(path, root) {
+			continue
+		}
+		expanded := "/root" + strings.TrimPrefix(path, root)
+		if strings.ContainsAny(expanded, "{}") {
+			return fmt.Errorf("may only use one leading %s placeholder", root)
+		}
+		rel, err := filepath.Rel("/root", filepath.Clean(expanded))
+		if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+			return fmt.Errorf("must remain inside %s", root)
+		}
+		return nil
+	}
+	return fmt.Errorf("must start with one of %s", strings.Join(globalBinRoots, ", "))
 }
 
 func hasNewline(values ...string) bool {

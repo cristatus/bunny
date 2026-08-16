@@ -49,6 +49,22 @@ func (a *App) installedJDKs() ([]toolchains.JDK, error) {
 	return out, nil
 }
 
+// gradleUserHome resolves the directory Gradle will actually read
+// gradle.properties from, so the managed toolchain block lands where it has an
+// effect. An explicit GRADLE_USER_HOME wins in launch precedence order
+// (manifest, then user config); otherwise Gradle's own default applies, which
+// by default means the real ~/.gradle rather than anything bunny owns.
+func (a *App) gradleUserHome(m *manifest.Manifest, vars map[string]string) string {
+	env := a.Config.OverlayEnv(m.Env, m.ID, m.Provides)
+	if home := manifest.Expand(env["GRADLE_USER_HOME"], vars); home != "" {
+		return home
+	}
+	if home := os.Getenv("GRADLE_USER_HOME"); home != "" {
+		return home
+	}
+	return filepath.Join(vars["home"], ".gradle")
+}
+
 // regenerateToolchains writes JDK-toolchain config for every installed package
 // that declares `toolchains:`, listing all installed `provides: jdk` packages.
 // No-op when no consumer (or no JDK) is installed.
@@ -72,10 +88,7 @@ func (a *App) regenerateToolchains() error {
 		vars := a.Paths.Vars(id, m.Version)
 		switch m.Toolchains {
 		case "gradle":
-			home := manifest.Expand(m.Env["GRADLE_USER_HOME"], vars)
-			if home == "" {
-				home = a.Paths.AppData(id)
-			}
+			home := a.gradleUserHome(m, vars)
 			if err := os.MkdirAll(home, 0755); err != nil {
 				return err
 			}

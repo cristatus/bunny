@@ -3,9 +3,11 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cristatus/bunny/internal/catalog"
+	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/state"
@@ -33,7 +35,8 @@ func TestPrepareDirectExec(t *testing.T) {
 		Dirs: []string{"{data}/state", "{data}/home"},
 	}
 
-	prep, err := Prepare(p, stubCat{}, st, m, "", []string{"extra"})
+	l := &Launcher{Paths: p, Catalog: stubCat{}, State: st}
+	prep, err := l.Prepare(m, "", []string{"extra"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +71,8 @@ func TestPreparePackageEnvOverridesHostWithoutDuplicates(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "foo", Path: "{app}/foo"}},
 		Env:     map[string]string{"FOO_HOME": "{data}/home"},
 	}
-	prep, err := Prepare(p, stubCat{}, state.Empty(), m, "", nil)
+	l := &Launcher{Paths: p, Catalog: stubCat{}, State: state.Empty()}
+	prep, err := l.Prepare(m, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +101,8 @@ func TestPrepareGlobal(t *testing.T) {
 		Env:     map[string]string{"NPM_CONFIG_PREFIX": "{data}/npm-global"},
 	}
 	exe := filepath.Join(root, "var", "app", "node-24", "npm-global", "bin", "tsc")
-	prep, err := PrepareGlobal(p, stubCat{}, st, m, exe, []string{"--version"})
+	l := &Launcher{Paths: p, Catalog: stubCat{}, State: st}
+	prep, err := l.PrepareGlobal(m, exe, []string{"--version"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +155,8 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 		"jdk-11": {"JAVA_HOME": "{app}"},
 	}}
 
-	env, err := mergeDepEnv(nil, []string{"jdk>=17"}, p, cat, st)
+	l := &Launcher{Paths: p, Catalog: cat, State: st}
+	env, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +176,8 @@ func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 	st := state.Empty()
 	st.SetInstalled("jdk-11", "11.0.0", "jdk")
 	_ = st.SetProvider("jdk", "jdk-11")
-	env, err := mergeDepEnv(nil, []string{"jdk>=17"}, p, reqCat{}, st)
+	l := &Launcher{Paths: p, Catalog: reqCat{}, State: st}
+	env, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
 	if err != nil {
 		t.Fatalf("unsatisfiable requirement should degrade, not error: %v", err)
 	}
@@ -180,11 +187,93 @@ func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 }
 
 func TestMergeDepEnvMissingBareRequirementDegrades(t *testing.T) {
-	env, err := mergeDepEnv(nil, []string{"jdk"}, paths.At(t.TempDir()), reqCat{}, state.Empty())
+	l := &Launcher{Paths: paths.At(t.TempDir()), Catalog: reqCat{}, State: state.Empty()}
+	env, err := l.mergeDepEnv(nil, []string{"jdk"})
 	if err != nil {
 		t.Fatalf("missing bare requirement should degrade, not error: %v", err)
 	}
 	if len(env) != 0 {
 		t.Errorf("no dep env should be applied, got %v", env)
+	}
+}
+
+// User config layers on top of the manifest: the manifest keeps the wiring a
+// package cannot run without, config supplies anything extra (isolation
+// included) and wins on conflict.
+func TestPrepareConfigEnvOverridesManifest(t *testing.T) {
+	root := t.TempDir()
+	p := paths.At(root)
+	m := &manifest.Manifest{
+		ID:       "gradle",
+		Version:  "8.7",
+		Provides: "gradle",
+		Bin:      []manifest.Binary{{Name: "gradle", Path: "{app}/bin/gradle"}},
+		Env:      map[string]string{"GRADLE_HOME": "{app}"},
+	}
+	cfg := &config.Config{
+		Env:  map[string]map[string]string{"gradle": {"GRADLE_USER_HOME": "{data}/gradle"}},
+		Dirs: map[string][]string{"gradle": {"{data}/gradle"}},
+	}
+	l := &Launcher{Paths: p, Catalog: stubCat{}, State: state.Empty(), Config: cfg}
+	prep, err := l.Prepare(m, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gradleHome := filepath.Join(root, "var", "app", "gradle", "gradle")
+	if !envHas(prep.Env, "GRADLE_USER_HOME="+gradleHome) {
+		t.Errorf("config env not applied: %v", lastEntries(prep.Env, 3))
+	}
+	if !envHas(prep.Env, "GRADLE_HOME="+filepath.Join(root, "app", "gradle")) {
+		t.Error("manifest env must survive alongside config env")
+	}
+	if _, err := os.Stat(gradleHome); err != nil {
+		t.Errorf("config dirs not created: %v", err)
+	}
+}
+
+// Nothing is isolated unless the user asks for it: a manifest that only carries
+// wiring leaves the tool's global dirs at their native host locations.
+func TestPrepareNoConfigIsolatesNothing(t *testing.T) {
+	p := paths.At(t.TempDir())
+	m := &manifest.Manifest{
+		ID:      "gradle",
+		Version: "8.7",
+		Bin:     []manifest.Binary{{Name: "gradle", Path: "{app}/bin/gradle"}},
+		Env:     map[string]string{"GRADLE_HOME": "{app}"},
+	}
+	l := &Launcher{Paths: p, Catalog: stubCat{}, State: state.Empty()}
+	prep, err := l.Prepare(m, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range prep.Env {
+		if strings.HasPrefix(entry, "GRADLE_USER_HOME=") {
+			t.Errorf("bunny set %q with no config asking for it", entry)
+		}
+	}
+}
+
+// Config keyed by capability reaches a package through the requires: chain, so
+// every tool that requires jdk sees the same override.
+func TestMergeDepEnvAppliesConfig(t *testing.T) {
+	root := t.TempDir()
+	st := state.Empty()
+	st.SetInstalled("jdk-21", "21.0.0", "jdk")
+	_ = st.SetProvider("jdk", "jdk-21")
+	cat := reqCat{envs: map[string]map[string]string{"jdk-21": {"JAVA_HOME": "{app}"}}}
+	cfg := &config.Config{Env: map[string]map[string]string{
+		"jdk": {"JAVA_TOOL_OPTIONS": "-Dfile.encoding=UTF-8"},
+	}}
+
+	l := &Launcher{Paths: paths.At(root), Catalog: cat, State: st, Config: cfg}
+	env, err := l.mergeDepEnv(nil, []string{"jdk"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !envHas(env, "JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8") {
+		t.Errorf("dependency config env not applied: %v", env)
+	}
+	if !envHas(env, "JAVA_HOME="+filepath.Join(root, "app", "jdk-21")) {
+		t.Errorf("dependency manifest env lost: %v", env)
 	}
 }
