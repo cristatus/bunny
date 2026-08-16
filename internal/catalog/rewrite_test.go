@@ -16,7 +16,7 @@ func TestRewriteManifestVersion(t *testing.T) {
 	original := `id: vscode
 name: Visual Studio Code
 version: "1.118.0"
-category: editor
+tags: [editor]
 
 sources:
   - url: "https://example.com/{version}/file.tar.gz"
@@ -71,7 +71,7 @@ func TestRewriteManifestVersion_PreservesUnknownFields(t *testing.T) {
 	original := `id: example
 name: Example
 version: "1.0.0"
-category: editor
+tags: [editor]
 homepage: https://example.com/
 
 sources:
@@ -271,7 +271,7 @@ func TestRewriteIndexEntry(t *testing.T) {
 	err := RewriteIndexEntry(path, "vscode", IndexEntry{
 		Name:        "Visual Studio Code",
 		Version:     "1.119.0",
-		Category:    "editor",
+		Path:        "packages/editor",
 		Description: "Code editor from Microsoft",
 		Provides:    "editor",
 		Requires:    []string{"jdk>=17"},
@@ -339,7 +339,7 @@ bin:
 		t.Fatal(err)
 	}
 	iw, err := PrepareIndexEntry(indexPath, "rg", IndexEntry{
-		Name: "ripgrep", Version: "14.0.0", Category: "cli",
+		Name: "ripgrep", Version: "14.0.0", Path: "packages/code",
 	})
 	if err != nil {
 		t.Fatal(err)

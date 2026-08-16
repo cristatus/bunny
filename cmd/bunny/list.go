@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -16,7 +17,7 @@ import (
 // ListCmd prints installed packages by default. Pass --remote to see the full
 // catalog with install status.
 type ListCmd struct {
-	Category   string `short:"c" help:"Filter by category"`
+	Tag        string `short:"t" help:"Filter by tag"`
 	Capability string `help:"Filter by provided capability"`
 	Active     bool   `help:"Show only active capability providers"`
 	Remote     bool   `help:"List all packages in the catalog, not just installed"`
@@ -29,11 +30,11 @@ func (c *ListCmd) Run(a *App) error {
 	return c.listInstalled(a)
 }
 
-// matchesCategory reports whether a package in the given category passes the
+// matchesTag reports whether a package carrying the given tags passes the
 // --category filter (no filter set → always true). Kept in one place so the
 // installed and remote listings can never diverge on how they filter.
-func (c *ListCmd) matchesCategory(category string) bool {
-	return c.Category == "" || category == c.Category
+func (c *ListCmd) matchesTag(tags []string) bool {
+	return c.Tag == "" || slices.Contains(tags, c.Tag)
 }
 
 func (c *ListCmd) matchesCapability(capability string) bool {
@@ -41,49 +42,46 @@ func (c *ListCmd) matchesCapability(capability string) bool {
 }
 
 func (c *ListCmd) listInstalled(a *App) error {
-	// Build a lookup map from catalog so we can show category.
+	// Build a lookup map from catalog so we can show tags.
 	catalogInfo := map[string]catalog.PackageInfo{}
 	if info, err := a.Catalog.List(); err == nil {
 		for _, p := range info {
 			catalogInfo[p.ID] = p
 		}
 	}
-	// Category is only known from the catalog; without it a --category filter
-	// would silently drop every row. Surface that instead of printing nothing.
-	if c.Category != "" && len(catalogInfo) == 0 {
-		return fmt.Errorf("cannot filter by --category %q: catalog data is unavailable", c.Category)
+	// Tags are only known from the catalog; without it a --tag filter would
+	// silently drop every row. Surface that instead of printing nothing.
+	if c.Tag != "" && len(catalogInfo) == 0 {
+		return fmt.Errorf("cannot filter by --tag %q: catalog data is unavailable", c.Tag)
 	}
 	var rows []installedRow
 	for id, pkg := range a.State.Packages {
-		category, provides := "", pkg.Provides
+		var tags []string
+		provides := pkg.Provides
 		if p, ok := catalogInfo[id]; ok {
-			category = p.Category
+			tags = p.Tags
 			if provides == "" {
 				provides = p.Provides
 			}
 		}
 		active := provides != "" && a.State.Providers[provides] == id
-		if !c.matchesCategory(category) || !c.matchesCapability(provides) || (c.Active && !active) {
+		if !c.matchesTag(tags) || !c.matchesCapability(provides) || (c.Active && !active) {
 			continue
 		}
 		rows = append(rows, installedRow{
-			id: id, category: category, version: pkg.Version, provides: provides, active: active,
+			id: id, tags: tags, version: pkg.Version, provides: provides, active: active,
 		})
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].category != rows[j].category {
-			return rows[i].category < rows[j].category
-		}
-		return rows[i].id < rows[j].id
-	})
+	sort.Slice(rows, func(i, j int) bool { return rows[i].id < rows[j].id })
 	p := ui.New(os.Stdout)
 	return a.pageOutput("\n" + renderInstalled(p, rows))
 }
 
 // installedRow is one line of the installed listing.
 type installedRow struct {
-	id, category, version, provides string
-	active                          bool // active provider for its capability
+	id, version, provides string
+	tags                  []string
+	active                bool // active provider for its capability
 }
 
 // renderInstalled formats the installed listing (no human-name column).
@@ -96,13 +94,13 @@ func renderInstalled(p *ui.Printer, rows []installedRow) string {
 		}
 		cells = append(cells, []ui.Cell{
 			{Text: r.id},
-			{Text: r.category},
+			{Text: strings.Join(r.tags, ",")},
 			{Text: r.provides},
 			{Text: r.version},
 			{Text: active, Style: style},
 		})
 	}
-	out := p.Table([]string{"Package", "Category", "Provides", "Version", "Active"}, cells)
+	out := p.Table([]string{"Package", "Tags", "Provides", "Version", "Active"}, cells)
 	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
@@ -111,16 +109,11 @@ func (c *ListCmd) listRemote(a *App) error {
 	if err != nil {
 		return err
 	}
-	sort.Slice(pkgs, func(i, j int) bool {
-		if pkgs[i].Category != pkgs[j].Category {
-			return pkgs[i].Category < pkgs[j].Category
-		}
-		return pkgs[i].ID < pkgs[j].ID
-	})
+	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].ID < pkgs[j].ID })
 	var rows []remoteRow
 	for _, pkg := range pkgs {
 		active := pkg.Provides != "" && a.State.Providers[pkg.Provides] == pkg.ID
-		if !c.matchesCategory(pkg.Category) || !c.matchesCapability(pkg.Provides) || (c.Active && !active) {
+		if !c.matchesTag(pkg.Tags) || !c.matchesCapability(pkg.Provides) || (c.Active && !active) {
 			continue
 		}
 		status, style := "", ui.Plain
@@ -151,7 +144,7 @@ func renderRemote(p *ui.Printer, rows []remoteRow) string {
 			active, activeStyle = "yes", ui.Good
 		}
 		cells = append(cells, []ui.Cell{
-			{Text: r.pkg.ID}, {Text: r.pkg.Category}, {Text: r.pkg.Provides},
+			{Text: r.pkg.ID}, {Text: strings.Join(r.pkg.Tags, ",")}, {Text: r.pkg.Provides},
 			{Text: r.pkg.Version}, {Text: active, Style: activeStyle},
 			{Text: r.status, Style: r.statusStyle},
 		})
@@ -232,8 +225,8 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, detail infoDetail) string {
 	if m.Description != "" {
 		rows = append(rows, ui.KVRow{Key: "Description", Value: m.Description})
 	}
-	if m.Category != "" {
-		rows = append(rows, ui.KVRow{Key: "Category", Value: m.Category})
+	if len(m.Tags) > 0 {
+		rows = append(rows, ui.KVRow{Key: "Tags", Value: strings.Join(m.Tags, ", ")})
 	}
 	rows = append(rows, ui.KVRow{Key: "Version", Value: version + "  " + status})
 	if m.Provides != "" {

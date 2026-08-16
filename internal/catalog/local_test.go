@@ -34,8 +34,8 @@ func writeTestManifest(t *testing.T, dir, id, name string) {
 
 func TestLocalListAndLoad(t *testing.T) {
 	root := t.TempDir()
-	writeTestManifest(t, filepath.Join(root, "cli", "rg"), "rg", "ripgrep")
-	writeTestManifest(t, filepath.Join(root, "editor", "code"), "code", "VS Code")
+	writeTestManifest(t, filepath.Join(root, PackagesDir, "rg"), "rg", "ripgrep")
+	writeTestManifest(t, filepath.Join(root, PackagesDir, "code"), "code", "VS Code")
 
 	l := NewLocal(root)
 	if !l.Exists() {
@@ -66,21 +66,13 @@ func TestLocalListAndLoad(t *testing.T) {
 	if m.Name != "ripgrep" {
 		t.Errorf("name=%q", m.Name)
 	}
-
-	cat, err := l.Category("code")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cat != "editor" {
-		t.Errorf("cat=%q", cat)
-	}
 }
 
 func TestLocalListSkipsBadEntries(t *testing.T) {
 	root := t.TempDir()
-	writeTestManifest(t, filepath.Join(root, "cli", "rg"), "rg", "ripgrep")
+	writeTestManifest(t, filepath.Join(root, PackagesDir, "rg"), "rg", "ripgrep")
 	// A stray package dir with no manifest.yaml.
-	if err := os.MkdirAll(filepath.Join(root, "cli", "stray"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, PackagesDir, "stray"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	// Hidden dirs (VCS metadata, tooling) are not catalog content and must be
@@ -89,7 +81,7 @@ func TestLocalListSkipsBadEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A package dir with an invalid manifest.
-	badDir := filepath.Join(root, "editor", "broken")
+	badDir := filepath.Join(root, PackagesDir, "broken")
 	if err := os.MkdirAll(badDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +100,7 @@ func TestLocalListSkipsBadEntries(t *testing.T) {
 
 func TestLocalLoadFile(t *testing.T) {
 	root := t.TempDir()
-	pkgDir := filepath.Join(root, "cli", "foo")
+	pkgDir := filepath.Join(root, PackagesDir, "foo")
 	writeTestManifest(t, pkgDir, "foo", "Foo")
 	if err := os.WriteFile(filepath.Join(pkgDir, "build.sh"), []byte("#!/bin/sh\necho hi\n"), 0755); err != nil {
 		t.Fatal(err)

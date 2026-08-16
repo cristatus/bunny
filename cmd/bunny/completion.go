@@ -2,8 +2,10 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -87,19 +89,16 @@ func (a *App) completionCapabilities() []string {
 	return caps
 }
 
-// completionCategories returns the distinct package categories in the local
-// catalog, sorted — for `list --category` completion.
-func (a *App) completionCategories() []string {
+// completionTags returns the distinct tags in the local catalog, sorted, for
+// `list --tag` completion.
+func (a *App) completionTags() []string {
 	seen := map[string]bool{}
-	var cats []string
 	for _, p := range a.catalogPackages() {
-		if p.Category != "" && !seen[p.Category] {
-			seen[p.Category] = true
-			cats = append(cats, p.Category)
+		for _, tag := range p.Tags {
+			seen[tag] = true
 		}
 	}
-	sort.Strings(cats)
-	return cats
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // CompleteIDsCmd is the hidden helper the generated completion scripts call to
@@ -119,11 +118,11 @@ func (c *CompleteIDsCmd) Run(a *App) error {
 	return nil
 }
 
-// CompleteCategoriesCmd is the hidden helper for `list --category` completion.
-type CompleteCategoriesCmd struct{}
+// CompleteTagsCmd is the hidden helper for `list --tag` completion.
+type CompleteTagsCmd struct{}
 
-func (c *CompleteCategoriesCmd) Run(a *App) error {
-	printLines(a.completionCategories())
+func (c *CompleteTagsCmd) Run(a *App) error {
+	printLines(a.completionTags())
 	return nil
 }
 
@@ -208,9 +207,9 @@ const bashCompletion = `_bunny() {
     case "$prev" in
         --log-level|-l) COMPREPLY=( $(compgen -W "__LOGLEVELS__" -- "$cur") ); return ;;
         --pager)        COMPREPLY=( $(compgen -W "auto always never" -- "$cur") ); return ;;
-        --category)     COMPREPLY=( $(compgen -W "$(bunny complete-categories 2>/dev/null)" -- "$cur") ); return ;;
+        --tag)     COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return ;;
         --capability)   COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ); return ;;
-        -c) [[ "$sub" == list ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-categories 2>/dev/null)" -- "$cur") ); return; } ;;
+        -t) [[ "$sub" == list ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
         --shell)        COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return ;;
     esac
 
@@ -220,7 +219,7 @@ const bashCompletion = `_bunny() {
         case "$sub" in
             install)      flags="$flags --force" ;;
             uninstall)    flags="$flags --purge" ;;
-            list)         flags="$flags --category --capability --active --remote" ;;
+            list)         flags="$flags --tag --capability --active --remote" ;;
             run)          flags="$flags --command" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
@@ -288,9 +287,9 @@ done
 case $prev in
     --log-level|-l) compadd -- __LOGLEVELS__; return ;;
     --pager) compadd -- auto always never; return ;;
-    --category) compadd -- ${(f)"$(bunny complete-categories 2>/dev/null)"}; return ;;
+    --tag) compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return ;;
     --capability) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"}; return ;;
-    -c) [[ $sub == list ]] && { compadd -- ${(f)"$(bunny complete-categories 2>/dev/null)"}; return } ;;
+    -t) [[ $sub == list ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
     --shell) compadd -- bash zsh fish; return ;;
 esac
 
@@ -301,7 +300,7 @@ if [[ $cur == -* ]]; then
     case $sub in
         install) flags+=(--force) ;;
         uninstall) flags+=(--purge) ;;
-        list) flags+=(--category --capability --active --remote) ;;
+        list) flags+=(--tag --capability --active --remote) ;;
         run) flags+=(--command) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
@@ -352,7 +351,7 @@ function __bunny_provider_ids
     bunny complete-ids --providers 2>/dev/null
 end
 function __bunny_categories
-    bunny complete-categories 2>/dev/null
+    bunny complete-tags 2>/dev/null
 end
 function __bunny_capabilities
     bunny complete-capabilities 2>/dev/null

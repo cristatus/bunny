@@ -16,7 +16,9 @@ type Manifest struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
 	Version     string `yaml:"version"`
-	Category    string `yaml:"category,omitempty"`
+	// Tags describe what a package is, for search and filtering. The valid
+	// vocabulary is the catalog's to define; bunny only checks the shape.
+	Tags []string `yaml:"tags,omitempty"`
 	// Kind selects which install root the package lands in: "sdk" for anything
 	// another tool may need a path to (JDKs, Node, Maven, Gradle), "app" for
 	// GUI applications, "cli" for plain commands. It is deliberately separate

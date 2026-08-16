@@ -52,8 +52,9 @@ a value is an absolute path or one starting with `~/`:
 | `cli` | plain commands (ripgrep, jq, gh) | `~/.local/share/bunny/cli` |
 | `app` | GUI applications (code, cursor, zed, jetbrains-toolbox) | `~/.local/share/bunny/app` |
 
-The kind comes from the package's manifest, not from its catalog category, so
-the catalog's folder structure and your disk layout stay independent.
+The kind comes from the package's manifest. It is separate from `tags:`, which
+describe what a package is for search, and from the catalog's folder layout,
+which bunny reads from the index rather than deriving.
 
 The reason to set this is usually `sdk`. Bunny does not isolate SDK data, so an
 install tree is a plain, self-contained directory that any tool can consume,

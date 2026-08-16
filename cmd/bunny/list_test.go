@@ -13,9 +13,9 @@ func TestRenderInstalled(t *testing.T) {
 	var b bytes.Buffer
 	p := ui.NewWithColor(&b, false)
 	rows := []installedRow{
-		{id: "bat", category: "cli", version: "1.0", provides: ""},
-		{id: "jbr-21", category: "sdk", version: "21", provides: "jdk"},
-		{id: "jdk-21", category: "sdk", version: "21", provides: "jdk", active: true},
+		{id: "bat", tags: []string{"cli"}, version: "1.0", provides: ""},
+		{id: "jbr-21", tags: []string{"java", "jdk"}, version: "21", provides: "jdk"},
+		{id: "jdk-21", tags: []string{"java", "jdk"}, version: "21", provides: "jdk", active: true},
 	}
 
 	out := renderInstalled(p, rows)
@@ -48,7 +48,7 @@ func TestRenderRemoteShowsCapabilityAndActive(t *testing.T) {
 	var b bytes.Buffer
 	p := ui.NewWithColor(&b, false)
 	rows := []remoteRow{{
-		pkg:    catalog.PackageInfo{ID: "zulu-21", Category: "sdk", Provides: "jdk", Version: "21"},
+		pkg:    catalog.PackageInfo{ID: "zulu-21", Tags: []string{"java", "jdk"}, Provides: "jdk", Version: "21"},
 		active: true, status: "installed", statusStyle: ui.Good,
 	}}
 	out := renderRemote(p, rows)
@@ -60,9 +60,9 @@ func TestRenderRemoteShowsCapabilityAndActive(t *testing.T) {
 }
 
 func TestListFilters(t *testing.T) {
-	c := &ListCmd{Category: "sdk", Capability: "jdk"}
-	if !c.matchesCategory("sdk") || c.matchesCategory("cli") {
-		t.Fatal("category filter mismatch")
+	c := &ListCmd{Tag: "java", Capability: "jdk"}
+	if !c.matchesTag([]string{"java", "jdk"}) || c.matchesTag([]string{"cli"}) {
+		t.Fatal("tag filter mismatch")
 	}
 	if !c.matchesCapability("jdk") || c.matchesCapability("node") {
 		t.Fatal("capability filter mismatch")

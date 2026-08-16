@@ -113,6 +113,16 @@ func (m *Manifest) Validate() error {
 	if m.Toolchains != "" && m.Toolchains != "gradle" && m.Toolchains != "maven" {
 		return vErr("toolchains", `must be "gradle" or "maven"`)
 	}
+	seenTags := map[string]bool{}
+	for i, tag := range m.Tags {
+		if !tagPattern.MatchString(tag) {
+			return vErr(fmt.Sprintf("tags[%d]", i), "must be lowercase alphanumeric with hyphens")
+		}
+		if seenTags[tag] {
+			return vErr(fmt.Sprintf("tags[%d]", i), "duplicate tag "+tag)
+		}
+		seenTags[tag] = true
+	}
 	if m.Kind != "" && !KnownKind(m.Kind) {
 		return vErr("kind", `must be "app", "cli", or "sdk"`)
 	}
@@ -240,6 +250,7 @@ var (
 	desktopBasePattrn = regexp.MustCompile(`^[a-z0-9_-]+$`)
 	iconPattern       = regexp.MustCompile(`^[a-z0-9_-]+$`)
 	envPattern        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	tagPattern        = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 	iconSizePattern   = regexp.MustCompile(`^(?:[1-9][0-9]*x[1-9][0-9]*|scalable)$`)
 	hexPattern        = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 )

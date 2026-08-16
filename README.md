@@ -109,8 +109,8 @@ node --version    # → 24.x
 ```
 bunny install <id>          install a package
 bunny uninstall <id>        remove (use --purge to also drop per-version SDK data)
-bunny list                  list category, capability, version, and active provider
-bunny list --remote         list the full catalog (--capability jdk / --active)
+bunny list                  list tags, capability, version, and active provider
+bunny list --remote         list the full catalog (--tag java / --capability jdk / --active)
 bunny info <id>             show capability, requirements, pins, and dependents
 bunny search <query>        search names, descriptions, capabilities, and requirements
 bunny use <id>              switch active SDK version (e.g. jdk-17 → jdk-21)
@@ -163,7 +163,7 @@ plumbing, and `~/.local/bin` is on `PATH` on most distributions.
 ├── app/{id}/          GUI applications (code, zed, jetbrains-toolbox)
 ├── data/{id}/         per-package data, the {data} placeholder
 │   └── manifest.yaml  install-time manifest cache (drives runtime + uninstall)
-├── catalog/{category}/{id}/   optional local manifests (override remote)
+├── catalog/packages/{id}/     optional local manifests (override remote)
 ├── state.json         installed packages, providers, install locations
 └── mutation.lock      serializes state-changing commands
 

@@ -14,6 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/checker"
 	"github.com/cristatus/bunny/internal/manifest"
@@ -65,51 +67,55 @@ func validateCatalog(root string) error {
 		return fmt.Errorf("parse index.json: %w", err)
 	}
 
+	vocabulary, err := loadTagVocabulary(root)
+	if err != nil {
+		return err
+	}
+
 	seen := make(map[string]bool)
 	count := 0
-	categories, err := os.ReadDir(root)
+	packages, err := os.ReadDir(filepath.Join(root, catalog.PackagesDir))
 	if err != nil {
 		return fmt.Errorf("read catalog: %w", err)
 	}
-	for _, category := range categories {
-		if !category.IsDir() || strings.HasPrefix(category.Name(), ".") {
+	for _, pkg := range packages {
+		if !pkg.IsDir() || strings.HasPrefix(pkg.Name(), ".") {
 			continue
 		}
-		packages, err := os.ReadDir(filepath.Join(root, category.Name()))
+		path := filepath.Join(root, catalog.PackagesDir, pkg.Name(), "manifest.yaml")
+		f, err := os.Open(path)
 		if err != nil {
-			return fmt.Errorf("read category %q: %w", category.Name(), err)
+			return fmt.Errorf("%s: open manifest: %w", pkg.Name(), err)
 		}
-		for _, pkg := range packages {
-			if !pkg.IsDir() || strings.HasPrefix(pkg.Name(), ".") {
-				continue
-			}
-			path := filepath.Join(root, category.Name(), pkg.Name(), "manifest.yaml")
-			f, err := os.Open(path)
-			if err != nil {
-				return fmt.Errorf("%s: open manifest: %w", pkg.Name(), err)
-			}
-			m, parseErr := manifest.Parse(f)
-			f.Close()
-			if parseErr != nil {
-				return fmt.Errorf("%s: %w", pkg.Name(), parseErr)
-			}
-			if m.ID != pkg.Name() {
-				return fmt.Errorf("%s: manifest id %q does not match directory", pkg.Name(), m.ID)
-			}
-			if seen[m.ID] {
-				return fmt.Errorf("duplicate package id %q", m.ID)
-			}
-			seen[m.ID] = true
-			count++
+		m, parseErr := manifest.Parse(f)
+		f.Close()
+		if parseErr != nil {
+			return fmt.Errorf("%s: %w", pkg.Name(), parseErr)
+		}
+		if m.ID != pkg.Name() {
+			return fmt.Errorf("%s: manifest id %q does not match directory", pkg.Name(), m.ID)
+		}
+		if seen[m.ID] {
+			return fmt.Errorf("duplicate package id %q", m.ID)
+		}
+		seen[m.ID] = true
+		count++
 
-			e, ok := index.Packages[m.ID]
-			if !ok {
-				return fmt.Errorf("%s: missing from index.json", m.ID)
+		for _, tag := range m.Tags {
+			if !vocabulary[tag] {
+				return fmt.Errorf("%s: tag %q is not declared in %s", m.ID, tag, tagsFile)
 			}
-			if e.Name != m.Name || e.Version != m.Version || e.Category != category.Name() ||
-				e.Description != m.Description || e.Provides != m.Provides || !slices.Equal(e.Requires, m.Requires) {
-				return fmt.Errorf("%s: index.json metadata does not match manifest", m.ID)
-			}
+		}
+
+		e, ok := index.Packages[m.ID]
+		if !ok {
+			return fmt.Errorf("%s: missing from index.json", m.ID)
+		}
+		wantPath := catalog.PackagesDir + "/" + m.ID
+		if e.Name != m.Name || e.Version != m.Version || e.Path != wantPath ||
+			e.Description != m.Description || e.Provides != m.Provides ||
+			!slices.Equal(e.Requires, m.Requires) || !slices.Equal(e.Tags, m.Tags) {
+			return fmt.Errorf("%s: index.json metadata does not match manifest", m.ID)
 		}
 	}
 	if len(index.Packages) != count {
@@ -178,7 +184,7 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 		if len(m.Sources) == 0 {
 			continue
 		}
-		manifestPath := filepath.Join(a.local.Root(), p.Category, p.ID, "manifest.yaml")
+		manifestPath := filepath.Join(a.local.Root(), catalog.PackagesDir, p.ID, "manifest.yaml")
 		indexPath := filepath.Join(a.local.Root(), "index.json")
 		for i, s := range m.Sources {
 			if s.Update == nil {
@@ -253,7 +259,8 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 			iw, err := catalog.PrepareIndexEntry(j.indexPath, j.pkg.ID, catalog.IndexEntry{
 				Name:        j.m.Name,
 				Version:     r.LatestVersion,
-				Category:    j.pkg.Category,
+				Path:        catalog.PackagesDir + "/" + j.pkg.ID,
+				Tags:        append([]string(nil), j.m.Tags...),
 				Description: j.m.Description,
 				Provides:    j.m.Provides,
 				Requires:    append([]string(nil), j.m.Requires...),
@@ -411,4 +418,28 @@ func extractURLVersion(sourceURL, pattern string) string {
 		return ""
 	}
 	return m[1]
+}
+
+// tagsFile declares the catalog's tag vocabulary. Keeping it in the catalog
+// rather than in bunny means a fork can name its own tags without patching
+// the tool, while `dev validate` still stops the vocabulary drifting.
+const tagsFile = "tags.yaml"
+
+func loadTagVocabulary(root string) (map[string]bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, tagsFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("%s is missing: it declares the tags manifests may use", tagsFile)
+		}
+		return nil, err
+	}
+	var declared map[string]string
+	if err := yaml.Unmarshal(data, &declared); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", tagsFile, err)
+	}
+	vocabulary := make(map[string]bool, len(declared))
+	for tag := range declared {
+		vocabulary[tag] = true
+	}
+	return vocabulary, nil
 }

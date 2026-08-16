@@ -34,8 +34,8 @@ const testIndex = `{
   "version": 1,
   "updated": "2026-01-01T00:00:00Z",
   "packages": {
-    "rg": {"name": "ripgrep", "version": "14.1.0", "category": "cli", "description": "fast grep", "provides": "search", "requires": ["jdk>=17"]},
-    "code": {"name": "VS Code", "version": "1.98.2", "category": "editor", "description": "editor"}
+    "rg": {"name": "ripgrep", "version": "14.1.0", "path": "packages/rg", "tags": ["cli"], "description": "fast grep", "provides": "search", "requires": ["jdk>=17"]},
+    "code": {"name": "VS Code", "version": "1.98.2", "path": "packages/code", "tags": ["editor"], "description": "editor"}
   }
 }`
 
@@ -54,8 +54,8 @@ func TestRemoteListAndLoad(t *testing.T) {
 	cache := t.TempDir()
 	r := NewRemote("https://x", cache)
 	r.WithHTTPGet(fakeHTTP(map[string]string{
-		"https://x/index.json":           testIndex,
-		"https://x/cli/rg/manifest.yaml": remoteManifest,
+		"https://x/index.json":                testIndex,
+		"https://x/packages/rg/manifest.yaml": remoteManifest,
 	}))
 
 	pkgs, err := r.List()
@@ -83,8 +83,8 @@ func TestRemoteListAndLoad(t *testing.T) {
 func TestRemoteLoadFileSafeRelPath(t *testing.T) {
 	r := NewRemote("https://x", t.TempDir())
 	r.WithHTTPGet(fakeHTTP(map[string]string{
-		"https://x/index.json":      testIndex,
-		"https://x/cli/rg/build.sh": "#!/bin/sh\n",
+		"https://x/index.json":           testIndex,
+		"https://x/packages/rg/build.sh": "#!/bin/sh\n",
 	}))
 
 	data, err := r.LoadFile("rg", "build.sh")
@@ -269,7 +269,7 @@ func TestRemoteStaleIndexDoesNotBlockOnSlowFetch(t *testing.T) {
 
 func TestListCached(t *testing.T) {
 	dir := t.TempDir()
-	idx := `{"version":1,"packages":{"jdk-21":{"name":"JDK 21","version":"21","category":"sdk","description":"d"}}}`
+	idx := `{"version":1,"packages":{"jdk-21":{"name":"JDK 21","version":"21","path":"packages/jdk-21","description":"d"}}}`
 	if err := os.WriteFile(filepath.Join(dir, "index.json"), []byte(idx), 0644); err != nil {
 		t.Fatal(err)
 	}

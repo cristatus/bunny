@@ -31,9 +31,9 @@ func (l *Local) Exists() bool {
 // Root returns the configured root path.
 func (l *Local) Root() string { return l.root }
 
-// List walks <root>/<category>/<id>/manifest.yaml.
+// List walks <root>/packages/<id>/manifest.yaml.
 func (l *Local) List() ([]PackageInfo, error) {
-	categories, err := os.ReadDir(l.root)
+	entries, err := os.ReadDir(filepath.Join(l.root, PackagesDir))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -42,49 +42,36 @@ func (l *Local) List() ([]PackageInfo, error) {
 	}
 
 	var pkgs []PackageInfo
-	for _, cat := range categories {
-		// Skip non-dirs and hidden dirs (.git, .github, ...) — never catalog content.
-		if !cat.IsDir() || strings.HasPrefix(cat.Name(), ".") {
+	for _, pkg := range entries {
+		if !pkg.IsDir() || strings.HasPrefix(pkg.Name(), ".") {
 			continue
 		}
-		catDir := filepath.Join(l.root, cat.Name())
-		entries, err := os.ReadDir(catDir)
+		path := filepath.Join(l.root, PackagesDir, pkg.Name(), "manifest.yaml")
+		f, err := os.Open(path)
 		if err != nil {
-			// One unreadable category must not sink the whole listing.
-			log.Warn("Skipping unreadable catalog category", "category", cat.Name(), "error", err)
+			// A directory with no manifest.yaml simply isn't a package —
+			// normal (helper dirs, VCS metadata), not worth a warning. Only
+			// surface a manifest that genuinely can't be read.
+			if !errors.Is(err, fs.ErrNotExist) {
+				log.Warn("Skipping catalog entry: cannot open manifest", "path", path, "error", err)
+			}
 			continue
 		}
-		for _, pkg := range entries {
-			if !pkg.IsDir() || strings.HasPrefix(pkg.Name(), ".") {
-				continue
-			}
-			path := filepath.Join(catDir, pkg.Name(), "manifest.yaml")
-			f, err := os.Open(path)
-			if err != nil {
-				// A directory with no manifest.yaml simply isn't a package —
-				// normal (helper dirs, VCS metadata), not worth a warning. Only
-				// surface a manifest that genuinely can't be read.
-				if !errors.Is(err, fs.ErrNotExist) {
-					log.Warn("Skipping catalog entry: cannot open manifest", "path", path, "error", err)
-				}
-				continue
-			}
-			m, err := manifest.Parse(f)
-			f.Close()
-			if err != nil {
-				log.Warn("Skipping catalog entry: invalid manifest", "path", path, "error", err)
-				continue
-			}
-			pkgs = append(pkgs, PackageInfo{
-				ID:          m.ID,
-				Category:    cat.Name(),
-				Name:        m.Name,
-				Description: m.Description,
-				Version:     m.Version,
-				Provides:    m.Provides,
-				Requires:    append([]string(nil), m.Requires...),
-			})
+		m, err := manifest.Parse(f)
+		f.Close()
+		if err != nil {
+			log.Warn("Skipping catalog entry: invalid manifest", "path", path, "error", err)
+			continue
 		}
+		pkgs = append(pkgs, PackageInfo{
+			ID:          m.ID,
+			Tags:        append([]string(nil), m.Tags...),
+			Name:        m.Name,
+			Description: m.Description,
+			Version:     m.Version,
+			Provides:    m.Provides,
+			Requires:    append([]string(nil), m.Requires...),
+		})
 	}
 	return pkgs, nil
 }
@@ -123,40 +110,25 @@ func (l *Local) LoadFile(id, relPath string) ([]byte, error) {
 	return os.ReadFile(filepath.Join(pkgDir, relPath))
 }
 
-// Category returns the category folder a package lives in. Returns
-// ErrNotFound when the catalog root is missing or no manifest matches the
-// id, so callers can distinguish "not in this catalog" from real I/O errors.
-func (l *Local) Category(id string) (string, error) {
+// --- internal ---
+
+// PackagesDir is the single directory every package lives in. The layout is
+// deliberately flat: a package's kind and tags can change, and a semantic
+// directory would turn every reclassification into a directory move.
+const PackagesDir = "packages"
+
+func (l *Local) packageDir(id string) (string, error) {
 	if err := manifest.ValidateID(id); err != nil {
 		return "", fmt.Errorf("invalid package id %q: %w", id, err)
 	}
-	categories, err := os.ReadDir(l.root)
-	if err != nil {
+	dir := filepath.Join(l.root, PackagesDir, id)
+	if _, err := os.Stat(filepath.Join(dir, "manifest.yaml")); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("%w: catalog root %s", ErrNotFound, l.root)
+			return "", fmt.Errorf("%w: package %q", ErrNotFound, id)
 		}
 		return "", err
 	}
-	for _, cat := range categories {
-		if !cat.IsDir() {
-			continue
-		}
-		path := filepath.Join(l.root, cat.Name(), id, "manifest.yaml")
-		if _, err := os.Stat(path); err == nil {
-			return cat.Name(), nil
-		}
-	}
-	return "", fmt.Errorf("%w: package %q", ErrNotFound, id)
-}
-
-// --- internal ---
-
-func (l *Local) packageDir(id string) (string, error) {
-	cat, err := l.Category(id)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(l.root, cat, id), nil
+	return dir, nil
 }
 
 func (l *Local) manifestPath(id string) (string, error) {

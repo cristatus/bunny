@@ -16,14 +16,14 @@ func TestCompletionIDs(t *testing.T) {
 	a := &App{Paths: paths.At(root), State: state.Empty()}
 
 	// A local catalog dir with one manifest → a local-only catalog source.
-	mdir := filepath.Join(a.Paths.Catalog(), "sdk", "jdk-21")
+	mdir := filepath.Join(a.Paths.Catalog(), catalog.PackagesDir, "jdk-21")
 	if err := os.MkdirAll(mdir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	man := `id: jdk-21
 name: JDK 21
 version: "21"
-category: sdk
+tags: [java, jdk]
 sources:
   - {url: "https://x/y.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 bin:
@@ -65,14 +65,14 @@ func TestCompletionIDsOfflineFallback(t *testing.T) {
 func TestCompletionCapabilities(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	mdir := filepath.Join(a.Paths.Catalog(), "sdk", "jdk-21")
+	mdir := filepath.Join(a.Paths.Catalog(), catalog.PackagesDir, "jdk-21")
 	if err := os.MkdirAll(mdir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	man := `id: jdk-21
 name: JDK 21
 version: "21"
-category: sdk
+tags: [java, jdk]
 provides: jdk
 sources:
   - {url: "https://x/y.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
@@ -120,7 +120,7 @@ func TestCompletionScript(t *testing.T) {
 			}
 		}
 		// Per-subcommand flags + the --category value helper.
-		for _, f := range []string{"force", "purge", "category", "capability", "active", "command", "complete-categories", "complete-capabilities"} {
+		for _, f := range []string{"force", "purge", "tag", "capability", "active", "command", "complete-tags", "complete-capabilities"} {
 			if !strings.Contains(s, f) {
 				t.Errorf("%s script missing %q", shell, f)
 			}

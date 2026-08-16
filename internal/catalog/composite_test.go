@@ -108,7 +108,7 @@ func TestCompositeLoadFileFallsThroughOnNotFound(t *testing.T) {
 
 func TestCompositeLoadFileStopsWhenLocalPackageMissingSiblingFile(t *testing.T) {
 	root := t.TempDir()
-	writeTestManifest(t, filepath.Join(root, "cli", "foo"), "foo", "Foo")
+	writeTestManifest(t, filepath.Join(root, PackagesDir, "foo"), "foo", "Foo")
 
 	local := NewLocal(root)
 	remote := &stubLoader{file: []byte("remote-content-that-should-not-be-served")}

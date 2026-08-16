@@ -8,11 +8,11 @@ Bunny is built to be forked. The catalog is a directory of YAML manifests in a g
 your-org/
 ├── bunny-catalog/          fork of cristatus/bunny-catalog (or built from scratch)
 │   ├── index.json
-│   ├── sdk/
-│   │   ├── jdk-21/manifest.yaml      # internal vendored Temurin build with corp certs
-│   │   └── node-22/manifest.yaml
-│   └── java-tool/
-│       ├── maven/manifest.yaml        # pre-configured to your internal Nexus
+│   ├── tags.yaml                       # the tag vocabulary manifests may use
+│   └── packages/
+│       ├── jdk-21/manifest.yaml        # internal vendored Temurin build with corp certs
+│       ├── node-22/manifest.yaml
+│       ├── maven/manifest.yaml         # pre-configured to your internal Nexus
 │       └── gradle/manifest.yaml
 └── dotfiles/
     └── bunny/config.yaml               # points catalog.remote at your fork
@@ -38,7 +38,7 @@ catalog:
   remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
 ```
 
-The URL needs to serve `index.json` at its root and `<category>/<id>/manifest.yaml` for each package. Anything that does that works: GitHub raw, GitLab raw, an internal pages site, an S3 bucket with directory listing, even a file:// path.
+The URL needs to serve `index.json` at its root and the path each index entry records, `packages/<id>/manifest.yaml` by default. Anything that does that works: GitHub raw, GitLab raw, an internal pages site, an S3 bucket with directory listing, even a file:// path.
 
 For a private GitHub/GitLab repo, the simplest options are:
 
@@ -48,7 +48,7 @@ For a private GitHub/GitLab repo, the simplest options are:
 
 ## Local catalog override
 
-Per-package overrides go into `~/.local/share/bunny/catalog/<category>/<id>/manifest.yaml`. If a package id exists in both local and remote, local wins. Use this for:
+Per-package overrides go into `~/.local/share/bunny/catalog/packages/<id>/manifest.yaml`. If a package id exists in both local and remote, local wins. Use this for:
 
 - pinning a package to a specific version while the team catalog moves
 - testing a manifest change before opening a PR upstream
@@ -63,7 +63,8 @@ id: jdk-21-corp
 name: "Corporate JDK 21"
 description: "Internal Temurin 21 build with org CA bundle"
 version: "21.0.5+1-corp.3"
-category: sdk
+kind: sdk
+tags: [java, jdk]
 provides: jdk
 
 sources:

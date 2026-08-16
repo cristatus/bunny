@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -42,9 +43,13 @@ type Index struct {
 
 // IndexEntry is the per-package summary stored in the index.
 type IndexEntry struct {
-	Name        string   `json:"name"`
-	Version     string   `json:"version"`
-	Category    string   `json:"category"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// Path is the package's directory in the catalog, relative to its root.
+	// Recorded rather than derived so the catalog can lay itself out however
+	// it likes without bunny modelling the scheme.
+	Path        string   `json:"path"`
+	Tags        []string `json:"tags,omitempty"`
 	Description string   `json:"description"`
 	Provides    string   `json:"provides,omitempty"`
 	Requires    []string `json:"requires,omitempty"`
@@ -115,7 +120,7 @@ func (r *Remote) List() ([]PackageInfo, error) {
 	for id, e := range idx.Packages {
 		out = append(out, PackageInfo{
 			ID:          id,
-			Category:    e.Category,
+			Tags:        append([]string(nil), e.Tags...),
 			Name:        e.Name,
 			Description: e.Description,
 			Version:     e.Version,
@@ -141,7 +146,7 @@ func (r *Remote) ListCached() ([]PackageInfo, error) {
 	for id, e := range idx.Packages {
 		out = append(out, PackageInfo{
 			ID:          id,
-			Category:    e.Category,
+			Tags:        append([]string(nil), e.Tags...),
 			Name:        e.Name,
 			Description: e.Description,
 			Version:     e.Version,
@@ -181,7 +186,7 @@ func (r *Remote) LoadFile(id, relPath string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: package %q not in remote index", ErrNotFound, id)
 	}
-	return r.fetch(fmt.Sprintf("%s/%s/%s/%s", r.baseURL, entry.Category, id, relPath))
+	return r.fetch(fmt.Sprintf("%s/%s/%s", r.baseURL, entry.Path, relPath))
 }
 
 // --- internal ---
@@ -198,7 +203,7 @@ func (r *Remote) manifestURL(id string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%w: package %q not in remote index", ErrNotFound, id)
 	}
-	return fmt.Sprintf("%s/%s/%s/manifest.yaml", r.baseURL, entry.Category, id), nil
+	return fmt.Sprintf("%s/%s/manifest.yaml", r.baseURL, entry.Path), nil
 }
 
 func (r *Remote) loadIndex() (*Index, error) {
@@ -306,8 +311,8 @@ func validateIndex(idx *Index) error {
 		if err := manifest.ValidateID(id); err != nil {
 			return fmt.Errorf("package %q: %w", id, err)
 		}
-		if entry.Category == "" || filepath.Base(entry.Category) != entry.Category || strings.ContainsAny(entry.Category, `/\\`) {
-			return fmt.Errorf("package %q has unsafe category %q", id, entry.Category)
+		if err := safeIndexPath(entry.Path); err != nil {
+			return fmt.Errorf("package %q: %w", id, err)
 		}
 	}
 	return nil
@@ -348,4 +353,25 @@ func (r *Remote) fetch(url string) ([]byte, error) {
 		return body, nil
 	}
 	return nil, fmt.Errorf("fetch %s: %v (%w)", url, lastErr, ErrNotFound)
+}
+
+// safeIndexPath rejects a package path that is absolute or escapes the catalog
+// root. The index is remote input, so its paths are used to build URLs only
+// after they are known to stay inside the catalog.
+func safeIndexPath(p string) error {
+	if p == "" {
+		return fmt.Errorf("index entry has no path")
+	}
+	if path.IsAbs(p) || strings.HasPrefix(p, "/") {
+		return fmt.Errorf("unsafe package path %q: must be relative", p)
+	}
+	if path.Clean(p) != p {
+		return fmt.Errorf("unsafe package path %q: must be clean", p)
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == ".." || part == "" {
+			return fmt.Errorf("unsafe package path %q", p)
+		}
+	}
+	return nil
 }
