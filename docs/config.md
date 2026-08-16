@@ -150,6 +150,25 @@ Values expand the same placeholders manifests use:
 | `{share}` | `~/.local/share` |
 | `{id}`, `{version}` | the package id and version |
 
+A manifest's `prepare:` steps see a different set, because they run while the
+package is being built rather than after it is installed:
+
+| Placeholder | Expands to |
+|---|---|
+| `{src}` | the downloaded sources, and the working directory |
+| `{pkg}` | the tree being built, which becomes `{app}` |
+| `{work}` | the staging root holding both, the only writable area |
+| `{data}` | the package's real data dir |
+| `{id}`, `{version}` | the package id and version |
+
+`{data}` expands to the same real path it will have at run time, so a step can
+bake it into a config file and seed that directory in one go. The writes are
+staged and merged in once the install commits, filling in only what is missing,
+so a config edited since the last install survives an upgrade.
+
+There is no `{app}` during `prepare:`; the install tree does not exist yet.
+Write to `{pkg}`, which is renamed into place at the end of the install.
+
 Because `{data}` is per package id, a capability-keyed entry still gives each
 version its own directory: `node-22` and `node-24` both get
 `NPM_CONFIG_PREFIX`, pointing at different paths.

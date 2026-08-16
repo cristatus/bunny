@@ -119,7 +119,7 @@ func TestSingleRootLayout(t *testing.T) {
 		{p.Cache(), "/x/cache"},
 		{p.AppDownloadCache("vscode"), "/x/cache/vscode"},
 		{p.Staging(manifest.KindSDK), "/x/sdk/.staging"},
-		{p.AppStaging("vscode", manifest.KindApp), "/x/app/.staging/vscode"},
+		{p.StagingBeside("/x/app/vscode"), "/x/app/.staging/vscode"},
 		{p.StateFile(), "/x/state.json"},
 		{p.MutationLock(), "/x/mutation.lock"},
 		{p.ManifestFile("vscode"), "/x/manifests/vscode.yaml"},
@@ -184,7 +184,7 @@ func TestStagingIsSiblingOfInstallTarget(t *testing.T) {
 			if got := filepath.Dir(p.Staging(kind)); got != root {
 				t.Errorf("%s: staging parent = %q, want %q", kind, got, root)
 			}
-			staged := p.AppStaging("node-22", kind)
+			staged := p.StagingBeside(p.InstallDir("node-22", kind))
 			if got := filepath.Dir(staged); got != p.Staging(kind) {
 				t.Errorf("%s: per-app staging parent = %q, want %q", kind, got, p.Staging(kind))
 			}

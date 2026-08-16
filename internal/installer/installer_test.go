@@ -67,8 +67,8 @@ func (c *fakeCatalog) LoadFile(id, rel string) ([]byte, error) {
 
 // noopPrepare just creates an empty marker file in pkgDir so place() has
 // something non-empty to rename.
-func noopPrepare(_ context.Context, srcDir, pkgDir string, commands []string, vars map[string]string) error {
-	return os.WriteFile(filepath.Join(pkgDir, "marker"), []byte("ok"), 0644)
+func noopPrepare(_ context.Context, workDir, srcDir string, shadow map[string]string, commands []string, vars map[string]string) error {
+	return os.WriteFile(filepath.Join(workDir, "pkg", "marker"), []byte("ok"), 0644)
 }
 
 // installerWith builds an Installer wired to a temp $BUNNY_HOME, a fake
@@ -827,5 +827,161 @@ func TestForceRefusesUnownedDirectoryAtAMovedRoot(t *testing.T) {
 	}
 	if data, err := os.ReadFile(keep); err != nil || string(data) != "mine" {
 		t.Fatalf("user's directory was destroyed: %q, %v", data, err)
+	}
+}
+
+// Seeding is copy-if-absent: an upgrade fills in what a package needs and
+// leaves anything already there alone, because {data} is the user's once
+// written and a config edited between installs must survive.
+func TestSeedDataFillsGapsWithoutOverwriting(t *testing.T) {
+	seedDir, dataDir := t.TempDir(), t.TempDir()
+	mustWrite := func(dir, rel, content string) string {
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	mustWrite(seedDir, "conf/server.xml", "shipped")
+	mustWrite(seedDir, "conf/web.xml", "shipped")
+	edited := mustWrite(dataDir, "conf/server.xml", "the user's edit")
+
+	if err := seedData(seedDir, dataDir); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(edited); string(data) != "the user's edit" {
+		t.Errorf("an edited config was overwritten: %q", data)
+	}
+	added := filepath.Join(dataDir, "conf", "web.xml")
+	if data, err := os.ReadFile(added); err != nil || string(data) != "shipped" {
+		t.Errorf("a missing file was not seeded: %q, %v", data, err)
+	}
+}
+
+// Nothing to seed is the common case and must not be an error, nor create the
+// data dir for a package that never asked for one.
+func TestSeedDataIsANoopWhenNothingWasStaged(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "data", "rg")
+	if err := seedData(t.TempDir(), dataDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dataDir); !os.IsNotExist(err) {
+		t.Errorf("empty seed created %s", dataDir)
+	}
+	if err := seedData(filepath.Join(t.TempDir(), "absent"), dataDir); err != nil {
+		t.Errorf("a missing seed dir should be fine: %v", err)
+	}
+}
+
+// What a prepare step writes through the {data} shadow has to reach the real
+// data dir. Staging it and never merging it out looks like a working install
+// until the package starts and finds no config.
+func TestInstallSeedsDataFromTheShadow(t *testing.T) {
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "tomcat.tar.gz")
+	os.WriteFile(srcFile, []byte("payload"), 0644)
+
+	m := &manifest.Manifest{
+		ID:      "tomcat",
+		Name:    "Apache Tomcat",
+		Version: "11.0.24",
+		Sources: []manifest.Source{
+			{URL: "file://" + srcFile, File: "tomcat.tar.gz", SHA256: sha256Of("payload")},
+		},
+		Prepare: []string{"seed the config"},
+		Bin:     []manifest.Binary{{Name: "catalina", Path: "{app}/bin/catalina.sh"}},
+	}
+
+	i := installerWith(t, map[string]*manifest.Manifest{"tomcat": m}, nil)
+	i.Prepare = func(_ context.Context, workDir, srcDir string, shadow map[string]string, commands []string, vars map[string]string) error {
+		if err := noopPrepare(nil, workDir, srcDir, shadow, commands, vars); err != nil {
+			return err
+		}
+		// Stand in for `cp -r conf {data}/conf`: the step names the real path,
+		// which the sandbox has mounted from staging.
+		staged, ok := shadow[vars["data"]]
+		if !ok {
+			return fmt.Errorf("{data} %q is not shadowed", vars["data"])
+		}
+		if err := os.MkdirAll(filepath.Join(staged, "conf"), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(staged, "conf", "server.xml"), []byte("shipped"), 0644)
+	}
+	if err := i.Install(context.Background(), "tomcat", false, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	seeded := filepath.Join(i.Paths.AppData("tomcat"), "conf", "server.xml")
+	if data, err := os.ReadFile(seeded); err != nil || string(data) != "shipped" {
+		t.Fatalf("prepare's {data} writes never reached %s: %q, %v", seeded, data, err)
+	}
+}
+
+// bwrap mounts a shadow over the real path, and can only create that
+// mountpoint where the sandbox is already writable. Under $HOME the --tmpfs
+// supplies that; under a BUNNY_HOME elsewhere the path sits inside the
+// read-only bind, so the directory has to exist on the host beforehand or
+// prepare fails before running a single step.
+func TestRunPrepareCreatesShadowedDirectories(t *testing.T) {
+	i := installerWith(t, nil, nil)
+	var got map[string]string
+	i.Prepare = func(_ context.Context, _, _ string, shadow map[string]string, _ []string, _ map[string]string) error {
+		got = shadow
+		return nil
+	}
+
+	dataDir := filepath.Join(t.TempDir(), "elsewhere", "data", "tomcat")
+	shadow := map[string]string{dataDir: filepath.Join(t.TempDir(), "seed")}
+	m := &manifest.Manifest{ID: "tomcat", Prepare: []string{"true"}}
+
+	if err := i.runPrepare(context.Background(), m, "work", "src", shadow, nil); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(dataDir); err != nil || !info.IsDir() {
+		t.Errorf("shadowed mountpoint %s was not created: %v", dataDir, err)
+	}
+	if len(got) != 1 {
+		t.Errorf("shadow map not passed through: %v", got)
+	}
+}
+
+// Seeding happens past the last rollback for a reason: an install that fails
+// after prepare must leave {data} exactly as it was. Seeding earlier would
+// leave a config directory behind for a package that is not installed, and on
+// the retry that directory would suppress the seed it was supposed to receive.
+func TestFailedInstallLeavesDataUntouched(t *testing.T) {
+	srcFile := filepath.Join(t.TempDir(), "tomcat.tar.gz")
+	os.WriteFile(srcFile, []byte("payload"), 0644)
+	m := &manifest.Manifest{
+		ID: "tomcat", Name: "Apache Tomcat", Version: "11.0.24",
+		Sources: []manifest.Source{{URL: "file://" + srcFile, File: "tomcat.tar.gz", SHA256: sha256Of("payload")}},
+		Prepare: []string{"seed the config"},
+		Bin:     []manifest.Binary{{Name: "catalina", Path: "{app}/bin/catalina.sh"}},
+	}
+
+	i := installerWith(t, map[string]*manifest.Manifest{"tomcat": m}, nil)
+	i.Prepare = func(_ context.Context, workDir, srcDir string, shadow map[string]string, commands []string, vars map[string]string) error {
+		if err := noopPrepare(nil, workDir, srcDir, shadow, commands, vars); err != nil {
+			return err
+		}
+		staged := shadow[vars["data"]]
+		if err := os.MkdirAll(filepath.Join(staged, "conf"), 0755); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(staged, "conf", "server.xml"), []byte("shipped"), 0644)
+	}
+	// Fail at the last step that still unwinds the install.
+	i.SaveState = func(*state.State, string) error { return errors.New("disk full") }
+
+	if err := i.Install(context.Background(), "tomcat", false, nil); err == nil {
+		t.Fatal("expected the install to fail")
+	}
+	seeded := filepath.Join(i.Paths.AppData("tomcat"), "conf", "server.xml")
+	if _, err := os.Stat(seeded); !os.IsNotExist(err) {
+		t.Errorf("a failed install seeded %s: %v", seeded, err)
 	}
 }

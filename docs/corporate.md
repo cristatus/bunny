@@ -10,7 +10,7 @@ Bunny-launched apps have full network access: they're ordinary host processes. M
 
 The host's CA store is read at its real path (typically `/etc/ssl/certs/ca-certificates.crt` on Debian/Ubuntu, `/etc/pki/tls/certs/ca-bundle.crt` on RHEL). Tools that read these system paths just work.
 
-For Java, the JDK's own `cacerts` keystore is used. Ship a pre-populated one via a vendored manifest (see [Team deployment](teams.md#vendoring-an-internal-jdk-build)), or `keytool -import` extra corp roots into `{app}/lib/security/cacerts`; that survives reinstall only if a `prepare:` step redoes the import, otherwise repeat after each update.
+For Java, the JDK's own `cacerts` keystore is used. Ship a pre-populated one via a vendored manifest (see [Team deployment](teams.md#vendoring-an-internal-jdk-build)), or `keytool -import` extra corp roots into the JDK's `lib/security/cacerts`. An install replaces the whole tree, so that survives an update only if a `prepare:` step redoes the import against `{pkg}`, the staging tree that becomes the install; otherwise repeat it after each update.
 
 For Node, set `NODE_EXTRA_CA_CERTS` either globally (in your shell setup) or per-project in `.envrc` / `.env`.
 
@@ -32,7 +32,7 @@ Practical setup for an internal Nexus:
 2. Drop your `settings.xml` at the usual `~/.m2/settings.xml`.
 3. Run `mvn -version`; the `<mirrors>`/`<servers>` config is picked up from the host path, and artifacts land in `~/.m2/repository`.
 
-For a team rollout you can instead ship a custom Maven manifest with `prepare:` that copies a `settings.xml` template into `{app}/conf/settings.xml`, and document the `mvn --settings` flag for users who want overrides.
+For a team rollout you can instead ship a custom Maven manifest whose `prepare:` step copies a `settings.xml` template into `{data}`, and point Maven at it from the manifest's `env:` with `MAVEN_ARGS: "--settings {data}/settings.xml"`. `{data}` is the right target rather than `{pkg}`: an update replaces the install tree but seeds `{data}` only where a file is missing, so a copy edited since install survives.
 
 ## Gradle daemon and caches
 

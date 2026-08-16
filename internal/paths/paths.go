@@ -196,10 +196,6 @@ func (p *Paths) Staging(kind string) string {
 	return filepath.Join(p.InstallRoot(kind), stagingDirName)
 }
 
-func (p *Paths) AppStaging(id, kind string) string {
-	return filepath.Join(p.Staging(kind), id)
-}
-
 // StagingBeside is where to stage a tree destined for dir. An install that
 // updates a package in place lands wherever that package already is, which is
 // not necessarily under the root currently configured for its kind, and the

@@ -81,6 +81,11 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   silence, and `use`, `pin`, `reshim`, `setup`, `clean`, `toolchains`, and
   `dev update` now log what they changed.
 - Waiting on the mutation lock says so, instead of appearing to hang.
+- `prepare:` steps can use `{data}`, which expands to the package's real data
+  path. The sandbox stands a staging directory in its place, and what the step
+  writes is merged in after the install commits, copying only files that are
+  not already there. A manifest can seed a default config and bake the same
+  path into a config file in one step.
 
 ### Removed
 

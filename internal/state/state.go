@@ -2,8 +2,8 @@
 // for each capability (e.g. "node" → "node-22"), and the command → package
 // mapping that shims rely on.
 //
-// Format: JSON at $BUNNY_HOME/var/state.json. Small enough that JSON is
-// fine; SQLite would be over-engineered.
+// Format: JSON, one file beside the manifest snapshots. Small enough that
+// JSON is fine; SQLite would be over-engineered.
 package state
 
 import (
@@ -57,13 +57,9 @@ type Package struct {
 	// Path is where the package actually is, always recorded. Reading a
 	// location instead of recomputing one is what lets the user repoint an
 	// install root, or the catalog change a package's kind, without stranding
-	// a tree already on disk.
-	//
-	// Recording it only when it differed from the default was the same idea
-	// applied too cleverly, and it did not work: a package installed under the
-	// default root had nothing written down, so moving that root lost it. The
-	// tree bunny cannot find is exactly the one whose location it declined to
-	// record. Absolute paths in state are the price.
+	// a tree already on disk, and a tree whose location is not written down is
+	// exactly the one bunny will not be able to find. Absolute paths in state
+	// are the price.
 	Path string `json:"path,omitempty"`
 }
 

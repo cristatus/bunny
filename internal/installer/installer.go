@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,9 +25,9 @@ import (
 	"github.com/cristatus/bunny/internal/state"
 )
 
-// PrepareFn runs an install-time bwrap step. Defaults to runtime.PrepareStepsContext;
-// tests inject a noop.
-type PrepareFn func(ctx context.Context, srcDir, pkgDir string, commands []string, vars map[string]string) error
+// PrepareFn runs an install-time bwrap step over the staging root. Defaults to
+// runtime.PrepareStepsContext; tests inject a noop.
+type PrepareFn func(ctx context.Context, workDir, srcDir string, shadow map[string]string, commands []string, vars map[string]string) error
 
 // BunnyPathFn returns the absolute path to the bunny binary that shims should
 // point at. Defaults to shim.BunnyBinaryPath; tests inject a fixed value.
@@ -128,6 +129,11 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	workDir := i.Paths.StagingBeside(destDir)
 	srcDir := filepath.Join(workDir, "src")
 	pkgDir := filepath.Join(workDir, "pkg")
+	// seedDir stands in for {data} inside the sandbox: prepare writes to the
+	// real data path, the bytes land here, and seedData merges them out once
+	// the install commits.
+	seedDir := filepath.Join(workDir, "seed")
+	dataDir := i.Paths.AppData(id)
 	cleanup := func() { os.RemoveAll(workDir) }
 
 	log.Debug("Install layout", "package", id, "kind", kind,
@@ -143,18 +149,28 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		cleanup()
 		return err
 	}
+	if err := os.MkdirAll(seedDir, 0755); err != nil {
+		cleanup()
+		return err
+	}
 
 	// Tag the download cache and the staging root as disposable so backup
 	// tools skip them.
 	markDisposable(i.Paths.Cache())
 	markDisposable(filepath.Dir(workDir))
 
+	// {data} expands to the path the package will really see at run time, so a
+	// manifest can bake it into a config file and seed that same directory in
+	// one step, with one placeholder. The sandbox stands seedDir in its place
+	// to make it writable.
+	shadow := map[string]string{dataDir: seedDir}
 	prepareVars := map[string]string{
 		"id":      id,
 		"version": m.Version,
 		"src":     srcDir,
 		"pkg":     pkgDir,
 		"work":    workDir,
+		"data":    dataDir,
 	}
 
 	hook.Phase("downloading")
@@ -164,7 +180,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	hook.Phase("extracting")
-	if err := i.runPrepare(ctx, m, srcDir, pkgDir, prepareVars); err != nil {
+	if err := i.runPrepare(ctx, m, workDir, srcDir, shadow, prepareVars); err != nil {
 		cleanup()
 		return err
 	}
@@ -264,6 +280,14 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 	if err := placed.Commit(); err != nil {
 		log.Warn("Failed to remove previous install backup", "package", id, "error", err)
+	}
+
+	// Merge what prepare wrote through the {data} shadow, once nothing can roll
+	// back: an install that failed earlier leaves the user's data dir as it
+	// was. A failure here costs a default config, not an install state already
+	// records, so it warns rather than unwinding a committed install.
+	if err := seedData(seedDir, dataDir); err != nil {
+		log.Warn("Failed to seed package data", "package", id, "dir", dataDir, "error", err)
 	}
 
 	cleanup()
@@ -578,11 +602,20 @@ func (i *Installer) fetchSources(ctx context.Context, m *manifest.Manifest, srcD
 	return nil
 }
 
-func (i *Installer) runPrepare(ctx context.Context, m *manifest.Manifest, srcDir, pkgDir string, vars map[string]string) error {
+func (i *Installer) runPrepare(ctx context.Context, m *manifest.Manifest, workDir, srcDir string, shadow map[string]string, vars map[string]string) error {
 	if len(m.Prepare) == 0 {
 		return nil
 	}
-	return i.Prepare(ctx, srcDir, pkgDir, m.Prepare, vars)
+	// A shadow mounts staging over the real path, and bwrap can only create
+	// that mountpoint where something is already writable. Under $HOME the
+	// sandbox's --tmpfs supplies it; under a BUNNY_HOME elsewhere the path
+	// falls inside the read-only bind, and prepare fails before it starts.
+	for real := range shadow {
+		if err := os.MkdirAll(real, 0755); err != nil {
+			return fmt.Errorf("create shadowed directory %s: %w", real, err)
+		}
+	}
+	return i.Prepare(ctx, workDir, srcDir, shadow, m.Prepare, vars)
 }
 
 // placement tracks a staged app-dir swap until state has been saved.
@@ -865,4 +898,53 @@ func appendMissing(names []string, additions ...string) []string {
 		seen[name] = true
 	}
 	return names
+}
+
+// seedData copies the tree a prepare step wrote through the {data} shadow into
+// the real data directory, creating only what is not already there. Files are
+// never replaced and never removed: {data} belongs to the package and to
+// whoever has been editing its config since, so an upgrade seeds what is
+// missing and leaves the rest alone.
+func seedData(seedDir, dataDir string) error {
+	entries, err := os.ReadDir(seedDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil // the common case: most packages seed nothing
+	}
+	return filepath.WalkDir(seedDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || path == seedDir {
+			return err
+		}
+		rel, err := filepath.Rel(seedDir, path)
+		if err != nil {
+			return err
+		}
+		dst := filepath.Join(dataDir, rel)
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0755)
+		}
+		if _, err := os.Lstat(dst); err == nil {
+			log.Debug("Keeping existing data file", "path", dst)
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return nil // symlinks and devices are not something to seed
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return err
+		}
+		log.Debug("Seeded data file", "path", dst)
+		return fsutil.CopyFile(path, dst, info.Mode().Perm())
+	})
 }
