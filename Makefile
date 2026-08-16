@@ -9,9 +9,11 @@ build:
 test:
 	go test ./...
 
+# Mirrors install.sh and paths.Resolve: BUNNY_HOME collapses everything under
+# one root, otherwise shims and the binary live in ~/.local/bin.
 install: build
-	mkdir -p $${BUNNY_HOME:-$$HOME/.bunny}/bin
-	cp $(BIN) $${BUNNY_HOME:-$$HOME/.bunny}/bin/bunny
+	@dir=$${BUNNY_HOME:+$$BUNNY_HOME/bin}; dir=$${dir:-$$HOME/.local/bin}; \
+	mkdir -p "$$dir" && cp $(BIN) "$$dir/bunny" && echo "installed $$dir/bunny"
 
 fmt:
 	gofmt -w .

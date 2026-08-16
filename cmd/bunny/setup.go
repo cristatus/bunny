@@ -10,11 +10,13 @@ import (
 	"strings"
 
 	"github.com/cristatus/bunny/internal/fsutil"
+	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/ui"
 )
 
 // environmentDPath is where systemd's per-user environment generator reads
-// bunny's session env (XDG_DATA_DIRS + PATH for the graphical session).
+// bunny's session env, so the graphical session sees the same PATH (and, for a
+// single-root install, the same XDG_DATA_DIRS) as a login shell.
 func environmentDPath() (string, error) {
 	cfg, err := os.UserConfigDir() // $XDG_CONFIG_HOME or ~/.config
 	if err != nil {
@@ -24,13 +26,19 @@ func environmentDPath() (string, error) {
 }
 
 // writeEnvironmentD writes ~/.config/environment.d/bunny.conf with the session
-// XDG_DATA_DIRS + PATH prepends. bunny owns the file; write is idempotent.
-func writeEnvironmentD(bin, share string) (string, error) {
+// prepends. bunny owns the file; write is idempotent. Under the XDG layout only
+// PATH is needed: desktop entries and icons already live in XDG_DATA_HOME,
+// which the desktop scans without being told.
+func writeEnvironmentD(p *paths.Paths) (string, error) {
 	path, err := environmentDPath()
 	if err != nil {
 		return "", err
 	}
-	content := fmt.Sprintf("# managed by bunny — do not edit\nXDG_DATA_DIRS=%s:${XDG_DATA_DIRS}\nPATH=%s:${PATH}\n", share, bin)
+	content := "# managed by bunny — do not edit\n"
+	if !p.XDG() {
+		content += fmt.Sprintf("XDG_DATA_DIRS=%s:${XDG_DATA_DIRS}\n", p.Share())
+	}
+	content += fmt.Sprintf("PATH=%s:${PATH}\n", p.Bin())
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == content {
 		return path, nil
 	}
@@ -136,17 +144,17 @@ func (c *SetupCmd) Run(a *App) error {
 	}
 
 	return a.withMutation(a.context(), func() error {
-		bin, share := a.Paths.Bin(), a.Paths.Share()
+		bin := a.Paths.Bin()
 		p := ui.New(os.Stdout)
 		p.Println()
 
-		envPath, err := writeEnvironmentD(bin, share)
+		envPath, err := writeEnvironmentD(a.Paths)
 		if err != nil {
 			return fmt.Errorf("write environment.d: %w", err)
 		}
 		p.Println("wrote session env to " + tildePath(envPath))
 
-		if err := writeCompletionFile(share, shell); err != nil {
+		if err := writeCompletionFile(a.Paths, shell); err != nil {
 			return fmt.Errorf("write completion: %w", err)
 		}
 
@@ -165,11 +173,15 @@ func (c *SetupCmd) Run(a *App) error {
 			p.Println(tildePath(rcPath) + " already configured")
 		}
 
+		sessionVars := "PATH"
+		if !a.Paths.XDG() {
+			sessionVars = "PATH XDG_DATA_DIRS"
+		}
 		p.Println()
 		p.Println("setup complete — restart your shell to activate bunny,")
 		p.Println("or update the current session with:")
 		p.Println()
-		p.Println("  systemctl --user import-environment PATH XDG_DATA_DIRS")
+		p.Println("  systemctl --user import-environment " + sessionVars)
 		return nil
 	})
 }

@@ -14,17 +14,34 @@ type stubPinState struct{ installed map[string]bool }
 
 func (s *stubPinState) IsInstalled(id string) bool { return s.installed[id] }
 
-func TestHomeDirCheckOK(t *testing.T) {
-	r := homeDirCheck(t.TempDir())
+func TestLayoutCheckOK(t *testing.T) {
+	r := layoutCheck(paths.At(t.TempDir()))
 	if r.Severity != OK {
 		t.Errorf("expected OK, got %+v", r)
 	}
 }
 
-func TestHomeDirCheckMissing(t *testing.T) {
-	r := homeDirCheck(filepath.Join(t.TempDir(), "missing"))
+// Roots are created lazily, so an absent one is not yet a problem.
+func TestLayoutCheckMissingRootIsOK(t *testing.T) {
+	r := layoutCheck(paths.At(filepath.Join(t.TempDir(), "missing")))
+	if r.Severity != OK {
+		t.Errorf("expected OK for a not-yet-created root, got %+v", r)
+	}
+}
+
+// A root occupied by a regular file is a real problem, and the check should
+// say which one rather than reporting a single opaque root.
+func TestLayoutCheckRootIsAFile(t *testing.T) {
+	p := paths.At(t.TempDir())
+	if err := os.WriteFile(p.Cache(), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	r := layoutCheck(p)
 	if r.Severity != Fail {
-		t.Errorf("expected Fail, got %+v", r)
+		t.Fatalf("expected Fail, got %+v", r)
+	}
+	if !strings.Contains(r.Detail, p.Cache()) {
+		t.Errorf("detail should name the offending root, got %q", r.Detail)
 	}
 }
 

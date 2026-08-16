@@ -46,17 +46,17 @@ func TestPrepareDirectExec(t *testing.T) {
 		t.Errorf("BinPath = %q, want %q", prep.BinPath, wantBin)
 	}
 	wantArg := "--bunny"
-	wantArgVal := filepath.Join(root, "var", "app", "foo", "state")
+	wantArgVal := filepath.Join(root, "data", "foo", "state")
 	if len(prep.CmdArgs) != 3 || prep.CmdArgs[0] != wantArg || prep.CmdArgs[1] != wantArgVal || prep.CmdArgs[2] != "extra" {
 		t.Errorf("CmdArgs = %v, want [%s %s extra]", prep.CmdArgs, wantArg, wantArgVal)
 	}
-	wantEnv := "FOO_HOME=" + filepath.Join(root, "var", "app", "foo", "home")
+	wantEnv := "FOO_HOME=" + filepath.Join(root, "data", "foo", "home")
 	if !envHas(prep.Env, wantEnv) {
 		t.Errorf("env missing %q in %v", wantEnv, lastEntries(prep.Env, 3))
 	}
 	// Dirs should have been mkdir'd.
 	for _, d := range []string{"state", "home"} {
-		if _, err := os.Stat(filepath.Join(root, "var", "app", "foo", d)); err != nil {
+		if _, err := os.Stat(filepath.Join(root, "data", "foo", d)); err != nil {
 			t.Errorf("dir %s not created: %v", d, err)
 		}
 	}
@@ -100,7 +100,7 @@ func TestPrepareGlobal(t *testing.T) {
 		Version: "24.0.0",
 		Env:     map[string]string{"NPM_CONFIG_PREFIX": "{data}/npm-global"},
 	}
-	exe := filepath.Join(root, "var", "app", "node-24", "npm-global", "bin", "tsc")
+	exe := filepath.Join(root, "data", "node-24", "npm-global", "bin", "tsc")
 	l := &Launcher{Paths: p, Catalog: stubCat{}, State: st}
 	prep, err := l.PrepareGlobal(m, exe, []string{"--version"})
 	if err != nil {
@@ -112,7 +112,7 @@ func TestPrepareGlobal(t *testing.T) {
 	if len(prep.CmdArgs) != 1 || prep.CmdArgs[0] != "--version" {
 		t.Errorf("CmdArgs = %v", prep.CmdArgs)
 	}
-	wantEnv := "NPM_CONFIG_PREFIX=" + filepath.Join(root, "var", "app", "node-24", "npm-global")
+	wantEnv := "NPM_CONFIG_PREFIX=" + filepath.Join(root, "data", "node-24", "npm-global")
 	if !envHas(prep.Env, wantEnv) {
 		t.Errorf("env missing %q", wantEnv)
 	}
@@ -219,7 +219,7 @@ func TestPrepareConfigEnvOverridesManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gradleHome := filepath.Join(root, "var", "app", "gradle", "gradle")
+	gradleHome := filepath.Join(root, "data", "gradle", "gradle")
 	if !envHas(prep.Env, "GRADLE_USER_HOME="+gradleHome) {
 		t.Errorf("config env not applied: %v", lastEntries(prep.Env, 3))
 	}

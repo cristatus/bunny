@@ -9,9 +9,10 @@ import (
 	"github.com/cristatus/bunny/internal/paths"
 )
 
-func TestWriteEnvironmentD(t *testing.T) {
+func TestWriteEnvironmentDSingleRoot(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	path, err := writeEnvironmentD("/h/.bunny/bin", "/h/.bunny/share")
+	p := paths.At("/h/.bunny")
+	path, err := writeEnvironmentD(p)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,8 +28,33 @@ func TestWriteEnvironmentD(t *testing.T) {
 		t.Errorf("missing PATH line: %s", s)
 	}
 	// idempotent: second write returns same path, no error
-	if _, err := writeEnvironmentD("/h/.bunny/bin", "/h/.bunny/share"); err != nil {
+	if _, err := writeEnvironmentD(p); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The session only needs XDG_DATA_DIRS when bunny's desktop entries live
+// somewhere the desktop would not otherwise look.
+func TestWriteEnvironmentDXDGOmitsDataDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(paths.EnvHome, "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", "")
+	p, err := paths.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, err := writeEnvironmentD(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "XDG_DATA_DIRS") {
+		t.Errorf("XDG layout should not set XDG_DATA_DIRS: %s", data)
+	}
+	if !strings.Contains(string(data), "PATH="+p.Bin()) {
+		t.Errorf("missing PATH line: %s", data)
 	}
 }
 

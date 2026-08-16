@@ -39,7 +39,7 @@ func TestFindGlobalExe(t *testing.T) {
 	a := &App{Paths: paths.At(root), State: state.Empty()}
 	m := &manifest.Manifest{ID: "node-24", Version: "24.0.0", GlobalBins: []string{"{data}/npm-global/bin"}}
 
-	binDir := filepath.Join(root, "var", "app", "node-24", "npm-global", "bin")
+	binDir := filepath.Join(root, "data", "node-24", "npm-global", "bin")
 	os.MkdirAll(binDir, 0755)
 	os.WriteFile(filepath.Join(binDir, "tsc"), []byte("#!/bin/sh\n"), 0755)
 
@@ -70,7 +70,7 @@ func TestReshimCapabilities(t *testing.T) {
 		GlobalBins: []string{"{data}/npm-global/bin"}}
 	cacheManifest(t, a.Paths.ManifestFile("node-24"), m)
 
-	binDir := filepath.Join(root, "var", "app", "node-24", "npm-global", "bin")
+	binDir := filepath.Join(root, "data", "node-24", "npm-global", "bin")
 	os.MkdirAll(binDir, 0755)
 	os.WriteFile(filepath.Join(binDir, "tsc"), []byte("#!/bin/sh\n"), 0755)
 	os.MkdirAll(a.Paths.Bin(), 0755)
@@ -137,7 +137,7 @@ func TestReshimNeverReplacesBunnyExecutable(t *testing.T) {
 		Bin:        []manifest.Binary{{Name: "node", Path: "{app}/bin/node"}},
 		GlobalBins: []string{"{data}/npm-global/bin"}}
 	cacheManifest(t, a.Paths.ManifestFile("node-24"), m)
-	globalBin := filepath.Join(root, "var", "app", "node-24", "npm-global", "bin")
+	globalBin := filepath.Join(root, "data", "node-24", "npm-global", "bin")
 	os.MkdirAll(globalBin, 0755)
 	os.WriteFile(filepath.Join(globalBin, "bunny"), []byte("global tool"), 0755)
 	os.MkdirAll(a.Paths.Bin(), 0755)
@@ -217,7 +217,7 @@ func TestRegenerateToolchains(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	gp, err := os.ReadFile(filepath.Join(root, "var", "app", "gradle", "gradle", "gradle.properties"))
+	gp, err := os.ReadFile(filepath.Join(root, "data", "gradle", "gradle", "gradle.properties"))
 	if err != nil {
 		t.Fatalf("gradle.properties: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestRegenerateToolchains(t *testing.T) {
 		}
 	}
 
-	tx, err := os.ReadFile(filepath.Join(root, "var", "app", "maven", "toolchains.xml"))
+	tx, err := os.ReadFile(filepath.Join(root, "data", "maven", "toolchains.xml"))
 	if err != nil {
 		t.Fatalf("toolchains.xml: %v", err)
 	}

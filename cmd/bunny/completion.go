@@ -9,6 +9,8 @@ import (
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/fsutil"
+
+	"github.com/cristatus/bunny/internal/paths"
 )
 
 // catalogPackages returns every package known locally — local manifests plus
@@ -384,24 +386,25 @@ complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_su
 complete -c bunny -n '__fish_seen_subcommand_from clean' -l all -d 'Drop all download cache'
 `
 
-// completionFilePath returns the share/ path where shell's completion file for
-// bunny is discovered by `bunny init`'s PATH/XDG/fpath wiring.
-func completionFilePath(share, shell string) string {
+// completionFilePath returns where shell looks for bunny's own completion
+// file. The per-shell directories come from paths, which is also what installs
+// each package's completions, so the two cannot drift.
+func completionFilePath(p *paths.Paths, shell string) string {
 	switch shell {
 	case "zsh":
-		return filepath.Join(share, "zsh", "site-functions", "_bunny")
+		return filepath.Join(p.ZshCompletions(), "_bunny")
 	case "fish":
-		return filepath.Join(share, "fish", "vendor_completions.d", "bunny.fish")
+		return filepath.Join(p.FishCompletions(), "bunny.fish")
 	default:
-		return filepath.Join(share, "bash-completion", "completions", "bunny")
+		return filepath.Join(p.BashCompletions(), "bunny")
 	}
 }
 
-// writeCompletionFile writes bunny's own completion script into share/ for the
-// given shell, creating parent dirs. Idempotent: skips the write if the file
-// already has the current content.
-func writeCompletionFile(share, shell string) error {
-	dst := completionFilePath(share, shell)
+// writeCompletionFile writes bunny's own completion script for the given
+// shell, creating parent dirs. Idempotent: skips the write if the file already
+// has the current content.
+func writeCompletionFile(p *paths.Paths, shell string) error {
+	dst := completionFilePath(p, shell)
 	want := completionScript(shell)
 	if cur, err := os.ReadFile(dst); err == nil && string(cur) == want {
 		return nil

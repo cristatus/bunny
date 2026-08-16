@@ -6,14 +6,20 @@
 #
 # Environment:
 #   BUNNY_VERSION   Specific version to install (e.g. v0.4.0). Defaults to latest.
-#   BUNNY_HOME      Install root. Defaults to ~/.bunny. The binary lands at $BUNNY_HOME/bin/bunny.
+#   BUNNY_HOME      Collapse bunny under a single root instead of the XDG
+#                   directories. The binary lands at $BUNNY_HOME/bin/bunny.
 
 set -eu
 
 REPO="cristatus/bunny"
 VERSION="${BUNNY_VERSION:-latest}"
-INSTALL_ROOT="${BUNNY_HOME:-$HOME/.bunny}"
-INSTALL_DIR="$INSTALL_ROOT/bin"
+# Without BUNNY_HOME, bunny uses the XDG layout and its shims live in
+# ~/.local/bin, which is already on PATH on most distributions.
+if [ -n "${BUNNY_HOME:-}" ]; then
+  INSTALL_DIR="$BUNNY_HOME/bin"
+else
+  INSTALL_DIR="$HOME/.local/bin"
+fi
 
 die() {
   printf 'error: %s\n' "$*" >&2

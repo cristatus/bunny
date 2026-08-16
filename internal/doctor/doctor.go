@@ -42,7 +42,7 @@ type Result struct {
 // RunAll runs the standard set of checks and returns one Result per check.
 func RunAll(p *paths.Paths) []Result {
 	return []Result{
-		homeDirCheck(p.Home),
+		layoutCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
 		waylandCheck(),
@@ -53,15 +53,29 @@ func RunAll(p *paths.Paths) []Result {
 	}
 }
 
-func homeDirCheck(home string) Result {
-	info, err := os.Stat(home)
-	if err != nil {
-		return Result{Name: "BUNNY_HOME", Detail: fmt.Sprintf("missing: %s", home), Severity: Fail}
+// layoutCheck reports which layout is active and verifies the roots bunny
+// writes to. Under XDG those are several directories, so naming the one that
+// is broken matters more than reporting a single root.
+func layoutCheck(p *paths.Paths) Result {
+	name := "BUNNY_HOME"
+	detail := p.Root
+	if p.XDG() {
+		name = "layout"
+		detail = "xdg: " + p.Data()
 	}
-	if !info.IsDir() {
-		return Result{Name: "BUNNY_HOME", Detail: fmt.Sprintf("not a directory: %s", home), Severity: Fail}
+	for _, dir := range []string{p.Data(), p.Cache(), p.Bin()} {
+		info, err := os.Stat(dir)
+		if os.IsNotExist(err) {
+			continue // created lazily on first install
+		}
+		if err != nil {
+			return Result{Name: name, Detail: fmt.Sprintf("unreadable: %s", dir), Severity: Fail}
+		}
+		if !info.IsDir() {
+			return Result{Name: name, Detail: fmt.Sprintf("not a directory: %s", dir), Severity: Fail}
+		}
 	}
-	return Result{Name: "BUNNY_HOME", Detail: home, Severity: OK}
+	return Result{Name: name, Detail: detail, Severity: OK}
 }
 
 func pathOnPathCheck(binDir string) Result {
