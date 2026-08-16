@@ -1,0 +1,62 @@
+# Example bunny configuration.
+#
+# Copy this to ~/.config/bunny/config.yaml (or $BUNNY_HOME/config.yaml under a
+# single-root install) and uncomment what you need. Every setting is optional,
+# and copying the file as-is changes nothing until you uncomment something.
+#
+# Reference: docs/config.md
+
+# --- Where packages are installed ------------------------------------------
+#
+# Each kind of package has its own root: sdk for anything another tool may need
+# a path to, cli for plain commands, app for GUI applications. Defaults are
+# ~/.local/share/bunny/{sdk,cli,app}.
+#
+# Worth setting "sdk" if you select JDK, Maven, or Gradle homes from an IDE's
+# file picker: ~/opt/jdk-21 beats ~/.local/share/bunny/sdk/jdk-21 in a chooser.
+# A leading ~/ is expanded; anything else must be an absolute path.
+
+# install:
+#   sdk: ~/opt
+
+# --- Extra environment at launch -------------------------------------------
+#
+# Keyed by package id ("node-22"), capability ("node"), or "*" for everything,
+# matched least specific first so a later match wins. Values expand the same
+# placeholders manifests use: {app} the install tree, {data} the package's own
+# data dir, {home} your real $HOME.
+#
+# This is where per-version data isolation lives. Bunny ships none of it: by
+# default mvn fills ~/.m2, gradle uses ~/.gradle, npm caches in ~/.npm.
+
+# env:
+#   "*":
+#     LANG: C.UTF-8
+#   node:
+#     NPM_CONFIG_PREFIX: "{data}/npm-global"   # globals per Node version
+#   node-22:
+#     NODE_OPTIONS: "--max-old-space-size=8192"
+#   gradle:
+#     GRADLE_USER_HOME: "{data}/gradle"        # see the caveat in docs/config.md
+#   maven:
+#     # MAVEN_ARGS is one variable doing two jobs, so an override has to
+#     # restate the toolchains flag bunny's manifest sets.
+#     MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+
+# --- Directories to create before launch ------------------------------------
+#
+# Keyed like env. Rarely needed: most tools create their own. Reach for it when
+# a tool expects its target to exist, or when the path is buried inside a
+# compound variable bunny cannot parse.
+
+# dirs:
+#   maven:
+#     - "{data}/repository"
+
+# --- Catalog ----------------------------------------------------------------
+#
+# A forked or internal catalog, for teams with their own manifests.
+# See docs/teams.md.
+
+# catalog:
+#   remote: https://github.com/acme/bunny-catalog

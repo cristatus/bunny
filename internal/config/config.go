@@ -1,4 +1,5 @@
-// Package config is the user's own settings file at $BUNNY_HOME/config.yaml.
+// Package config is the user's own settings file, at ~/.config/bunny/config.yaml
+// or $BUNNY_HOME/config.yaml when bunny is collapsed under a single root.
 //
 // It is the only place isolation policy lives. Catalog manifests describe how
 // to install and wire a package; they no longer decide whether a tool's global
@@ -27,7 +28,7 @@ import (
 // Wildcard is the Env/Dirs key that applies to every package.
 const Wildcard = "*"
 
-// Config is the on-disk shape of $BUNNY_HOME/config.yaml.
+// Config is the on-disk shape of config.yaml.
 type Config struct {
 	Catalog Catalog `yaml:"catalog,omitempty"`
 

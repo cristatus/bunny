@@ -43,6 +43,7 @@ type Result struct {
 func RunAll(p *paths.Paths) []Result {
 	return []Result{
 		layoutCheck(p),
+		configCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
 		waylandCheck(),
@@ -76,6 +77,18 @@ func layoutCheck(p *paths.Paths) Result {
 		}
 	}
 	return Result{Name: name, Detail: detail, Severity: OK}
+}
+
+// configCheck names the user config path whether or not it exists. Absence is
+// not a problem (bunny's defaults are the no-config behaviour), but the file
+// is the only place install locations and data isolation are set, so doctor
+// is where someone finds out where to put it.
+func configCheck(p *paths.Paths) Result {
+	path := p.UserConfigFile()
+	if _, err := os.Stat(path); err != nil {
+		return Result{Name: "config", Detail: "using defaults, none at " + path, Severity: OK}
+	}
+	return Result{Name: "config", Detail: path, Severity: OK}
 }
 
 func pathOnPathCheck(binDir string) Result {

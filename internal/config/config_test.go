@@ -183,3 +183,17 @@ func TestInstallRootsNilConfig(t *testing.T) {
 		t.Errorf("InstallRoots() = %v, want nil", got)
 	}
 }
+
+// The example config ships in the repo, so it has to stay parseable and stay
+// inert: someone copying it should get bunny's defaults until they uncomment
+// something, and it should not drift out of the schema.
+func TestExampleConfigIsValidAndInert(t *testing.T) {
+	path := filepath.Join("..", "..", "config.example.yaml")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("%s must be valid config: %v", path, err)
+	}
+	if len(cfg.Env) != 0 || len(cfg.Dirs) != 0 || len(cfg.Install) != 0 || cfg.Catalog.Remote != "" {
+		t.Errorf("the example must be entirely commented out, got %+v", cfg)
+	}
+}
