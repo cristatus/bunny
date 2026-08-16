@@ -84,6 +84,15 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("load user config: %w", err)
 	}
 
+	app := &App{Context: context.Background(), State: st, Config: cfg}
+
+	// Install locations come from config for new installs and from state for
+	// existing ones, so editing config never moves a tree that already exists.
+	// The lookup reads through the App because withMutation swaps in a freshly
+	// loaded state once it holds the lock.
+	p = p.WithLayout(cfg.InstallRoots(), func(id string) (string, string) { return app.State.Location(id) })
+	app.Paths = p
+
 	local := catalog.NewLocal(p.Catalog())
 	remote := catalog.NewRemote(cfg.Catalog.Remote, p.Cache())
 
@@ -94,17 +103,12 @@ func New() (*App, error) {
 		cat = remote
 	}
 
-	return &App{
-		Context:   context.Background(),
-		Paths:     p,
-		State:     st,
-		Config:    cfg,
-		Catalog:   cat,
-		Installed: catalog.NewInstalled(cat, p.ManifestFile),
-		Installer: installer.New(p, cat, st),
-		local:     local,
-		remote:    remote,
-	}, nil
+	app.Catalog = cat
+	app.Installed = catalog.NewInstalled(cat, p.ManifestFile)
+	app.Installer = installer.New(p, cat, st)
+	app.local = local
+	app.remote = remote
+	return app, nil
 }
 
 func (a *App) context() context.Context {

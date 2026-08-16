@@ -19,8 +19,8 @@ func TestLoadMissingReturnsEmpty(t *testing.T) {
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	s := Empty()
-	s.SetInstalled("node-22", "22.10.0", "node")
-	s.SetInstalled("vscode", "1.98.2", "")
+	s.SetInstalled("node-22", "22.10.0", "node", "", "")
+	s.SetInstalled("vscode", "1.98.2", "", "", "")
 	s.SetCommand("node", "node-22")
 	s.SetCommand("code", "vscode")
 
@@ -45,7 +45,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 func TestSaveAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	s := Empty()
-	s.SetInstalled("aa", "1", "")
+	s.SetInstalled("aa", "1", "", "", "")
 	if err := s.Save(path); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestSaveRejectsInconsistentState(t *testing.T) {
 
 func TestSetUninstalledClearsCommandsAndProviders(t *testing.T) {
 	s := Empty()
-	s.SetInstalled("node-22", "22", "node")
+	s.SetInstalled("node-22", "22", "node", "", "")
 	s.SetCommand("node", "node-22")
 	s.SetCommand("npm", "node-22")
 
@@ -139,8 +139,8 @@ func TestSetUninstalledClearsCommandsAndProviders(t *testing.T) {
 
 func TestSetUninstalledSelectsFallbackProvider(t *testing.T) {
 	s := Empty()
-	s.SetInstalled("node-22", "22.0.0", "node")
-	s.SetInstalled("node-24", "24.0.0", "node")
+	s.SetInstalled("node-22", "22.0.0", "node", "", "")
+	s.SetInstalled("node-24", "24.0.0", "node", "", "")
 	s.SetUninstalled("node-24")
 	if got := s.ResolveProvider("node"); got != "node-22" {
 		t.Errorf("fallback provider = %q, want node-22", got)
@@ -170,7 +170,7 @@ func TestSetProviderRequiresInstalled(t *testing.T) {
 	if err := s.SetProvider("node", "node-22"); err == nil {
 		t.Error("expected error when setting provider for uninstalled pkg")
 	}
-	s.SetInstalled("node-22", "22", "node")
+	s.SetInstalled("node-22", "22", "node", "", "")
 	if err := s.SetProvider("node", "node-22"); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
@@ -178,9 +178,9 @@ func TestSetProviderRequiresInstalled(t *testing.T) {
 
 func TestSetProviderCommandsRemovesPreviousProviderCommands(t *testing.T) {
 	s := Empty()
-	s.SetInstalled("node-22", "22", "node")
+	s.SetInstalled("node-22", "22", "node", "", "")
 	s.SetCommands("node-22", []string{"node", "old-only"})
-	s.SetInstalled("node-24", "24", "node")
+	s.SetInstalled("node-24", "24", "node", "", "")
 	if err := s.SetProviderCommands("node", "node-24", []string{"node", "new-only"}); err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestSetProviderCommandsRemovesPreviousProviderCommands(t *testing.T) {
 
 func TestResolveProviderHandlesIDAndCapability(t *testing.T) {
 	s := Empty()
-	s.SetInstalled("node-22", "22", "node")
+	s.SetInstalled("node-22", "22", "node", "", "")
 
 	if got := s.ResolveProvider("node-22"); got != "node-22" {
 		t.Errorf("by ID: got %q", got)
@@ -225,9 +225,9 @@ func TestGlobalCommands(t *testing.T) {
 
 func TestResolveProviderMin(t *testing.T) {
 	s := Empty()
-	s.SetInstalled("jdk-11", "11.0.31+11", "jdk")
-	s.SetInstalled("jdk-21", "21.0.11+10", "jdk")
-	s.SetInstalled("jdk-25", "25.0.3+9", "jdk")
+	s.SetInstalled("jdk-11", "11.0.31+11", "jdk", "", "")
+	s.SetInstalled("jdk-21", "21.0.11+10", "jdk", "", "")
+	s.SetInstalled("jdk-25", "25.0.3+9", "jdk", "", "")
 
 	// active satisfies → active
 	_ = s.SetProvider("jdk", "jdk-21")

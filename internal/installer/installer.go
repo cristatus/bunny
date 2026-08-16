@@ -119,7 +119,8 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		return err
 	}
 
-	workDir := i.Paths.AppStaging(id)
+	kind := m.KindOf()
+	workDir := i.Paths.AppStaging(id, kind)
 	srcDir := filepath.Join(workDir, "src")
 	pkgDir := filepath.Join(workDir, "pkg")
 	cleanup := func() { os.RemoveAll(workDir) }
@@ -136,7 +137,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	// Tag the download cache and the staging root as disposable so backup
 	// tools skip them.
 	markDisposable(i.Paths.Cache())
-	markDisposable(i.Paths.Staging())
+	markDisposable(i.Paths.Staging(kind))
 
 	prepareVars := map[string]string{
 		"id":      id,
@@ -159,7 +160,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	hook.Phase("installing")
-	placed, err := i.place(id, pkgDir, force)
+	placed, err := i.place(id, kind, pkgDir, force)
 	if err != nil {
 		cleanup()
 		return err
@@ -179,7 +180,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	integrationChanged := false
-	if err := i.replaceDesktopIntegration(oldManifest, m, id); err != nil {
+	if err := i.replaceDesktopIntegration(oldManifest, m, id, placed.finalDir); err != nil {
 		log.Warn("Desktop integration partial failure", "package", id, "error", err)
 	} else {
 		integrationChanged = true
@@ -190,7 +191,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if err := writeManifestCache(i.Paths.ManifestFile(id), m); err != nil {
 		*i.State = *stateBefore
 		if integrationChanged {
-			i.restoreDesktopIntegration(oldManifest, m, id)
+			i.restoreDesktopIntegration(oldManifest, m, id, placed.finalDir)
 		}
 		i.rollbackInstall(placed, replacedCommands, newCommands)
 		cleanup()
@@ -202,14 +203,21 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 			log.Warn("Failed to restore installed manifest", "package", id, "error", restoreErr)
 		}
 		if integrationChanged {
-			i.restoreDesktopIntegration(oldManifest, m, id)
+			i.restoreDesktopIntegration(oldManifest, m, id, placed.finalDir)
 		}
 		i.rollbackInstall(placed, replacedCommands, newCommands)
 		cleanup()
 		return fmt.Errorf("remove stale shims: %w", err)
 	}
 
-	i.State.SetInstalled(id, m.Version, m.Provides)
+	// Record the path only when it is not the default root for this kind, so a
+	// default-layout state describes an installation without naming any
+	// absolute location.
+	recordedPath := placed.finalDir
+	if recordedPath == i.Paths.InstallDir(id, kind) {
+		recordedPath = ""
+	}
+	i.State.SetInstalled(id, m.Version, m.Provides, kind, recordedPath)
 	switch {
 	case m.Provides != "" && becomeActive:
 		if err := i.State.SetProviderCommands(m.Provides, id, newCommands); err != nil {
@@ -218,7 +226,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 				log.Warn("Failed to restore installed manifest", "package", id, "error", restoreErr)
 			}
 			if integrationChanged {
-				i.restoreDesktopIntegration(oldManifest, m, id)
+				i.restoreDesktopIntegration(oldManifest, m, id, placed.finalDir)
 			}
 			i.rollbackInstall(placed, replacedCommands, newCommands)
 			cleanup()
@@ -235,7 +243,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 			log.Warn("Failed to restore installed manifest", "package", id, "error", err)
 		}
 		if integrationChanged {
-			i.restoreDesktopIntegration(oldManifest, m, id)
+			i.restoreDesktopIntegration(oldManifest, m, id, placed.finalDir)
 		}
 		i.rollbackInstall(placed, replacedCommands, newCommands)
 		cleanup()
@@ -582,12 +590,12 @@ func (p *placement) Rollback() error {
 	return os.RemoveAll(p.finalDir)
 }
 
-// place atomically swaps pkgDir into Paths.AppDir(id). For non-force installs
+// place atomically swaps pkgDir into the install root for kind. For non-force installs
 // an existing target is an error. For force installs the existing dir is
 // renamed aside and kept there until the caller commits after state save. If
 // the swap itself fails, the previous install is restored before returning.
-func (i *Installer) place(id, pkgDir string, force bool) (*placement, error) {
-	finalDir := i.Paths.AppDir(id)
+func (i *Installer) place(id, kind, pkgDir string, force bool) (*placement, error) {
+	finalDir := i.Paths.InstallDir(id, kind)
 	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
 		return nil, err
 	}
@@ -663,8 +671,8 @@ func (i *Installer) installShims(m *manifest.Manifest) error {
 	return shim.Install(i.Paths.Bin(), binNames(m), bunnyPath)
 }
 
-func (i *Installer) installDesktopIntegration(m *manifest.Manifest, id string) error {
-	finalVars := i.Paths.Vars(id, m.Version)
+func (i *Installer) installDesktopIntegration(m *manifest.Manifest, id, appDir string) error {
+	finalVars := i.Paths.VarsAt(id, m.Version, appDir)
 	if err := desktop.InstallEntries(i.Paths, m.Desktop, finalVars); err != nil {
 		return err
 	}
@@ -701,21 +709,21 @@ func (i *Installer) removeDesktopIntegration(m *manifest.Manifest, id string) er
 	return errors.Join(errs...)
 }
 
-func (i *Installer) replaceDesktopIntegration(old, next *manifest.Manifest, id string) error {
+func (i *Installer) replaceDesktopIntegration(old, next *manifest.Manifest, id, appDir string) error {
 	if err := i.removeDesktopIntegration(old, id); err != nil {
 		if old != nil {
-			_ = i.installDesktopIntegration(old, id)
+			_ = i.installDesktopIntegration(old, id, appDir)
 		}
 		return fmt.Errorf("remove previous integration: %w", err)
 	}
-	if err := i.installDesktopIntegration(next, id); err != nil {
+	if err := i.installDesktopIntegration(next, id, appDir); err != nil {
 		removeErr := i.removeDesktopIntegration(next, id)
 		errs := []error{fmt.Errorf("install new integration: %w", err)}
 		if removeErr != nil {
 			errs = append(errs, fmt.Errorf("clean partial integration: %w", removeErr))
 		}
 		if old != nil {
-			if restoreErr := i.installDesktopIntegration(old, id); restoreErr != nil {
+			if restoreErr := i.installDesktopIntegration(old, id, appDir); restoreErr != nil {
 				errs = append(errs, fmt.Errorf("restore previous integration: %w", restoreErr))
 			}
 		}
@@ -724,12 +732,12 @@ func (i *Installer) replaceDesktopIntegration(old, next *manifest.Manifest, id s
 	return nil
 }
 
-func (i *Installer) restoreDesktopIntegration(old, next *manifest.Manifest, id string) {
+func (i *Installer) restoreDesktopIntegration(old, next *manifest.Manifest, id, appDir string) {
 	if err := i.removeDesktopIntegration(next, id); err != nil {
 		log.Warn("Failed to remove new desktop integration during rollback", "package", id, "error", err)
 	}
 	if old != nil {
-		if err := i.installDesktopIntegration(old, id); err != nil {
+		if err := i.installDesktopIntegration(old, id, appDir); err != nil {
 			log.Warn("Failed to restore previous desktop integration", "package", id, "error", err)
 		}
 	}
@@ -784,7 +792,7 @@ func (i *Installer) rollbackUninstall(p *removalPlacement, m *manifest.Manifest,
 		}
 	}
 	if m != nil {
-		if err := i.installDesktopIntegration(m, id); err != nil {
+		if err := i.installDesktopIntegration(m, id, i.Paths.AppDir(id)); err != nil {
 			log.Warn("Failed to restore desktop integration", "package", id, "error", err)
 		}
 	}

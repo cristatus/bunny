@@ -113,6 +113,15 @@ func (m *Manifest) Validate() error {
 	if m.Toolchains != "" && m.Toolchains != "gradle" && m.Toolchains != "maven" {
 		return vErr("toolchains", `must be "gradle" or "maven"`)
 	}
+	if !ValidKind(m.Kind) {
+		return vErr("kind", `must be "app", "cli", or "sdk"`)
+	}
+	// A desktop entry means a graphical application, which is what KindOf
+	// infers when kind is absent. Declaring something else contradicts the
+	// manifest's own evidence, and lands a GUI app in the wrong root.
+	if len(m.Desktop) > 0 && m.Kind != "" && m.Kind != KindApp {
+		return vErr("kind", `must be "app" for a package with desktop entries`)
+	}
 	seenDesktop := map[string]bool{}
 	for i, d := range m.Desktop {
 		if err := validateDesktopID(d.ID); err != nil {

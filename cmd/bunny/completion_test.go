@@ -35,8 +35,8 @@ bin:
 	a.local = catalog.NewLocal(a.Paths.Catalog())
 
 	// Two installed packages: node-22 provides a capability, bat provides nothing.
-	a.State.SetInstalled("node-22", "22.0.0", "node")
-	a.State.SetInstalled("bat", "1.0.0", "")
+	a.State.SetInstalled("node-22", "22.0.0", "node", "", "")
+	a.State.SetInstalled("bat", "1.0.0", "", "", "")
 
 	catalogIDs := a.completionIDs(false)
 	if len(catalogIDs) != 1 || catalogIDs[0] != "jdk-21" {
@@ -83,7 +83,7 @@ bin:
 		t.Fatal(err)
 	}
 	a.local = catalog.NewLocal(a.Paths.Catalog())
-	a.State.SetInstalled("node-22", "22", "node")
+	a.State.SetInstalled("node-22", "22", "node", "", "")
 	got := a.completionCapabilities()
 	if strings.Join(got, ",") != "jdk,node" {
 		t.Fatalf("capabilities = %v, want [jdk node]", got)

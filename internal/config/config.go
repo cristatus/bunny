@@ -15,7 +15,9 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -41,6 +43,15 @@ type Config struct {
 	// own directories; this is for the ones that do not, and for values buried
 	// inside a compound variable (MAVEN_ARGS) that bunny cannot parse out.
 	Dirs map[string][]string `yaml:"dirs,omitempty"`
+
+	// Install overrides where each kind of package is installed, keyed by
+	// "app", "cli", or "sdk". Point "sdk" somewhere shallow and memorable and
+	// every JDK, Maven, and Gradle install lands where an IDE's file picker
+	// can reach it, since bunny no longer isolates them and the install tree is
+	// a plain directory any tool can consume.
+	//
+	// A leading ~/ is expanded; anything else must be an absolute path.
+	Install map[string]string `yaml:"install,omitempty"`
 }
 
 // Catalog selects which remote catalog bunny reads packages from.
@@ -87,14 +98,65 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate rejects env entries that could not be safely exported.
+// Validate rejects env entries that could not be safely exported and install
+// roots that are not usable directories.
 func (c *Config) Validate() error {
 	for _, key := range sortedKeys(c.Env) {
 		if err := manifest.ValidateEnv("env."+key, c.Env[key]); err != nil {
 			return err
 		}
 	}
+	for _, kind := range sortedInstallKeys(c.Install) {
+		if !manifest.ValidKind(kind) || kind == "" {
+			return fmt.Errorf("install.%s: must be one of %s", kind, strings.Join(manifest.Kinds, ", "))
+		}
+		root, err := expandHome(c.Install[kind])
+		if err != nil {
+			return fmt.Errorf("install.%s: %w", kind, err)
+		}
+		if !filepath.IsAbs(root) {
+			return fmt.Errorf("install.%s: must be an absolute path or start with ~/, got %q", kind, c.Install[kind])
+		}
+		if filepath.Clean(root) == string(filepath.Separator) {
+			return fmt.Errorf("install.%s: refusing to install into the filesystem root", kind)
+		}
+		c.Install[kind] = filepath.Clean(root)
+	}
 	return nil
+}
+
+// InstallRoots returns the configured roots keyed by kind, with placeholders
+// already expanded by Validate. Nil-safe.
+func (c *Config) InstallRoots() map[string]string {
+	if c == nil {
+		return nil
+	}
+	return c.Install
+}
+
+// expandHome resolves a leading ~/ against the user's home directory. Only the
+// leading form is supported: "~other/dir" is not a path bunny should guess at.
+func expandHome(path string) (string, error) {
+	if path != "~" && !strings.HasPrefix(path, "~/") {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("expand ~: %w", err)
+	}
+	if path == "~" {
+		return home, nil
+	}
+	return filepath.Join(home, path[2:]), nil
+}
+
+func sortedInstallKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // keysFor returns the config keys that apply to a package, least specific

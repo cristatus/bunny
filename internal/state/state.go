@@ -52,6 +52,17 @@ type Package struct {
 	Version   string    `json:"version"`
 	Installed time.Time `json:"installed"`
 	Provides  string    `json:"provides,omitempty"`
+	// Kind is the install root the package belongs to ("app", "cli", "sdk").
+	Kind string `json:"kind,omitempty"`
+	// Path is the install location, recorded only when it is somewhere other
+	// than the default root for Kind. Reading a recorded location instead of
+	// recomputing one is what lets the user change config, or the catalog
+	// change a package's kind, without stranding a tree already on disk.
+	//
+	// Leaving it empty in the common case is deliberate: state then holds no
+	// absolute paths at all, so a backup taken on one machine describes the
+	// same installation on another whose roots differ.
+	Path string `json:"path,omitempty"`
 }
 
 // Empty returns a fresh State with all maps initialized.
@@ -268,17 +279,30 @@ func (s *State) repair() []string {
 // becomes the active provider for that capability only when no provider is
 // active yet; installing an additional provider (e.g. a second JDK) leaves the
 // current one active — switch with `bunny use`.
-func (s *State) SetInstalled(id, version, provides string) {
+func (s *State) SetInstalled(id, version, provides, kind, path string) {
 	s.Packages[id] = Package{
 		Version:   version,
 		Installed: time.Now(),
 		Provides:  provides,
+		Kind:      kind,
+		Path:      path,
 	}
 	if provides != "" {
 		if _, ok := s.Providers[provides]; !ok {
 			s.Providers[provides] = id
 		}
 	}
+}
+
+// Location returns a package's install kind and, when it lives outside the
+// default root for that kind, its recorded path. Suitable as the lookup passed
+// to paths.WithLayout. Both are empty for a package bunny does not know.
+func (s *State) Location(id string) (kind, path string) {
+	if s == nil {
+		return "", ""
+	}
+	pkg := s.Packages[id]
+	return pkg.Kind, pkg.Path
 }
 
 // SetUninstalled removes a package and any commands/providers it owned. When

@@ -82,12 +82,17 @@ func (c *Cleaner) cleanOneCache(r *Report, id string, all bool) {
 	c.pruneCacheDir(r, id, dir)
 }
 
+// cleanOneStaging drops a package's abandoned staging dir. The kind that chose
+// the root is not recorded for a failed install, so every root is swept: a
+// staging dir named after the package is bunny's under any of them.
 func (c *Cleaner) cleanOneStaging(r *Report, id string) {
-	dir := c.Paths.AppStaging(id)
-	if _, err := os.Stat(dir); err == nil {
-		c.removeAll(r, dir)
-	} else if !os.IsNotExist(err) {
-		r.Errors = append(r.Errors, fmt.Errorf("inspect staging directory %s: %w", dir, err))
+	for _, root := range c.Paths.StagingRoots() {
+		dir := filepath.Join(root, id)
+		if _, err := os.Stat(dir); err == nil {
+			c.removeAll(r, dir)
+		} else if !os.IsNotExist(err) {
+			r.Errors = append(r.Errors, fmt.Errorf("inspect staging directory %s: %w", dir, err))
+		}
 	}
 }
 
@@ -129,19 +134,20 @@ func (c *Cleaner) cleanAllCache(r *Report, all bool) {
 }
 
 func (c *Cleaner) cleanAllStaging(r *Report) {
-	stagingRoot := c.Paths.Staging()
-	entries, err := os.ReadDir(stagingRoot)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			r.Errors = append(r.Errors, fmt.Errorf("read staging directory: %w", err))
+	for _, stagingRoot := range c.Paths.StagingRoots() {
+		entries, err := os.ReadDir(stagingRoot)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				r.Errors = append(r.Errors, fmt.Errorf("read staging directory %s: %w", stagingRoot, err))
+			}
+			continue
 		}
-		return
-	}
-	for _, e := range entries {
-		if isDisposableMarker(e.Name()) {
-			continue // keep the dir tagged disposable even when empty
+		for _, e := range entries {
+			if isDisposableMarker(e.Name()) {
+				continue // keep the dir tagged disposable even when empty
+			}
+			c.removeAll(r, filepath.Join(stagingRoot, e.Name()))
 		}
-		c.removeAll(r, filepath.Join(stagingRoot, e.Name()))
 	}
 }
 

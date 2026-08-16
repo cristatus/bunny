@@ -15,8 +15,15 @@ type Manifest struct {
 	Description string `yaml:"description,omitempty"`
 	Version     string `yaml:"version"`
 	Category    string `yaml:"category,omitempty"`
-	Homepage    string `yaml:"homepage,omitempty"`
-	License     string `yaml:"license,omitempty"`
+	// Kind selects which install root the package lands in: "sdk" for anything
+	// another tool may need a path to (JDKs, Node, Maven, Gradle), "app" for
+	// GUI applications, "cli" for plain commands. It is deliberately separate
+	// from Category, which names the catalog folder and is used to build
+	// download URLs: the catalog's repo layout should not dictate the user's
+	// disk layout. Defaults to KindCLI when unset.
+	Kind     string `yaml:"kind,omitempty"`
+	Homepage string `yaml:"homepage,omitempty"`
+	License  string `yaml:"license,omitempty"`
 
 	// --- Capability / dependencies ---
 	// Provides marks a "virtual capability" so multiple packages can implement
@@ -138,4 +145,42 @@ type UpdateConfig struct {
 	HashQuery      string `yaml:"hash-query,omitempty"`
 	// Distribution selects the JDK vendor for the foojay checker (e.g. "temurin").
 	Distribution string `yaml:"distribution,omitempty"`
+}
+
+// Install kinds. Each selects a root directory, so that a user who wants their
+// SDKs somewhere a file picker can reach (an IDE asking for a JDK, a Maven
+// home, a Gradle home) can move all of them with one setting.
+const (
+	KindApp = "app" // GUI applications
+	KindCLI = "cli" // plain commands
+	KindSDK = "sdk" // anything another tool may need a path to
+)
+
+// Kinds lists every valid kind, in the order docs and errors present them.
+var Kinds = []string{KindApp, KindCLI, KindSDK}
+
+// ValidKind reports whether kind is one bunny knows. The empty string is valid
+// and means KindCLI.
+func ValidKind(kind string) bool {
+	return kind == "" || kind == KindApp || kind == KindCLI || kind == KindSDK
+}
+
+// KindOf returns the manifest's kind. An undeclared kind is inferred rather
+// than assumed, because a catalog predating the field, or a third-party one
+// that never adopts it, should still put a GUI application somewhere sensible:
+// landing VS Code in the cli root is visibly wrong.
+//
+// Only the app signal is inferred. A desktop entry means a graphical
+// application and nothing else does, so it is exact. There is no comparable
+// signal for sdk: build tools like maven and gradle declare no `provides:`,
+// so guessing from that would misplace more packages than it placed. Anything
+// wanting the sdk root has to say so.
+func (m *Manifest) KindOf() string {
+	if m.Kind != "" {
+		return m.Kind
+	}
+	if len(m.Desktop) > 0 {
+		return KindApp
+	}
+	return KindCLI
 }

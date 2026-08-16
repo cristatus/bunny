@@ -35,7 +35,7 @@ func setup(t *testing.T) (*Cleaner, *paths.Paths) {
 	p := paths.At(root)
 
 	st := state.Empty()
-	st.SetInstalled("keep", "1.0", "")
+	st.SetInstalled("keep", "1.0", "", "", "")
 
 	cat := &cleanFakeCatalog{
 		manifests: map[string]*manifest.Manifest{
@@ -59,8 +59,8 @@ func setup(t *testing.T) (*Cleaner, *paths.Paths) {
 	must(t, os.WriteFile(filepath.Join(p.Cache(), "index.json"), []byte("{}"), 0644))
 
 	// Tmp dir with leftover.
-	must(t, os.MkdirAll(filepath.Join(p.Staging(), "abandoned"), 0755))
-	must(t, os.WriteFile(filepath.Join(p.Staging(), "abandoned", "marker"), []byte("x"), 0644))
+	must(t, os.MkdirAll(filepath.Join(p.Staging(manifest.KindCLI), "abandoned"), 0755))
+	must(t, os.WriteFile(filepath.Join(p.Staging(manifest.KindCLI), "abandoned", "marker"), []byte("x"), 0644))
 
 	return NewCleaner(p, cat, st), p
 }
@@ -96,7 +96,7 @@ func TestCleanDefaultPrunesStaleAndOrphans(t *testing.T) {
 		t.Error("expected orphan cache dir to be removed")
 	}
 	// Tmp swept.
-	if exists(filepath.Join(p.Staging(), "abandoned")) {
+	if exists(filepath.Join(p.Staging(manifest.KindCLI), "abandoned")) {
 		t.Error("expected tmp leftover to be removed")
 	}
 	// index.json preserved (no --all).
@@ -139,7 +139,7 @@ func TestCleanScopedToOneApp(t *testing.T) {
 	if !exists(filepath.Join(p.AppDownloadCache("keep"), "keep-0.9.tar.gz")) {
 		t.Error("expected keep's stale file to remain when scoped to gone")
 	}
-	if !exists(filepath.Join(p.Staging(), "abandoned")) {
+	if !exists(filepath.Join(p.Staging(manifest.KindCLI), "abandoned")) {
 		t.Error("expected unrelated tmp to remain when scoped to gone")
 	}
 }

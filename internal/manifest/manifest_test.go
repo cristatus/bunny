@@ -380,3 +380,48 @@ global-bins: ["` + tc.path + `"]
 		}
 	}
 }
+
+// A catalog that predates kind:, or a third-party one that never adopts it,
+// must still put a GUI application in the app root rather than beside ripgrep.
+func TestKindOfInfersAppFromDesktopEntry(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		m    Manifest
+		want string
+	}{
+		{"explicit wins", Manifest{Kind: KindSDK, Desktop: []DesktopEntry{{ID: "x.desktop"}}}, KindSDK},
+		{"desktop entry means app", Manifest{Desktop: []DesktopEntry{{ID: "code.desktop"}}}, KindApp},
+		{"nothing to go on", Manifest{}, KindCLI},
+		// No sdk inference: maven and gradle declare no provides:, so guessing
+		// from it would misplace more than it placed.
+		{"provides alone is not enough", Manifest{Provides: "jdk"}, KindCLI},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.m.KindOf(); got != tc.want {
+				t.Errorf("KindOf() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// kind and the desktop block are two statements about the same thing, so a
+// manifest may not make them disagree.
+func TestValidateRejectsDesktopEntryWithNonAppKind(t *testing.T) {
+	base := `
+id: code
+name: Code
+version: "1.0.0"
+sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]
+bin: [{name: code, path: "{app}/code"}]
+desktop: [{id: code.desktop, name: Code, exec: "{app}/code"}]
+`
+	if _, err := ParseBytes([]byte(base + "kind: cli\n")); err == nil {
+		t.Error("a desktop entry contradicts kind: cli")
+	}
+	if _, err := ParseBytes([]byte(base + "kind: app\n")); err != nil {
+		t.Errorf("kind: app agrees with the desktop entry: %v", err)
+	}
+	if _, err := ParseBytes([]byte(base)); err != nil {
+		t.Errorf("an absent kind is inferred, not rejected: %v", err)
+	}
+}

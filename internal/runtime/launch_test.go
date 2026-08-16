@@ -41,7 +41,7 @@ func TestPrepareDirectExec(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wantBin := filepath.Join(root, "app", "foo", "foo")
+	wantBin := filepath.Join(root, "cli", "foo", "foo")
 	if prep.BinPath != wantBin {
 		t.Errorf("BinPath = %q, want %q", prep.BinPath, wantBin)
 	}
@@ -147,8 +147,8 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 	root := t.TempDir()
 	p := paths.At(root)
 	st := state.Empty()
-	st.SetInstalled("jdk-11", "11.0.0", "jdk")
-	st.SetInstalled("jdk-21", "21.0.0", "jdk")
+	st.SetInstalled("jdk-11", "11.0.0", "jdk", "", "")
+	st.SetInstalled("jdk-21", "21.0.0", "jdk", "", "")
 	_ = st.SetProvider("jdk", "jdk-11") // active too old for >=17
 	cat := reqCat{envs: map[string]map[string]string{
 		"jdk-21": {"JAVA_HOME": "{app}"},
@@ -160,11 +160,11 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "JAVA_HOME=" + filepath.Join(root, "app", "jdk-21")
+	want := "JAVA_HOME=" + filepath.Join(root, "cli", "jdk-21")
 	if !envHas(env, want) {
 		t.Errorf("want %q in %v", want, env)
 	}
-	if envHas(env, "JAVA_HOME="+filepath.Join(root, "app", "jdk-11")) {
+	if envHas(env, "JAVA_HOME="+filepath.Join(root, "cli", "jdk-11")) {
 		t.Error("must not use the too-old active jdk-11")
 	}
 }
@@ -174,7 +174,7 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 	p := paths.At(t.TempDir())
 	st := state.Empty()
-	st.SetInstalled("jdk-11", "11.0.0", "jdk")
+	st.SetInstalled("jdk-11", "11.0.0", "jdk", "", "")
 	_ = st.SetProvider("jdk", "jdk-11")
 	l := &Launcher{Paths: p, Catalog: reqCat{}, State: st}
 	env, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
@@ -223,7 +223,7 @@ func TestPrepareConfigEnvOverridesManifest(t *testing.T) {
 	if !envHas(prep.Env, "GRADLE_USER_HOME="+gradleHome) {
 		t.Errorf("config env not applied: %v", lastEntries(prep.Env, 3))
 	}
-	if !envHas(prep.Env, "GRADLE_HOME="+filepath.Join(root, "app", "gradle")) {
+	if !envHas(prep.Env, "GRADLE_HOME="+filepath.Join(root, "cli", "gradle")) {
 		t.Error("manifest env must survive alongside config env")
 	}
 	if _, err := os.Stat(gradleHome); err != nil {
@@ -258,7 +258,7 @@ func TestPrepareNoConfigIsolatesNothing(t *testing.T) {
 func TestMergeDepEnvAppliesConfig(t *testing.T) {
 	root := t.TempDir()
 	st := state.Empty()
-	st.SetInstalled("jdk-21", "21.0.0", "jdk")
+	st.SetInstalled("jdk-21", "21.0.0", "jdk", "", "")
 	_ = st.SetProvider("jdk", "jdk-21")
 	cat := reqCat{envs: map[string]map[string]string{"jdk-21": {"JAVA_HOME": "{app}"}}}
 	cfg := &config.Config{Env: map[string]map[string]string{
@@ -273,7 +273,7 @@ func TestMergeDepEnvAppliesConfig(t *testing.T) {
 	if !envHas(env, "JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8") {
 		t.Errorf("dependency config env not applied: %v", env)
 	}
-	if !envHas(env, "JAVA_HOME="+filepath.Join(root, "app", "jdk-21")) {
+	if !envHas(env, "JAVA_HOME="+filepath.Join(root, "cli", "jdk-21")) {
 		t.Errorf("dependency manifest env lost: %v", env)
 	}
 }

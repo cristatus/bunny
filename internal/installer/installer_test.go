@@ -76,14 +76,17 @@ func noopPrepare(_ context.Context, srcDir, pkgDir string, commands []string, va
 func installerWith(t *testing.T, manifests map[string]*manifest.Manifest, files map[string][]byte) *Installer {
 	t.Helper()
 	root := t.TempDir()
-	paths := paths.At(root)
+	st := state.Empty()
+	// Wire the layout the way cmd/bunny does, so AppDir resolves through the
+	// kind state recorded at install time instead of guessing a root. Without
+	// it the tests exercise a path resolution production never uses.
+	paths := paths.At(root).WithLayout(nil, st.Location)
 
 	// Pretend bunny is in BinDir so shim.Install has a target.
 	os.MkdirAll(paths.Bin(), 0755)
 	os.WriteFile(paths.BunnyBinary(), []byte("#!/bin/sh\n"), 0755)
 	t.Setenv("PATH", paths.Bin()+":"+os.Getenv("PATH"))
 
-	st := state.Empty()
 	cat := &fakeCatalog{manifests: manifests, files: files}
 	i := New(paths, cat, st)
 	i.Prepare = noopPrepare
@@ -156,7 +159,7 @@ func TestCheckRequiresVersionConstraint(t *testing.T) {
 
 	t.Run("satisfying JDK installed", func(t *testing.T) {
 		i := installerWith(t, map[string]*manifest.Manifest{"gradle": m}, nil)
-		i.State.SetInstalled("jdk-21", "21.0.11+10", "jdk")
+		i.State.SetInstalled("jdk-21", "21.0.11+10", "jdk", "", "")
 		if err := i.checkRequires(m); err != nil {
 			t.Errorf("checkRequires should return nil when jdk-21 is installed, got: %v", err)
 		}
@@ -164,7 +167,7 @@ func TestCheckRequiresVersionConstraint(t *testing.T) {
 
 	t.Run("only insufficient JDK installed", func(t *testing.T) {
 		i := installerWith(t, map[string]*manifest.Manifest{"gradle": m}, nil)
-		i.State.SetInstalled("jdk-11", "11.0.24+8", "jdk")
+		i.State.SetInstalled("jdk-11", "11.0.24+8", "jdk", "", "")
 		if err := i.checkRequires(m); err == nil {
 			t.Error("checkRequires should return an error when only jdk-11 is installed")
 		}
@@ -709,5 +712,38 @@ func TestInstallEmitsPhasesInOrder(t *testing.T) {
 	}
 	if got := strings.Join(h.phases, ","); got != "downloading,extracting,installing" {
 		t.Fatalf("phases = %q, want downloading,extracting,installing", got)
+	}
+}
+
+// Desktop integration runs before state records where a package went, so its
+// {app} placeholder has to come from the directory just placed rather than a
+// state lookup. Getting that wrong put an app's icon source under the cli root
+// and silently skipped integration on every first install.
+func TestFirstInstallResolvesAppPlaceholderForIntegration(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{
+		ID: "code", Name: "Code", Version: "1",
+		Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+		Bin:     []manifest.Binary{{Name: "code", Path: "{app}/code"}},
+		// A desktop entry makes this kind app, so it installs somewhere other
+		// than the cli root AppDir would fall back to.
+		Desktop: []manifest.DesktopEntry{{ID: "code.desktop", Name: "Code", Exec: "{app}/code"}},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"code": m}, nil)
+	if err := i.Install(context.Background(), "code", false, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := filepath.Join(i.Paths.Desktop(), "code.desktop")
+	data, err := os.ReadFile(entry)
+	if err != nil {
+		t.Fatalf("first install must write the desktop entry: %v", err)
+	}
+	wantExec := "Exec=" + filepath.Join(i.Paths.InstallRoot(manifest.KindApp), "code", "code")
+	if !strings.Contains(string(data), wantExec) {
+		t.Errorf("Exec should point at the app root:\nwant %s\ngot:\n%s", wantExec, data)
 	}
 }

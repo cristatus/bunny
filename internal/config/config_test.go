@@ -144,3 +144,42 @@ func TestDirsForCombinesKeys(t *testing.T) {
 		t.Errorf("DirsFor = %v, want %v", got, want)
 	}
 }
+
+func TestLoadInstallRoots(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg, err := Load(write(t, "install:\n  sdk: ~/opt\n  app: /srv/apps\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := cfg.Install["sdk"], filepath.Join(home, "opt"); got != want {
+		t.Errorf("sdk root = %q, want %q (leading ~/ expanded)", got, want)
+	}
+	if got := cfg.Install["app"]; got != "/srv/apps" {
+		t.Errorf("app root = %q", got)
+	}
+	if _, ok := cfg.InstallRoots()["cli"]; ok {
+		t.Error("unset kinds should not appear; they fall back to the default root")
+	}
+}
+
+func TestLoadRejectsBadInstallRoots(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown kind":    "install:\n  editor: /srv/apps\n",
+		"relative":        "install:\n  sdk: opt/sdks\n",
+		"filesystem root": "install:\n  sdk: /\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(write(t, body)); err == nil {
+				t.Fatalf("expected an error for %s", name)
+			}
+		})
+	}
+}
+
+func TestInstallRootsNilConfig(t *testing.T) {
+	var cfg *Config
+	if got := cfg.InstallRoots(); got != nil {
+		t.Errorf("InstallRoots() = %v, want nil", got)
+	}
+}

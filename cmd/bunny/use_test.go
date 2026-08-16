@@ -21,8 +21,8 @@ func TestUseSwitchesProviderCommandShims(t *testing.T) {
 	}
 
 	st := state.Empty()
-	st.SetInstalled("node-24", "24", "node")
-	st.SetInstalled("node-22", "22", "node")
+	st.SetInstalled("node-24", "24", "node", "", "")
+	st.SetInstalled("node-22", "22", "node", "", "")
 	if err := st.SetProviderCommands("node", "node-22", []string{"node", "old-only"}); err != nil {
 		t.Fatal(err)
 	}
