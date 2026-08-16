@@ -429,7 +429,7 @@ func (a *App) reshimCapabilities(capability string) (added, removed []string, er
 	if err := shim.Install(a.Paths.Bin(), addNames, bunnyPath); err != nil {
 		return nil, nil, fmt.Errorf("install global shims: %w", err)
 	}
-	if err := shim.Remove(a.Paths.Bin(), remove); err != nil {
+	if err := shim.Remove(a.Paths.Bin(), remove, bunnyPath); err != nil {
 		rollbackErr := restoreGlobalShims(a.Paths.Bin(), addNames, sortedKeys(current), bunnyPath)
 		return nil, nil, errors.Join(fmt.Errorf("remove stale global shims: %w", err), rollbackErr)
 	}
@@ -454,7 +454,7 @@ func (a *App) reshimCapabilities(capability string) (added, removed []string, er
 
 func restoreGlobalShims(binDir string, added, previous []string, bunnyPath string) error {
 	var errs []error
-	if err := shim.Remove(binDir, added); err != nil {
+	if err := shim.Remove(binDir, added, bunnyPath); err != nil {
 		errs = append(errs, fmt.Errorf("remove new global shims during rollback: %w", err))
 	}
 	if err := shim.Install(binDir, previous, bunnyPath); err != nil {

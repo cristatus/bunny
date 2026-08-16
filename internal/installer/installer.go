@@ -195,7 +195,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		cleanup()
 		return fmt.Errorf("cache installed manifest: %w", err)
 	}
-	if err := shim.Remove(i.Paths.Bin(), shim.Difference(replacedCommands, newCommands)); err != nil {
+	if err := i.removeShims(shim.Difference(replacedCommands, newCommands)); err != nil {
 		*i.State = *stateBefore
 		if restoreErr := cacheBefore.Restore(i.Paths.ManifestFile(id)); restoreErr != nil {
 			log.Warn("Failed to restore installed manifest", "package", id, "error", restoreErr)
@@ -325,7 +325,7 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 	if manifest != nil {
 		names = appendMissing(names, binNames(manifest)...)
 	}
-	if err := shim.Remove(i.Paths.Bin(), names); err != nil {
+	if err := i.removeShims(names); err != nil {
 		_ = removed.Rollback()
 		return fmt.Errorf("remove shims: %w", err)
 	}
@@ -734,11 +734,24 @@ func (i *Installer) restoreDesktopIntegration(old, next *manifest.Manifest, id s
 	}
 }
 
+// removeShims drops the named shims, resolving the bunny binary first so the
+// shim layer can verify it only ever unlinks symlinks Bunny created.
+func (i *Installer) removeShims(names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	bunnyPath, err := i.BunnyPath(i.Paths.Bin())
+	if err != nil {
+		return fmt.Errorf("locate bunny binary: %w", err)
+	}
+	return shim.Remove(i.Paths.Bin(), names, bunnyPath)
+}
+
 func (i *Installer) rollbackInstall(p *placement, oldCommands, newCommands []string) {
 	if err := p.Rollback(); err != nil {
 		log.Warn("Failed to roll back app directory", "path", p.finalDir, "error", err)
 	}
-	if err := shim.Remove(i.Paths.Bin(), shim.Difference(newCommands, oldCommands)); err != nil {
+	if err := i.removeShims(shim.Difference(newCommands, oldCommands)); err != nil {
 		log.Warn("Failed to remove new shims during rollback", "error", err)
 	}
 	if len(oldCommands) == 0 {
@@ -758,7 +771,7 @@ func (i *Installer) rollbackUninstall(p *removalPlacement, m *manifest.Manifest,
 	if err := p.Rollback(); err != nil {
 		log.Warn("Failed to roll back app removal", "path", p.finalDir, "error", err)
 	}
-	if err := shim.Remove(i.Paths.Bin(), shim.Difference(fallbackNames, names)); err != nil {
+	if err := i.removeShims(shim.Difference(fallbackNames, names)); err != nil {
 		log.Warn("Failed to remove fallback shims during rollback", "error", err)
 	}
 	if len(names) > 0 {

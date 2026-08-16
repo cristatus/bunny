@@ -47,7 +47,7 @@ func (c *UseCmd) Run(a *App) error {
 		if err := shim.Install(a.Paths.Bin(), names, bunnyPath); err != nil {
 			return fmt.Errorf("install provider shims: %w", err)
 		}
-		if err := shim.Remove(a.Paths.Bin(), shim.Difference(oldNames, names)); err != nil {
+		if err := shim.Remove(a.Paths.Bin(), shim.Difference(oldNames, names), bunnyPath); err != nil {
 			rollbackProviderSwitch(a, stateBefore, oldNames, names, bunnyPath)
 			return fmt.Errorf("remove previous provider shims: %w", err)
 		}
@@ -86,7 +86,7 @@ func renderUse(capability, id, version, previous string, shims []string) string 
 
 func rollbackProviderSwitch(a *App, before *state.State, oldNames, newNames []string, bunnyPath string) {
 	*a.State = *before
-	if err := shim.Remove(a.Paths.Bin(), shim.Difference(newNames, oldNames)); err != nil {
+	if err := shim.Remove(a.Paths.Bin(), shim.Difference(newNames, oldNames), bunnyPath); err != nil {
 		log.Warn("Failed to remove provider shims during rollback", "error", err)
 	}
 	if err := shim.Install(a.Paths.Bin(), oldNames, bunnyPath); err != nil {

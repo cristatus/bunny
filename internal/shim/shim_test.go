@@ -55,7 +55,7 @@ func TestRemoveDeletesShims(t *testing.T) {
 	bunny := filepath.Join(binDir, "bunny")
 	os.WriteFile(bunny, []byte{}, 0755)
 	os.Symlink(bunny, filepath.Join(binDir, "x"))
-	if err := Remove(binDir, []string{"x", "missing"}); err != nil {
+	if err := Remove(binDir, []string{"x", "missing"}, bunny); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(binDir, "x")); !os.IsNotExist(err) {
@@ -72,7 +72,7 @@ func TestInstallAndRemoveProtectBunnyExecutable(t *testing.T) {
 	if err := Install(binDir, []string{ReservedName}, bunny); err == nil {
 		t.Fatal("expected reserved-name error")
 	}
-	if err := Remove(binDir, []string{ReservedName}); err != nil {
+	if err := Remove(binDir, []string{ReservedName}, bunny); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile(bunny); err != nil || string(data) != "binary" {
@@ -81,7 +81,7 @@ func TestInstallAndRemoveProtectBunnyExecutable(t *testing.T) {
 }
 
 func TestRemoveRejectsUnsafeName(t *testing.T) {
-	if err := Remove(t.TempDir(), []string{"../escape"}); err == nil {
+	if err := Remove(t.TempDir(), []string{"../escape"}, "bunny"); err == nil {
 		t.Fatal("expected unsafe shim name to be rejected")
 	}
 }
@@ -202,5 +202,71 @@ func TestResolverErrorsWhenPinnedNotInstalled(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q: %v", want, err)
 		}
+	}
+}
+
+// The shim directory may be shared with other tools (pipx, cargo, hand-written
+// links), so a symlink Bunny did not create must never be replaced or removed.
+func TestInstallAndRemoveRefuseForeignSymlink(t *testing.T) {
+	binDir := t.TempDir()
+	bunny := filepath.Join(binDir, ReservedName)
+	if err := os.WriteFile(bunny, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	foreignTarget := filepath.Join(binDir, "other-tool")
+	if err := os.WriteFile(foreignTarget, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(binDir, "node")
+	if err := os.Symlink(foreignTarget, foreign); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(binDir, []string{"node"}, bunny); err == nil {
+		t.Fatal("expected Install to refuse a foreign symlink")
+	}
+	if err := Remove(binDir, []string{"node"}, bunny); err == nil {
+		t.Fatal("expected Remove to refuse a foreign symlink")
+	}
+	target, err := os.Readlink(foreign)
+	if err != nil || target != foreignTarget {
+		t.Fatalf("foreign symlink changed: %q, %v", target, err)
+	}
+}
+
+// A shim left dangling by a moved bunny binary is still ours to repair.
+func TestInstallRepairsDanglingShim(t *testing.T) {
+	binDir := t.TempDir()
+	bunny := filepath.Join(binDir, ReservedName)
+	if err := os.WriteFile(bunny, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(binDir, "old", "bunny"), filepath.Join(binDir, "node")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(binDir, []string{"node"}, bunny); err != nil {
+		t.Fatalf("dangling bunny shim should be repairable: %v", err)
+	}
+	target, err := os.Readlink(filepath.Join(binDir, "node"))
+	if err != nil || target != bunny {
+		t.Fatalf("shim not repointed: %q, %v", target, err)
+	}
+}
+
+// A dangling link into some other tool is not ours, even though it is broken.
+func TestRemoveRefusesForeignDanglingLink(t *testing.T) {
+	binDir := t.TempDir()
+	bunny := filepath.Join(binDir, ReservedName)
+	if err := os.WriteFile(bunny, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(binDir, "gone", "black"), filepath.Join(binDir, "black")); err != nil {
+		t.Fatal(err)
+	}
+	if err := Remove(binDir, []string{"black"}, bunny); err == nil {
+		t.Fatal("expected Remove to refuse a foreign dangling link")
+	}
+	if _, err := os.Lstat(filepath.Join(binDir, "black")); err != nil {
+		t.Error("foreign dangling link was removed")
 	}
 }

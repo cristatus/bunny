@@ -20,8 +20,8 @@ const ReservedName = "bunny"
 // Install creates symlinks `binDir/<name>` → bunnyPath as an all-or-nothing
 // batch: every name is validated up front, then applied, and if any symlink
 // fails the already-applied ones are rolled back to their previous targets.
-// Existing symlinks may be updated, but regular files are never overwritten
-// because Bunny cannot prove that it owns them.
+// Only Bunny's own shims are replaced; regular files and symlinks belonging to
+// other tools are refused, because Bunny cannot prove that it owns them.
 func Install(binDir string, names []string, bunnyPath string) error {
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		return err
@@ -35,18 +35,12 @@ func Install(binDir string, names []string, bunnyPath string) error {
 		if filepath.Base(name) != name || name == "." || name == ".." {
 			return fmt.Errorf("invalid shim name %q", name)
 		}
-		info, err := os.Lstat(path)
-		if err == nil {
-			if info.Mode()&os.ModeSymlink == 0 {
-				return fmt.Errorf("refusing to replace non-shim file %s", path)
-			}
-			target, err := os.Readlink(path)
-			if err != nil {
-				return fmt.Errorf("read existing shim %s: %w", name, err)
-			}
+		target, err := ownedTarget(path, bunnyPath)
+		if err != nil {
+			return fmt.Errorf("replace shim %s: %w", name, err)
+		}
+		if target != "" {
 			previous[name] = target
-		} else if !os.IsNotExist(err) {
-			return fmt.Errorf("inspect existing shim %s: %w", name, err)
 		}
 	}
 
@@ -63,9 +57,10 @@ func Install(binDir string, names []string, bunnyPath string) error {
 	return nil
 }
 
-// Remove deletes symlinks owned by Bunny. Regular files and the Bunny binary
-// itself are preserved and reported as errors.
-func Remove(binDir string, names []string) error {
+// Remove deletes symlinks owned by Bunny. The Bunny binary itself, regular
+// files, and links belonging to other tools are preserved and reported as
+// errors.
+func Remove(binDir string, names []string, bunnyPath string) error {
 	var errs []error
 	for _, name := range names {
 		if name == ReservedName {
@@ -76,23 +71,58 @@ func Remove(binDir string, names []string) error {
 			continue
 		}
 		path := filepath.Join(binDir, name)
-		info, err := os.Lstat(path)
-		if os.IsNotExist(err) {
-			continue
-		}
+		target, err := ownedTarget(path, bunnyPath)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("inspect shim %s: %w", name, err))
+			errs = append(errs, fmt.Errorf("remove shim %s: %w", name, err))
 			continue
 		}
-		if info.Mode()&os.ModeSymlink == 0 {
-			errs = append(errs, fmt.Errorf("refusing to remove non-shim file %s", path))
-			continue
+		if target == "" {
+			continue // nothing there
 		}
 		if err := os.Remove(path); err != nil {
 			errs = append(errs, fmt.Errorf("remove shim %s: %w", name, err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// ownedTarget inspects path and returns the symlink target if it is a shim
+// Bunny owns, or "" if nothing is there. A file Bunny cannot prove it owns is
+// an error rather than something to overwrite: the shim directory may be
+// shared with other tools' entry points (pipx, cargo, hand-written links), and
+// silently clobbering one of those is not recoverable.
+//
+// A link is ours when it points at something named "bunny", which every shim
+// does by construction, or when it resolves to the same file as the bunny
+// binary. The name check is what makes the test survive a moved or renamed
+// binary: a dangling shim stays repairable instead of stranded, while a link
+// into some other tool's directory is never claimed.
+func ownedTarget(path, bunnyPath string) (string, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", path, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return "", fmt.Errorf("%s is not a bunny shim (regular file)", path)
+	}
+	target, err := os.Readlink(path)
+	if err != nil {
+		return "", fmt.Errorf("read link %s: %w", path, err)
+	}
+	if filepath.Base(target) == ReservedName {
+		return target, nil
+	}
+	resolved, resolveErr := filepath.EvalSymlinks(path)
+	if resolveErr == nil {
+		if bunnyResolved, err := filepath.EvalSymlinks(bunnyPath); err == nil && resolved == bunnyResolved {
+			return target, nil
+		}
+		return "", fmt.Errorf("%s is not a bunny shim (points to %s)", path, resolved)
+	}
+	return "", fmt.Errorf("%s is not a bunny shim (dangling link to %s)", path, target)
 }
 
 // Difference returns the names in `from` that are not in `keep`. It computes
