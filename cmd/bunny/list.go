@@ -78,7 +78,8 @@ func (c *ListCmd) listInstalled(a *App) error {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].id < rows[j].id })
 	p := ui.New(os.Stdout)
-	return a.pageOutput("\n" + renderInstalled(p, rows))
+	p.Print("\n" + renderInstalled(p, rows))
+	return nil
 }
 
 // installedRow is one line of the installed listing.
@@ -129,7 +130,8 @@ func (c *ListCmd) listRemote(a *App) error {
 		rows = append(rows, remoteRow{pkg: pkg, active: active, status: status, statusStyle: style})
 	}
 	p := ui.New(os.Stdout)
-	return a.pageOutput("\n" + renderRemote(p, rows))
+	p.Print("\n" + renderRemote(p, rows))
+	return nil
 }
 
 type remoteRow struct {
@@ -306,7 +308,8 @@ func (c *SearchCmd) Run(a *App) error {
 		installed[id] = true
 	}
 	p := ui.New(os.Stdout)
-	return a.pageOutput("\n" + renderSearch(p, c.Query, matches, installed))
+	p.Print("\n" + renderSearch(p, c.Query, matches, installed))
+	return nil
 }
 
 func containsFold(values []string, query string) bool {

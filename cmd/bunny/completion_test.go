@@ -108,7 +108,7 @@ func TestCompletionScript(t *testing.T) {
 			t.Errorf("%s script left an uninterpolated placeholder", shell)
 		}
 		// Global flags completable anywhere (bash/zsh as --flag, fish as -l flag).
-		for _, f := range []string{"log-level", "pager", "no-pager", "version", "help"} {
+		for _, f := range []string{"log-level", "no-progress", "version", "help"} {
 			if !strings.Contains(s, f) {
 				t.Errorf("%s script missing global flag %q", shell, f)
 			}

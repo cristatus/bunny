@@ -37,15 +37,10 @@ type App struct {
 	Catalog    catalog.Loader
 	Installed  catalog.Loader
 	Installer  *installer.Installer
-	NoProgress bool   // force plain (final-line-only) progress output
-	Pager      string // auto, always, or never for pageable result commands
+	NoProgress bool // force plain (final-line-only) progress output
 
 	local  *catalog.Local
 	remote *catalog.Remote
-}
-
-func (a *App) pageOutput(output string) error {
-	return ui.Page(os.Stdout, output, a.Pager)
 }
 
 // reporter returns the progress Reporter for install/uninstall/update: a plain

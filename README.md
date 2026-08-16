@@ -132,11 +132,9 @@ bunny toolchains            regenerate Gradle/Maven JDK toolchain config from in
 
 Maintainer/CI commands live under `bunny dev`.
 
-Long `list` and `search` results automatically open in `less -FRX` (falling
-back to `more`) when stdout is an interactive terminal. Set `BUNNY_PAGER` or
-`PAGER` to choose another command, `--no-pager` to disable paging, or
-`--pager=always|never` to override the length check. Piped and redirected
-output is always written directly.
+`list` and `search` write plain text to stdout, so pipe them wherever you
+like: `bunny list --remote | less`, or narrow the result with `--tag`,
+`--capability`, and `--active`.
 
 ## Documentation
 

@@ -82,6 +82,13 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `dev update` now log what they changed.
 - Waiting on the mutation lock says so, instead of appearing to hang.
 
+### Removed
+
+- Paging of `list` and `search` output, along with `--pager`, `--no-pager`,
+  `BUNNY_PAGER`, and `PAGER`. Four knobs, terminal-height detection, and a
+  `less`/`more` fallback bought one thing, a long listing fitting on screen,
+  which `| less` already does. Both commands still write plain text to stdout.
+
 ### Fixed
 
 - Progress and log records no longer interleave. Both write to stderr, and the

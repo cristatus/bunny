@@ -162,7 +162,7 @@ var completionSubcommands = []string{
 
 // completionGlobalFlags are the top-level flags accepted before any subcommand
 // (from the CLI struct in main.go); bash/zsh embed them via __GLOBALS__.
-var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "--pager", "--no-pager", "--version"}
+var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "--version"}
 
 // completionLogLevels are the values --log-level accepts (mirrors the enum on
 // CLI.LogLevel in main.go); scripts embed them via __LOGLEVELS__.
@@ -197,7 +197,7 @@ const bashCompletion = `_bunny() {
     for (( i=1; i < COMP_CWORD; i++ )); do
         w="${COMP_WORDS[i]}"
         case "$w" in
-            --log-level|-l|--pager|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
+            --log-level|-l|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
             -*) continue ;;
         esac
         if [[ -z "$sub" ]]; then sub="$w"; else operand="$w"; break; fi
@@ -206,7 +206,6 @@ const bashCompletion = `_bunny() {
     # Value completion for the flag immediately before the cursor.
     case "$prev" in
         --log-level|-l) COMPREPLY=( $(compgen -W "__LOGLEVELS__" -- "$cur") ); return ;;
-        --pager)        COMPREPLY=( $(compgen -W "auto always never" -- "$cur") ); return ;;
         --tag)     COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return ;;
         --capability)   COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ); return ;;
         -t) [[ "$sub" == list ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
@@ -277,7 +276,7 @@ local sub="" operand="" w i
 for (( i = 2; i < CURRENT; i++ )); do
     w=${words[i]}
     case $w in
-        --log-level|-l|--pager|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
+        --log-level|-l|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
         -*) continue ;;
     esac
     if [[ -z $sub ]]; then sub=$w; else operand=$w; break; fi
@@ -286,7 +285,6 @@ done
 # Value completion for the flag before the cursor.
 case $prev in
     --log-level|-l) compadd -- __LOGLEVELS__; return ;;
-    --pager) compadd -- auto always never; return ;;
     --tag) compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return ;;
     --capability) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"}; return ;;
     -t) [[ $sub == list ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
@@ -361,8 +359,6 @@ complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 complete -c bunny -l help -d 'Show help'
 complete -c bunny -s l -l log-level -r -f -a '__LOGLEVELS__' -d 'Log level'
 complete -c bunny -l no-progress -d 'Disable interactive progress output'
-complete -c bunny -l pager -r -f -a 'auto always never' -d 'Page long list/search output'
-complete -c bunny -l no-pager -d 'Disable paged output'
 complete -c bunny -l version -d 'Print version'
 # positional operands per subcommand
 complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(__bunny_ids)'
