@@ -94,6 +94,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - Progress and log records no longer interleave. Both write to stderr, and the
   live reporter redraws in place, so a log line landed mid-spinner:
   `node-24 ⠋ removing2026/08/16 INFO Uninstalling package=node-24`.
+- Bunny records where each package is installed. The location was only
+  written down when it differed from the default root, which meant it was
+  never written down at all: `place()` derived the path from the same call the
+  check compared against. Repointing an install root therefore stranded every
+  package of that kind, and `--force` could replace an unrelated directory at
+  the newly computed path. An installed package is now updated where it lives.
+- Icons and shell completions are not overwritten unless bunny installed them,
+  and uninstall removes only the icon extension the manifest declares. It swept
+  `.png`, `.svg`, and `.xpm` for each name, in a directory shared with the rest
+  of the system.
+- A symlink is only bunny's shim if it points into bunny's own bin directory or
+  resolves to the running binary. A target merely *named* `bunny`, such as an
+  unrelated `/opt/some-tool/bunny`, was treated as bunny's and could be
+  replaced or removed.
 - `bunny install --force` no longer deletes a directory bunny did not create.
   Install trees carry a `.bunny-package` marker, and force-replacement and
   uninstall verify ownership first.
