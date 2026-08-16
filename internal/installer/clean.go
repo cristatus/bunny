@@ -5,8 +5,8 @@
 //   - older versions of cache files for installed packages (keep current only)
 //   - everything under the staging dir (crashed-install leftovers, always safe to drop)
 //
-// Per-app sandbox writable dirs (var/app/<id>/{config,cache,data}) are NOT
-// touched here — they're user data, removed only by `bunny uninstall --purge`.
+// Per-package data dirs are NOT touched here: they hold whatever config
+// redirected there, and are removed only by `bunny uninstall --purge`.
 package installer
 
 import (
@@ -181,7 +181,7 @@ func (c *Cleaner) pruneCacheDir(r *Report, id, dir string) {
 }
 
 // expectedFiles returns the basenames of cache files that the current
-// manifest's `sources:` would write to var/cache/<id>/.
+// manifest's `sources:` would write to the package's download cache.
 func (c *Cleaner) expectedFiles(id string) ([]string, error) {
 	m, err := c.Installed.Load(id)
 	if err != nil {

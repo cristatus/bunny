@@ -162,7 +162,7 @@ plumbing, and `~/.local/bin` is on `PATH` on most distributions.
 ├── cli/{id}/          plain commands (ripgrep, jq, gh)
 ├── app/{id}/          GUI applications (code, zed, jetbrains-toolbox)
 ├── data/{id}/         per-package data, the {data} placeholder
-│   └── manifest.yaml  install-time manifest cache (drives runtime + uninstall)
+├── manifests/{id}.yaml        install-time snapshots (drive runtime + uninstall)
 ├── catalog/packages/{id}/     optional local manifests (override remote)
 ├── state.json         installed packages, providers, install locations
 └── mutation.lock      serializes state-changing commands

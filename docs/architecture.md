@@ -46,10 +46,15 @@ name `bunny` is reserved at manifest validation and shim layers.
 ## Catalog views
 
 The live catalog is used for discovery and new installs. Runtime and cleanup
-use the install-time manifest snapshot in `data/{id}/manifest.yaml`, falling
-back to the live catalog only when that snapshot is absent. A corrupt snapshot
-is an error rather than a reason to silently use a potentially different live
+use the install-time manifest snapshot in `manifests/{id}.yaml`, falling back
+to the live catalog only when that snapshot is absent. A corrupt snapshot is an
+error rather than a reason to silently use a potentially different live
 manifest.
+
+Snapshots sit beside `state.json`, in the same durability class as the rest of
+bunny's bookkeeping. `{data}` belongs to the package once config redirects a
+tool's native paths there, so its contents are the user's to clear, and bunny
+keeps nothing there that it could not regenerate.
 
 Remote index responses and checker metadata are size-bounded and timeout-bound.
 The index cache is atomically replaced and uses a six-hour

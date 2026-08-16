@@ -147,6 +147,12 @@ func TestInstallEndToEnd(t *testing.T) {
 	if parsed.ID != "rg" || parsed.Version != "14.1.0" {
 		t.Errorf("cached manifest mismatch: id=%q version=%q", parsed.ID, parsed.Version)
 	}
+	// The snapshot lives beside state.json, never inside {data}. A package
+	// told to keep its data there may have it cleared by its own tooling or
+	// by hand, and that must not take bunny's record of the install with it.
+	if entries, err := os.ReadDir(i.Paths.AppData("rg")); err == nil && len(entries) > 0 {
+		t.Errorf("nothing unrecoverable belongs in {data}, found %d entries", len(entries))
+	}
 }
 
 func TestCheckRequiresVersionConstraint(t *testing.T) {

@@ -144,7 +144,7 @@ Values expand the same placeholders manifests use:
 | Placeholder | Expands to |
 |---|---|
 | `{app}` | the package's install tree, wherever it was installed |
-| `{data}` | the per-package data dir, `~/.local/share/bunny/data/<id>` |
+| `{data}` | the per-package data dir, `~/.local/share/bunny/data/<id>`, yours to clear |
 | `{home}` | your real `$HOME` |
 | `{bin}` | the shim dir, `~/.local/bin` |
 | `{share}` | `~/.local/share` |

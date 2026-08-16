@@ -47,6 +47,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   and a desktop entry implies `app`.
 - `state.json` records each package's kind, and a path only when it sits
   outside the default root. Changing a root affects the next install only.
+- Install-time manifest snapshots live in `manifests/<id>.yaml`, beside
+  `state.json`. `{data}` holds only the package's own files, so clearing a
+  tool's data cannot strip bunny's record of the install.
 - `npm -g` installs into node's own prefix, matching `nvm`: globals belong to
   the Node version that installed them.
 - Gradle's generated toolchain block goes to whichever `gradle.properties`

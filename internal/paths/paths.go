@@ -173,9 +173,10 @@ func (p *Paths) AppDir(id string) string {
 func (p *Paths) BunnyBinary() string     { return filepath.Join(p.Bin(), "bunny") }
 func (p *Paths) Shim(name string) string { return filepath.Join(p.Bin(), name) }
 
-// AppData is a package's own data dir, the {data} placeholder. It holds the
-// install-time manifest snapshot and anything config redirects here, and
-// outlives an uninstall unless --purge is given.
+// AppData is a package's own data dir, the {data} placeholder, where config
+// redirects a tool's native paths. Bunny writes only regenerable files here
+// (Maven's toolchains.xml), never anything it would need to recover the
+// install. It outlives an uninstall unless --purge is given.
 func (p *Paths) AppData(id string) string { return filepath.Join(p.data, "data", id) }
 
 func (p *Paths) AppDownloadCache(id string) string { return filepath.Join(p.Cache(), id) }
@@ -207,10 +208,16 @@ func (p *Paths) StagingRoots() []string {
 	return out
 }
 
-// ManifestFile is the runtime cache of the install-time manifest, used so
-// `bunny run` never has to hit the remote catalog at launch time.
+// Manifests holds one snapshot per installed package, in the same durability
+// class as state.json. Bunny's record of what it installed has to survive a
+// user clearing a package's {data} dir, which the package itself owns.
+func (p *Paths) Manifests() string { return filepath.Join(p.data, "manifests") }
+
+// ManifestFile is the install-time manifest snapshot, kept so `bunny run`
+// never has to hit the remote catalog at launch time and uninstall sees the
+// package as it was installed.
 func (p *Paths) ManifestFile(id string) string {
-	return filepath.Join(p.AppData(id), "manifest.yaml")
+	return filepath.Join(p.Manifests(), id+".yaml")
 }
 
 // --- Config + integration ---
