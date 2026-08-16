@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/cristatus/bunny/internal/checker"
 	"github.com/cristatus/bunny/internal/ui"
 )
@@ -112,6 +114,8 @@ func (c *UpdateCmd) apply(a *App) error {
 				continue
 			}
 			if installed.Version != r.CurrentVersion {
+				log.Debug("Version changed since the check", "package", r.ID,
+					"checked", r.CurrentVersion, "installed", installed.Version)
 				rep.Skip(r.ID, "changed", "")
 				continue
 			}
@@ -122,6 +126,8 @@ func (c *UpdateCmd) apply(a *App) error {
 				continue
 			}
 			if m.Version == r.CurrentVersion {
+				log.Debug("Catalog no longer offers a newer version", "package", r.ID,
+					"version", r.CurrentVersion)
 				rep.Skip(r.ID, "stale", "")
 				continue
 			}

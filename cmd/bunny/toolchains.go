@@ -10,7 +10,6 @@ import (
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/toolchains"
-	"github.com/cristatus/bunny/internal/ui"
 	"github.com/cristatus/bunny/internal/verparse"
 )
 
@@ -19,10 +18,15 @@ type ToolchainsCmd struct{}
 
 func (c *ToolchainsCmd) Run(a *App) error {
 	return a.withMutation(a.context(), func() error {
+		jdks, err := a.installedJDKs()
+		if err != nil {
+			return err
+		}
 		if err := a.regenerateToolchains(); err != nil {
 			return err
 		}
-		p := ui.New(os.Stdout)
+		log.Info("Regenerated JDK toolchain config", "jdks", len(jdks))
+		p := a.status()
 		p.Println()
 		p.Println("regenerated JDK toolchain config")
 		return nil

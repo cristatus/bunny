@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/log"
 	"gopkg.in/yaml.v3"
 
 	"github.com/cristatus/bunny/internal/catalog"
@@ -202,7 +203,7 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 		}
 	}
 
-	out := ui.New(os.Stdout)
+	out := a.status()
 	out.Println() // leading blank, then the live counter sits below it
 
 	// Phase 1: primary sources decide which packages are eligible for updates.
@@ -278,6 +279,10 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 				continue
 			}
 			change = fmt.Sprintf("%s → %s", r.CurrentVersion, r.LatestVersion)
+			log.Info("Rewrote package", "package", j.pkg.ID,
+				"from", r.CurrentVersion, "to", r.LatestVersion)
+			log.Debug("Rewrite targets", "package", j.pkg.ID,
+				"manifest", j.manifestPath, "index", j.indexPath)
 		} else {
 			if err := catalog.RewriteSource(j.manifestPath, j.sourceIdx, j.srcUpdate); err != nil {
 				errs = append(errs, fmt.Errorf("%s sources[%d]: rewrite: %w", j.pkg.ID, j.sourceIdx, err))
@@ -285,6 +290,9 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 				continue
 			}
 			change = fmt.Sprintf("%s → %s", j.currentVer, r.LatestVersion)
+			log.Info("Rewrote source", "package", j.pkg.ID, "source", j.sourceIdx,
+				"from", j.currentVer, "to", r.LatestVersion)
+			log.Debug("Rewrite target", "package", j.pkg.ID, "manifest", j.manifestPath)
 		}
 		if j.sourceIdx == 0 {
 			rows = append(rows, row{id: j.pkg.ID, change: change})

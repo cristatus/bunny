@@ -162,6 +162,7 @@ func (d *Downloader) fetchURL(ctx context.Context, src Source, target string, on
 	}
 
 	log.Info("Downloading", "url", rawURL)
+	log.Debug("Download target", "path", target, "sha256", src.SHA256, "sha512", src.SHA512, "size", src.Size)
 	var lastErr error
 	attempts := d.Retries + 1
 	if attempts < 1 {

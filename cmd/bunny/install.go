@@ -105,7 +105,7 @@ func finishErr(postErr error, failed int) error {
 // printSummary prints the end-of-op summary line to stdout after the live view
 // has been closed, so it never interleaves with the Bubble Tea frame.
 func printSummary(a *App, verb string, done, failed int, elapsed time.Duration) {
-	p := ui.New(os.Stdout)
+	p := a.status()
 	p.Println()
 	p.Print(installSummary(p, verb, done, failed, elapsed))
 }

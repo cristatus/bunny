@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
@@ -33,6 +35,25 @@ func (c reportCatalog) Load(id string) (*manifest.Manifest, error) {
 	return m, nil
 }
 func (c reportCatalog) LoadFile(string, string) ([]byte, error) { return nil, errors.New("missing") }
+
+// The live reporter and the log channel share stderr, so progress has to know
+// whether logging is on. main disables the channel by parking the level above
+// FatalLevel; this pins that coupling.
+func TestLoggingReflectsLogLevel(t *testing.T) {
+	prev := log.GetLevel()
+	t.Cleanup(func() { log.SetLevel(prev) })
+
+	log.SetLevel(log.FatalLevel + 1)
+	if logging() {
+		t.Error("the disabled sentinel level should read as logging off")
+	}
+	for _, lvl := range []log.Level{log.DebugLevel, log.InfoLevel, log.ErrorLevel, log.FatalLevel} {
+		log.SetLevel(lvl)
+		if !logging() {
+			t.Errorf("level %v should read as logging on", lvl)
+		}
+	}
+}
 
 func TestFindGlobalExe(t *testing.T) {
 	root := t.TempDir()

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/httpx"
 	"github.com/cristatus/bunny/internal/manifest"
@@ -100,6 +102,11 @@ func NewRemote(baseURL, cacheDir string) *Remote {
 	}
 }
 
+// URL is the catalog root actually in use, which is the built-in default when
+// config names none. Reporting the configured value instead would show an
+// empty remote for the common case of not having configured one.
+func (r *Remote) URL() string { return r.baseURL }
+
 // WithHTTPGet overrides the HTTP client (used by tests).
 func (r *Remote) WithHTTPGet(g HTTPGet) *Remote {
 	r.get = g
@@ -164,6 +171,7 @@ func (r *Remote) Load(id string) (*manifest.Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Debug("Fetching manifest", "package", id, "url", url)
 	body, err := r.fetch(url)
 	if err != nil {
 		return nil, err
@@ -213,9 +221,12 @@ func (r *Remote) loadIndex() (*Index, error) {
 	}
 	if idx, err := r.loadCachedIndex(); err == nil {
 		if r.cacheFresh() {
+			log.Debug("Index cache hit", "packages", len(idx.Packages), "updated", idx.Updated)
 			r.index = idx
 			return idx, nil
 		}
+		log.Debug("Index cache stale, revalidating", "updated", idx.Updated,
+			"timeout", r.revalidateTimeout)
 		// Stale-while-revalidate: kick off a refresh but never let it stall an
 		// interactive command. If the fetch beats revalidateTimeout we serve the
 		// fresh index; otherwise we serve the stale cache immediately and let the
@@ -241,7 +252,9 @@ func (r *Remote) loadIndex() (*Index, error) {
 				r.index = res.idx
 				return res.idx, nil
 			}
+			log.Debug("Index refresh failed, serving cache", "error", res.err)
 		case <-time.After(r.revalidateTimeout):
+			log.Debug("Index refresh too slow, serving cache", "timeout", r.revalidateTimeout)
 		}
 		r.index = idx
 		return idx, nil

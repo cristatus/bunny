@@ -55,6 +55,12 @@ type CLI struct {
 }
 
 func main() {
+	// Logging is off until -l asks for it. Set before shim dispatch, which
+	// returns without ever parsing flags: the library defaults to info, so
+	// anything logged at info or above on the run path would print on every
+	// `node` invocation.
+	log.SetLevel(log.FatalLevel + 1)
+
 	// Shim dispatch — when argv[0] is a symlink under $BUNNY_HOME/bin (e.g.
 	// `node`, `code`), resolve the owning package and exec its binary
 	// instead of Kong-parsing as the bunny CLI. Only the literal "bunny"
@@ -80,11 +86,9 @@ func main() {
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 	)
 
-	// Logging is off by default; -l turns it on at the requested level. Genuine
-	// failures still surface via ui.Fatal (returned errors), not the log channel.
-	if cli.LogLevel == "" {
-		log.SetLevel(log.FatalLevel + 1)
-	} else {
+	// Genuine failures surface via ui.Fatal (returned errors), not the log
+	// channel, so leaving it off loses nothing.
+	if cli.LogLevel != "" {
 		level, err := log.ParseLevel(cli.LogLevel)
 		if err != nil {
 			ui.Fatal(fmt.Errorf("invalid log level %q (want: debug, info, warn, or error)", cli.LogLevel))

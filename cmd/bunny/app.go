@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -50,11 +51,71 @@ func (a *App) pageOutput(output string) error {
 // reporter returns the progress Reporter for install/uninstall/update: a plain
 // final-line-only reporter when --no-progress is set, otherwise the TTY-aware
 // one. Progress always goes to stderr, keeping stdout results pipe-clean.
+//
+// With diagnostics enabled there is no progress output at all: the log covers
+// the same events in more detail on the same stream, and the live reporter
+// redraws in place, so the two interleave into an unreadable line.
 func (a *App) reporter() progress.Reporter {
-	if a.NoProgress {
+	switch {
+	case logging():
+		return logReporter{}
+	case a.NoProgress:
 		return progress.NewPlain(os.Stderr)
 	}
 	return progress.New(os.Stderr)
+}
+
+// logReporter is the Reporter used while -l is on. Phases and byte counts are
+// rendering, and drop out; per-package outcomes are not, and are logged. A
+// skipped or failed package is reported nowhere else, and a batch that fails
+// exits non-zero without printing (see errHandled), so dropping these would
+// mean a silent failure.
+type logReporter struct{}
+
+func (logReporter) Begin(parent context.Context, ids []string) context.Context {
+	log.Debug("Batch", "packages", ids)
+	return parent
+}
+func (logReporter) Start(pkg string)                       {}
+func (logReporter) Download(pkg string, done, total int64) {}
+func (logReporter) Close()                                 {}
+
+func (logReporter) Phase(pkg, name string) { log.Debug("Phase", "package", pkg, "phase", name) }
+func (logReporter) Done(pkg, status, version string) {
+	log.Debug("Finished", append([]any{"package", pkg, "status", status}, versionKV(version)...)...)
+}
+func (logReporter) Skip(pkg, status, version string) {
+	log.Info("Skipped", append([]any{"package", pkg, "reason", status}, versionKV(version)...)...)
+}
+func (logReporter) Fail(pkg string, err error) {
+	log.Error("Failed", "package", pkg, "error", err)
+}
+
+// versionKV drops the version rather than logging version="": removals and
+// skips have no version, and an empty field on every such line is noise.
+func versionKV(version string) []any {
+	if version == "" {
+		return nil
+	}
+	return []any{"version", version}
+}
+
+// logging reports whether -l enabled the log channel. main parks the level
+// above FatalLevel to disable it.
+func logging() bool { return log.GetLevel() <= log.FatalLevel }
+
+// status returns the printer for bunny's narration of what it did: activated a
+// provider, wrote a pin, removed a cache file. With -l that narration is the
+// log's job, so this discards and the log becomes the only output.
+//
+// Not for command results. `bunny list`, `search`, `info`, `doctor`, and the
+// snippet-printing `init`/`completion` produce the data the user asked for on
+// stdout, and `eval "$(bunny init zsh -l debug)"` has to keep working.
+func (a *App) status() *ui.Printer {
+	if logging() {
+		return ui.New(io.Discard)
+	}
+	return ui.New(os.Stdout)
 }
 
 // reporterHook adapts a per-package progress.Reporter to the installer's
@@ -105,6 +166,26 @@ func New() (*App, error) {
 		cat = catalog.NewComposite(local, remote)
 	} else {
 		cat = remote
+	}
+
+	// The context every other record is read against, and the first thing worth
+	// knowing when an install lands somewhere unexpected: which config was read,
+	// which layout resolved, and which catalog won. Guarded because New runs on
+	// every shim dispatch, so `node --version` should not pay to assemble it.
+	if log.GetLevel() <= log.DebugLevel {
+		log.Debug("Layout", "xdg", p.XDG(), "config", p.UserConfigFile(),
+			"state", p.StateFile(), "manifests", p.Manifests(), "bin", p.Bin(),
+			"cache", p.Cache())
+		// Per kind, not p.InstallRoots(): that sorts and deduplicates, so a
+		// customized root shows up as an unlabelled path with nothing saying
+		// which kind sent it there.
+		roots := make([]any, 0, len(manifest.Kinds)*2)
+		for _, kind := range manifest.Kinds {
+			roots = append(roots, kind, p.InstallRoot(kind))
+		}
+		log.Debug("Install roots", roots...)
+		log.Debug("Catalog", "local", catalogDir, "localExists", local.Exists(),
+			"remote", remote.URL())
 	}
 
 	app.Catalog = cat

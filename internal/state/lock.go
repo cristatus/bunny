@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/charmbracelet/log"
 )
 
 // Lock is an advisory, process-wide mutation lock. Bunny is Linux-only, so
@@ -25,14 +27,24 @@ func AcquireLock(ctx context.Context, path string) (*Lock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open mutation lock: %w", err)
 	}
+	waiting := false
 	for {
 		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
+			if waiting {
+				log.Debug("Acquired mutation lock", "path", path)
+			}
 			return &Lock{file: file}, nil
 		}
 		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
 			file.Close()
 			return nil, fmt.Errorf("acquire mutation lock: %w", err)
+		}
+		if !waiting {
+			// Nothing else explains a command that appears to hang before it
+			// starts, so say so once rather than on every poll.
+			log.Info("Waiting for another bunny process to finish", "lock", path)
+			waiting = true
 		}
 		select {
 		case <-ctx.Done():

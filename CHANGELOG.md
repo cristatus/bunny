@@ -69,8 +69,24 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   install root for each kind, so a setting left commented out is visible
   without installing something to find out where it landed.
 
+- `-l/--log-level` replaces progress output instead of competing with it. With
+  a level set there is no spinner, per-package status line, or summary: the
+  same events become log records, chosen once at startup rather than branched
+  on per command. Commands whose output is the requested data still print it.
+- The log is a complete account of a run. `debug` opens with the resolved
+  layout, config path, install roots, and catalog source, then names the
+  staging directory, install target, download cache, manifest snapshot, and
+  the shims added or removed. Every per-package outcome is recorded, so a
+  skipped or failed package is reported rather than exiting non-zero in
+  silence, and `use`, `pin`, `reshim`, `setup`, `clean`, `toolchains`, and
+  `dev update` now log what they changed.
+- Waiting on the mutation lock says so, instead of appearing to hang.
+
 ### Fixed
 
+- Progress and log records no longer interleave. Both write to stderr, and the
+  live reporter redraws in place, so a log line landed mid-spinner:
+  `node-24 ⠋ removing2026/08/16 INFO Uninstalling package=node-24`.
 - `bunny install --force` no longer deletes a directory bunny did not create.
   Install trees carry a `.bunny-package` marker, and force-replacement and
   uninstall verify ownership first.

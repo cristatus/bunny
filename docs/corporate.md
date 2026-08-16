@@ -74,10 +74,12 @@ Tools without cache-tag support (rsync, `cp`, Time Machine) need an explicit exc
 
 ## Logging and audit trails
 
-`bunny --log-level debug install <id>` logs every download URL, hash check, and prepare command. Pipe to a file for a record of exactly what was installed and from where:
+`bunny --log-level debug install <id>` logs every download URL, hash check, and prepare command, along with the paths involved: the staging directory, the install target, the download cache, and the manifest snapshot. Pipe to a file for a record of exactly what was installed and from where:
 
 ```bash
 bunny --log-level debug install jdk-21 2> jdk-21-install.log
 ```
+
+Enabling a log level replaces bunny's progress output rather than adding to it. There is no spinner, no per-package status line, and no summary: the log is the whole account of what happened, so a captured file is complete and a terminal run is readable. Commands whose output is the data you asked for (`list`, `search`, `info`, `doctor`, `init`, `completion`) still print it, so `eval "$(bunny init zsh)"` works with any log level.
 
 For an org-wide audit, `~/.local/share/bunny/state.json` is a JSON file with installed packages + versions, easy to scrape from a fleet-management tool.

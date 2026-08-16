@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -11,7 +10,6 @@ import (
 
 	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/state"
-	"github.com/cristatus/bunny/internal/ui"
 )
 
 // UseCmd switches the active provider for a capability and re-points every
@@ -65,7 +63,11 @@ func (c *UseCmd) Run(a *App) error {
 		} else if len(added)+len(removed) > 0 {
 			log.Debug("Reshimmed global tools", "capability", m.Provides, "added", len(added), "removed", len(removed))
 		}
-		p := ui.New(os.Stdout)
+		log.Info("Activated provider", "capability", m.Provides, "package", c.ID,
+			"version", m.Version, "replaced", previous)
+		log.Debug("Provider shims", "dir", a.Paths.Bin(), "commands", names,
+			"path", a.Paths.AppDir(c.ID))
+		p := a.status()
 		p.Println()
 		p.Print(renderUse(m.Provides, c.ID, m.Version, previous, names))
 		return nil

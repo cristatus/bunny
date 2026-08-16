@@ -2,10 +2,10 @@ package main
 
 import (
 	"fmt"
-	"os"
+
+	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/installer"
-	"github.com/cristatus/bunny/internal/ui"
 )
 
 // CleanCmd prunes the download cache and abandoned staged installs.
@@ -26,7 +26,8 @@ func (c *CleanCmd) Run(a *App) error {
 		if report == nil {
 			return err
 		}
-		p := ui.New(os.Stdout)
+		log.Info("Cleaned", "items", len(report.Removed), "freed", humanBytes(report.Bytes))
+		p := a.status()
 		p.Println()
 		if len(report.Removed) == 0 {
 			if err == nil {

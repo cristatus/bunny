@@ -12,7 +12,9 @@ import (
 type DoctorCmd struct{}
 
 func (c *DoctorCmd) Run(a *App) error {
-	results := doctor.RunAll(a.Paths, a.local.Root(), a.Config.Catalog.Remote)
+	// The effective URL, not the configured one: "unset" is not an answer to
+	// "which catalog am I using?".
+	results := doctor.RunAll(a.Paths, a.local.Root(), a.remote.URL())
 	if cwd, err := os.Getwd(); err == nil {
 		results = append(results, doctor.PinResolution(a.State, cwd)...)
 	}

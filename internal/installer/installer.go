@@ -129,6 +129,11 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	pkgDir := filepath.Join(workDir, "pkg")
 	cleanup := func() { os.RemoveAll(workDir) }
 
+	log.Debug("Install layout", "package", id, "kind", kind,
+		"target", i.Paths.InstallDir(id, kind), "staging", workDir,
+		"downloads", i.Paths.AppDownloadCache(id), "data", i.Paths.AppData(id),
+		"manifest", i.Paths.ManifestFile(id))
+
 	cleanup() // remove any stale work dir
 	if err := os.MkdirAll(srcDir, 0755); err != nil {
 		return err
@@ -188,6 +193,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 			cleanup()
 			return fmt.Errorf("install shims: %w", err)
 		}
+		log.Debug("Installed shims", "package", id, "dir", i.Paths.Bin(), "commands", newCommands)
 	}
 
 	integrationChanged := false
@@ -266,6 +272,8 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 
 	cleanup()
 	log.Info("Installed", "package", m.Name, "version", m.Version)
+	log.Debug("Install complete", "package", id, "path", placed.finalDir,
+		"manifest", i.Paths.ManifestFile(id))
 	return nil
 }
 
@@ -325,6 +333,8 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 		return err
 	}
 	log.Info("Uninstalling", "package", id)
+	log.Debug("Uninstall layout", "package", id, "path", i.Paths.AppDir(id),
+		"manifest", i.Paths.ManifestFile(id), "data", i.Paths.AppData(id), "purge", purge)
 	stateBefore := i.State.Clone()
 
 	// Best-effort manifest load: prefer the install-time cache so we clean up
@@ -345,6 +355,7 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 	if manifest != nil {
 		names = appendMissing(names, binNames(manifest)...)
 	}
+	log.Debug("Removing shims", "package", id, "dir", i.Paths.Bin(), "commands", names)
 	if err := i.removeShims(names); err != nil {
 		_ = removed.Rollback()
 		return fmt.Errorf("remove shims: %w", err)
@@ -399,6 +410,7 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove cached manifest: %w", err))
 	}
 	if purge {
+		log.Debug("Purging package data", "package", id, "path", i.Paths.AppData(id))
 		if err := os.RemoveAll(i.Paths.AppData(id)); err != nil {
 			cleanupErrs = append(cleanupErrs, fmt.Errorf("remove app data: %w", err))
 		}

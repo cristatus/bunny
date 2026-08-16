@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/paths"
-	"github.com/cristatus/bunny/internal/ui"
 )
 
 // environmentDPath is where systemd's per-user environment generator reads
@@ -197,7 +198,7 @@ func (c *SetupCmd) Run(a *App) error {
 
 	return a.withMutation(a.context(), func() error {
 		bin := a.Paths.Bin()
-		p := ui.New(os.Stdout)
+		p := a.status()
 		p.Println()
 
 		envPath, wroteEnv, err := writeEnvironmentD(a.Paths)
@@ -205,14 +206,17 @@ func (c *SetupCmd) Run(a *App) error {
 			return fmt.Errorf("write environment.d: %w", err)
 		}
 		if wroteEnv {
+			log.Info("Wrote session env", "path", envPath)
 			p.Println("wrote session env to " + tildePath(envPath))
 		} else {
+			log.Info("Session env already provides the shim dir, skipped", "dir", bin, "path", envPath)
 			p.Println("session env already provides " + tildePath(bin) + ", skipped")
 		}
 
 		if err := writeCompletionFile(a.Paths, shell); err != nil {
 			return fmt.Errorf("write completion: %w", err)
 		}
+		log.Info("Wrote shell completion", "shell", shell, "path", completionFilePath(a.Paths, shell))
 
 		rcPath, err := rcPathForShell(shell)
 		if err != nil {
@@ -224,8 +228,10 @@ func (c *SetupCmd) Run(a *App) error {
 			return fmt.Errorf("configure %s: %w", rcPath, err)
 		}
 		if added {
+			log.Info("Added bunny init", "rc", rcPath, "binary", bunnyBin)
 			p.Println("added bunny init to " + tildePath(rcPath))
 		} else {
+			log.Info("Shell rc already configured", "rc", rcPath)
 			p.Println(tildePath(rcPath) + " already configured")
 		}
 

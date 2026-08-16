@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/shim"
-	"github.com/cristatus/bunny/internal/ui"
 )
 
 // PinCmd writes a project-local version pin to ./.bunny-version so the given
@@ -25,7 +25,9 @@ func (c *PinCmd) Run(a *App) error {
 	if err := shim.WriteProjectVersion(cwd, c.Capability, c.Version); err != nil {
 		return fmt.Errorf("write pin: %w", err)
 	}
-	p := ui.New(os.Stdout)
+	log.Info("Pinned", "capability", c.Capability, "version", c.Version,
+		"file", filepath.Join(cwd, shim.ProjectVersionFile))
+	p := a.status()
 	p.Println()
 	p.Print(pinConfirmation(c.Capability, c.Version))
 	// The pin resolves to "<capability>-<version>"; warn if it isn't installed.
@@ -45,7 +47,7 @@ type UnpinCmd struct {
 	Capability string `arg:"" help:"Capability to unpin (e.g. node, jdk)"`
 }
 
-func (c *UnpinCmd) Run(_ *App) error {
+func (c *UnpinCmd) Run(a *App) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
@@ -54,7 +56,9 @@ func (c *UnpinCmd) Run(_ *App) error {
 	if err != nil {
 		return fmt.Errorf("remove pin: %w", err)
 	}
-	p := ui.New(os.Stdout)
+	log.Info("Unpinned", "capability", c.Capability, "removed", removed,
+		"file", filepath.Join(cwd, shim.ProjectVersionFile))
+	p := a.status()
 	p.Println()
 	if !removed {
 		p.Println("no pin to remove for " + c.Capability)
