@@ -711,15 +711,21 @@ func (i *Installer) installShims(m *manifest.Manifest) error {
 	return shim.Install(i.Paths.Bin(), binNames(m), bunnyPath)
 }
 
-func (i *Installer) installDesktopIntegration(m *manifest.Manifest, id, appDir string) error {
+// installDesktopIntegration writes the package's entries, icons, and
+// completions. prev is the manifest of the install being replaced, if any:
+// icons and completions cannot carry an owner marker the way a .desktop entry
+// can, so what the previous install declared is what bunny is allowed to
+// overwrite in these shared directories.
+func (i *Installer) installDesktopIntegration(m *manifest.Manifest, prev *manifest.Manifest, id, appDir string) error {
 	finalVars := i.Paths.VarsAt(id, m.Version, appDir)
+	owned := desktop.ManagedFiles(i.Paths, prev, finalVars)
 	if err := desktop.InstallEntries(i.Paths, m.Desktop, finalVars, id); err != nil {
 		return err
 	}
-	if err := desktop.InstallIcons(i.Paths, m.Icons, finalVars); err != nil {
+	if err := desktop.InstallIcons(i.Paths, m.Icons, finalVars, owned); err != nil {
 		return err
 	}
-	if err := desktop.InstallCompletions(i.Paths, m.Completions, finalVars); err != nil {
+	if err := desktop.InstallCompletions(i.Paths, m.Completions, finalVars, owned); err != nil {
 		return err
 	}
 	if len(m.Icons) > 0 {
@@ -733,13 +739,13 @@ func (i *Installer) removeDesktopIntegration(m *manifest.Manifest, id string) er
 		return nil
 	}
 	var errs []error
+	vars := i.Paths.Vars(id, m.Version)
 	if err := desktop.RemoveEntries(i.Paths, m.Desktop); err != nil {
 		errs = append(errs, err)
 	}
-	if err := desktop.RemoveIcons(i.Paths, m.Icons); err != nil {
+	if err := desktop.RemoveIcons(i.Paths, m.Icons, vars); err != nil {
 		errs = append(errs, err)
 	}
-	vars := i.Paths.Vars(id, m.Version)
 	if err := desktop.RemoveCompletions(i.Paths, m.Completions, vars); err != nil {
 		errs = append(errs, err)
 	}
@@ -752,18 +758,18 @@ func (i *Installer) removeDesktopIntegration(m *manifest.Manifest, id string) er
 func (i *Installer) replaceDesktopIntegration(old, next *manifest.Manifest, id, appDir string) error {
 	if err := i.removeDesktopIntegration(old, id); err != nil {
 		if old != nil {
-			_ = i.installDesktopIntegration(old, id, appDir)
+			_ = i.installDesktopIntegration(old, old, id, appDir)
 		}
 		return fmt.Errorf("remove previous integration: %w", err)
 	}
-	if err := i.installDesktopIntegration(next, id, appDir); err != nil {
+	if err := i.installDesktopIntegration(next, old, id, appDir); err != nil {
 		removeErr := i.removeDesktopIntegration(next, id)
 		errs := []error{fmt.Errorf("install new integration: %w", err)}
 		if removeErr != nil {
 			errs = append(errs, fmt.Errorf("clean partial integration: %w", removeErr))
 		}
 		if old != nil {
-			if restoreErr := i.installDesktopIntegration(old, id, appDir); restoreErr != nil {
+			if restoreErr := i.installDesktopIntegration(old, old, id, appDir); restoreErr != nil {
 				errs = append(errs, fmt.Errorf("restore previous integration: %w", restoreErr))
 			}
 		}
@@ -777,7 +783,7 @@ func (i *Installer) restoreDesktopIntegration(old, next *manifest.Manifest, id, 
 		log.Warn("Failed to remove new desktop integration during rollback", "package", id, "error", err)
 	}
 	if old != nil {
-		if err := i.installDesktopIntegration(old, id, appDir); err != nil {
+		if err := i.installDesktopIntegration(old, old, id, appDir); err != nil {
 			log.Warn("Failed to restore previous desktop integration", "package", id, "error", err)
 		}
 	}
@@ -832,7 +838,7 @@ func (i *Installer) rollbackUninstall(p *removalPlacement, m *manifest.Manifest,
 		}
 	}
 	if m != nil {
-		if err := i.installDesktopIntegration(m, id, i.Paths.AppDir(id)); err != nil {
+		if err := i.installDesktopIntegration(m, m, id, i.Paths.AppDir(id)); err != nil {
 			log.Warn("Failed to restore desktop integration", "package", id, "error", err)
 		}
 	}

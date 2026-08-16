@@ -116,7 +116,7 @@ func TestInstallIcon(t *testing.T) {
 	src := filepath.Join(srcDir, "code.png")
 	os.WriteFile(src, []byte("fake-png"), 0644)
 
-	if err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil); err != nil {
+	if err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.png")
@@ -134,7 +134,7 @@ func TestRefreshIconCache(t *testing.T) {
 		p := paths.At(root)
 		src := filepath.Join(t.TempDir(), "code.png")
 		os.WriteFile(src, []byte("x"), 0644)
-		if err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil); err != nil {
+		if err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		var got string
@@ -171,7 +171,7 @@ func TestInstallCompletions(t *testing.T) {
 		Bash: bash,
 		Zsh:  zsh,
 	}
-	if err := InstallCompletions(p, comps, nil); err != nil {
+	if err := InstallCompletions(p, comps, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(p.BashCompletions(), "code.bash")); err != nil {
@@ -179,5 +179,80 @@ func TestInstallCompletions(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(p.ZshCompletions(), "_code")); err != nil {
 		t.Errorf("zsh missing: %v", err)
+	}
+}
+
+// ~/.local/share/icons is shared with the distro and every other application,
+// so an icon already sitting at the target path belongs to somebody. Bunny
+// installs around it rather than over it.
+func TestInstallIconsLeavesAForeignIconAlone(t *testing.T) {
+	p := paths.At(t.TempDir())
+	src := filepath.Join(t.TempDir(), "code.png")
+	os.WriteFile(src, []byte("bunny-png"), 0644)
+
+	dst := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.png")
+	os.MkdirAll(filepath.Dir(dst), 0755)
+	os.WriteFile(dst, []byte("the distro's icon"), 0644)
+
+	icons := []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}
+	if err := InstallIcons(p, icons, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(dst); string(data) != "the distro's icon" {
+		t.Errorf("overwrote a foreign icon: %q", data)
+	}
+
+	// The previous install's manifest is what proves the file is bunny's, so
+	// with that in hand the same write goes through.
+	prev := &manifest.Manifest{Icons: icons}
+	if err := InstallIcons(p, icons, nil, ManagedFiles(p, prev, nil)); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(dst); string(data) != "bunny-png" {
+		t.Errorf("declined to replace its own icon: %q", data)
+	}
+}
+
+func TestInstallCompletionsLeavesAForeignFileAlone(t *testing.T) {
+	p := paths.At(t.TempDir())
+	src := filepath.Join(t.TempDir(), "code.bash")
+	os.WriteFile(src, []byte("bunny's completion"), 0644)
+
+	dst := filepath.Join(p.BashCompletions(), "code.bash")
+	os.MkdirAll(filepath.Dir(dst), 0755)
+	os.WriteFile(dst, []byte("hand-written"), 0644)
+
+	if err := InstallCompletions(p, &manifest.Completions{Bash: src}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(dst); string(data) != "hand-written" {
+		t.Errorf("overwrote a foreign completion: %q", data)
+	}
+}
+
+// Removal used to sweep .png/.svg/.xpm for the icon's name, taking out
+// variants bunny never installed.
+func TestRemoveIconsOnlyTouchesTheDeclaredExtension(t *testing.T) {
+	p := paths.At(t.TempDir())
+	src := filepath.Join(t.TempDir(), "code.png")
+	os.WriteFile(src, []byte("bunny-png"), 0644)
+
+	icons := []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}
+	if err := InstallIcons(p, icons, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody else's scalable variant, same name, same theme directory.
+	svg := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.svg")
+	os.WriteFile(svg, []byte("<svg/>"), 0644)
+
+	if err := RemoveIcons(p, icons, nil); err != nil {
+		t.Fatal(err)
+	}
+	png := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.png")
+	if _, err := os.Stat(png); !os.IsNotExist(err) {
+		t.Errorf("bunny's own icon should be gone: %v", err)
+	}
+	if data, err := os.ReadFile(svg); err != nil || string(data) != "<svg/>" {
+		t.Errorf("removed an icon bunny never installed: %q, %v", data, err)
 	}
 }

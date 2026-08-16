@@ -82,41 +82,99 @@ func checkEntryOwned(path string) error {
 	return fmt.Errorf("%s was not created by bunny", path)
 }
 
-// InstallIcons copies icons into the XDG icons hierarchy.
-func InstallIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string) error {
-	for _, ic := range icons {
-		src := runtime.Expand(ic.Src, vars)
-		size := ic.Size
-		if size == "" {
-			size = "128x128"
+// defaultIconSize is the hicolor subdirectory an icon without a declared size
+// lands in.
+const defaultIconSize = "128x128"
+
+// IconPath is where an icon lands, derived from the same manifest fields at
+// install and removal so the two can never disagree.
+func IconPath(p *paths.Paths, ic manifest.Icon, vars map[string]string) string {
+	size := ic.Size
+	if size == "" {
+		size = defaultIconSize
+	}
+	src := runtime.Expand(ic.Src, vars)
+	return filepath.Join(p.Icons(), "hicolor", size, "apps", ic.Name+filepath.Ext(src))
+}
+
+// CompletionPaths are the files a completions block installs.
+func CompletionPaths(p *paths.Paths, comps *manifest.Completions, vars map[string]string) []string {
+	if comps == nil {
+		return nil
+	}
+	var out []string
+	for _, c := range []struct{ src, dir string }{
+		{comps.Bash, p.BashCompletions()},
+		{comps.Zsh, p.ZshCompletions()},
+		{comps.Fish, p.FishCompletions()},
+	} {
+		if c.src == "" {
+			continue
 		}
-		dstDir := filepath.Join(p.Icons(), "hicolor", size, "apps")
-		if err := os.MkdirAll(dstDir, 0755); err != nil {
+		out = append(out, filepath.Join(c.dir, filepath.Base(runtime.Expand(c.src, vars))))
+	}
+	return out
+}
+
+// ManagedFiles is every icon and completion path a manifest lays claim to.
+// A .desktop entry carries its owner inside it; an icon is binary and a zsh
+// completion has to keep #compdef on its first line, so neither can. The
+// install-time manifest snapshot is the record instead: if the previous
+// snapshot declared a path, bunny put it there and may replace it.
+func ManagedFiles(p *paths.Paths, m *manifest.Manifest, vars map[string]string) map[string]bool {
+	if m == nil {
+		return nil
+	}
+	owned := map[string]bool{}
+	for _, ic := range m.Icons {
+		owned[IconPath(p, ic, vars)] = true
+	}
+	for _, path := range CompletionPaths(p, m.Completions, vars) {
+		owned[path] = true
+	}
+	return owned
+}
+
+// InstallIcons copies icons into the XDG icons hierarchy, leaving alone any
+// file bunny cannot show it installed. These directories are shared with the
+// distro and every other application, so an existing file is somebody's.
+func InstallIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string, owned map[string]bool) error {
+	for _, ic := range icons {
+		dst := IconPath(p, ic, vars)
+		if !claimable(dst, owned) {
+			log.Warn("Leaving icon alone", "path", dst, "reason", "not installed by bunny")
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return err
 		}
-		ext := filepath.Ext(src)
-		dst := filepath.Join(dstDir, ic.Name+ext)
-		if err := fsutil.CopyFile(src, dst, 0644); err != nil {
+		if err := fsutil.CopyFile(runtime.Expand(ic.Src, vars), dst, 0644); err != nil {
 			return fmt.Errorf("install icon %s: %w", ic.Name, err)
 		}
-		log.Debug("Installed icon", "name", ic.Name, "size", size)
+		log.Debug("Installed icon", "name", ic.Name, "path", dst)
 	}
 	return nil
 }
 
-// RemoveIcons removes installed icons across the supported extensions.
-func RemoveIcons(p *paths.Paths, icons []manifest.Icon) error {
+// claimable reports whether bunny may write dst: either nothing is there, or
+// the package's previous install put it there.
+func claimable(dst string, owned map[string]bool) bool {
+	if _, err := os.Lstat(dst); os.IsNotExist(err) {
+		return true
+	}
+	return owned[dst]
+}
+
+// RemoveIcons removes the icons this manifest installed. Only the extension
+// the manifest actually declares: sweeping .png/.svg/.xpm for the name took
+// out variants bunny never wrote, in a directory it shares with everything
+// else on the system.
+func RemoveIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string) error {
 	var errs []error
 	for _, ic := range icons {
-		size := ic.Size
-		if size == "" {
-			size = "128x128"
-		}
-		for _, ext := range []string{".png", ".svg", ".xpm"} {
-			path := filepath.Join(p.Icons(), "hicolor", size, "apps", ic.Name+ext)
-			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-				errs = append(errs, fmt.Errorf("remove icon %s: %w", ic.Name+ext, err))
-			}
+		path := IconPath(p, ic, vars)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove icon %s: %w", ic.Name, err))
 		}
 	}
 	return errors.Join(errs...)
@@ -155,7 +213,7 @@ func RefreshIconCache(p *paths.Paths) {
 }
 
 // InstallCompletions copies shell-completion files to the XDG share dirs.
-func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[string]string) error {
+func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[string]string, owned map[string]bool) error {
 	if comps == nil {
 		return nil
 	}
@@ -172,10 +230,14 @@ func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[st
 			continue
 		}
 		src := runtime.Expand(c.src, vars)
+		dst := filepath.Join(c.dir, filepath.Base(src))
+		if !claimable(dst, owned) {
+			log.Warn("Leaving completion alone", "path", dst, "reason", "not installed by bunny")
+			continue
+		}
 		if err := os.MkdirAll(c.dir, 0755); err != nil {
 			return err
 		}
-		dst := filepath.Join(c.dir, filepath.Base(src))
 		if err := fsutil.CopyFile(src, dst, 0644); err != nil {
 			return fmt.Errorf("install completion %s: %w", filepath.Base(src), err)
 		}
@@ -189,22 +251,9 @@ func RemoveCompletions(p *paths.Paths, comps *manifest.Completions, vars map[str
 		return nil
 	}
 	var errs []error
-	pairs := []struct {
-		src string
-		dir string
-	}{
-		{comps.Bash, p.BashCompletions()},
-		{comps.Zsh, p.ZshCompletions()},
-		{comps.Fish, p.FishCompletions()},
-	}
-	for _, c := range pairs {
-		if c.src == "" {
-			continue
-		}
-		src := runtime.Expand(c.src, vars)
-		path := filepath.Join(c.dir, filepath.Base(src))
+	for _, path := range CompletionPaths(p, comps, vars) {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			errs = append(errs, fmt.Errorf("remove completion %s: %w", filepath.Base(src), err))
+			errs = append(errs, fmt.Errorf("remove completion %s: %w", filepath.Base(path), err))
 		}
 	}
 	return errors.Join(errs...)
