@@ -46,8 +46,8 @@ func TestPathsLayout(t *testing.T) {
 		{p.AppData("vscode"), "/x/var/app/vscode"},
 		{p.Cache(), "/x/var/cache"},
 		{p.AppDownloadCache("vscode"), "/x/var/cache/vscode"},
-		{p.Tmp(), "/x/var/tmp"},
-		{p.AppTmp("vscode"), "/x/var/tmp/vscode"},
+		{p.Staging(), "/x/app/.staging"},
+		{p.AppStaging("vscode"), "/x/app/.staging/vscode"},
 		{p.StateFile(), "/x/var/state.json"},
 		{p.MutationLock(), "/x/var/mutation.lock"},
 		{p.ManifestFile("vscode"), "/x/var/app/vscode/manifest.yaml"},
@@ -95,5 +95,21 @@ func TestResolveAbsPath(t *testing.T) {
 	want := filepath.Join(cwd, "relative/path")
 	if p.Home != want {
 		t.Errorf("Home = %q, want %q", p.Home, want)
+	}
+}
+
+// Staging must sit inside the app root. Installing finishes by renaming the
+// staged tree into place, and rename(2) cannot cross filesystems: only a
+// sibling directory guarantees the two ends are on the same one.
+func TestStagingIsSiblingOfInstallTarget(t *testing.T) {
+	p := At("/x")
+	if got, want := filepath.Dir(p.Staging()), p.App(); got != want {
+		t.Errorf("staging parent = %q, want %q (same root as install targets)", got, want)
+	}
+	if got, want := filepath.Dir(p.AppStaging("node-22")), p.Staging(); got != want {
+		t.Errorf("per-app staging parent = %q, want %q", got, want)
+	}
+	if filepath.Dir(p.AppStaging("node-22")) == filepath.Dir(p.AppDir("node-22")) {
+		t.Error("staging must not collide with the install dirs it is renamed into")
 	}
 }

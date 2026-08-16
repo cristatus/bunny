@@ -1,9 +1,9 @@
-// Cache and tmp cleanup: removes stale data under $BUNNY_HOME/var.
+// Cache and staging cleanup: removes stale downloads and abandoned installs.
 //
 // "Stale" by default means:
 //   - download cache files for uninstalled packages (orphan dirs)
 //   - older versions of cache files for installed packages (keep current only)
-//   - everything under var/tmp (crashed-install leftovers, always safe to drop)
+//   - everything under the staging dir (crashed-install leftovers, always safe to drop)
 //
 // Per-app sandbox writable dirs (var/app/<id>/{config,cache,data}) are NOT
 // touched here — they're user data, removed only by `bunny uninstall --purge`.
@@ -45,8 +45,8 @@ func NewCleaner(p *paths.Paths, cat catalog.Loader, st *state.State) *Cleaner {
 
 // Clean runs the cleanup pass.
 //
-//	id == "":  scan everything under var/cache and var/tmp.
-//	id != "":  scope to one app (cache + tmp for that id only).
+//	id == "":  scan everything under the cache and staging roots.
+//	id != "":  scope to one app (cache + staging for that id only).
 //	all:       drop all download cache, including for installed apps.
 func (c *Cleaner) Clean(id string, all bool) (*Report, error) {
 	r := &Report{}
@@ -56,11 +56,11 @@ func (c *Cleaner) Clean(id string, all bool) (*Report, error) {
 			return nil, fmt.Errorf("invalid package id %q: %w", id, err)
 		}
 		c.cleanOneCache(r, id, all)
-		c.cleanOneTmp(r, id)
+		c.cleanOneStaging(r, id)
 		return r, errors.Join(r.Errors...)
 	}
 
-	c.cleanAllTmp(r)
+	c.cleanAllStaging(r)
 	c.cleanAllCache(r, all)
 	return r, errors.Join(r.Errors...)
 }
@@ -82,12 +82,12 @@ func (c *Cleaner) cleanOneCache(r *Report, id string, all bool) {
 	c.pruneCacheDir(r, id, dir)
 }
 
-func (c *Cleaner) cleanOneTmp(r *Report, id string) {
-	dir := c.Paths.AppTmp(id)
+func (c *Cleaner) cleanOneStaging(r *Report, id string) {
+	dir := c.Paths.AppStaging(id)
 	if _, err := os.Stat(dir); err == nil {
 		c.removeAll(r, dir)
 	} else if !os.IsNotExist(err) {
-		r.Errors = append(r.Errors, fmt.Errorf("inspect temporary directory %s: %w", dir, err))
+		r.Errors = append(r.Errors, fmt.Errorf("inspect staging directory %s: %w", dir, err))
 	}
 }
 
@@ -128,12 +128,12 @@ func (c *Cleaner) cleanAllCache(r *Report, all bool) {
 	}
 }
 
-func (c *Cleaner) cleanAllTmp(r *Report) {
-	tmpRoot := c.Paths.Tmp()
-	entries, err := os.ReadDir(tmpRoot)
+func (c *Cleaner) cleanAllStaging(r *Report) {
+	stagingRoot := c.Paths.Staging()
+	entries, err := os.ReadDir(stagingRoot)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			r.Errors = append(r.Errors, fmt.Errorf("read temporary directory: %w", err))
+			r.Errors = append(r.Errors, fmt.Errorf("read staging directory: %w", err))
 		}
 		return
 	}
@@ -141,7 +141,7 @@ func (c *Cleaner) cleanAllTmp(r *Report) {
 		if isDisposableMarker(e.Name()) {
 			continue // keep the dir tagged disposable even when empty
 		}
-		c.removeAll(r, filepath.Join(tmpRoot, e.Name()))
+		c.removeAll(r, filepath.Join(stagingRoot, e.Name()))
 	}
 }
 

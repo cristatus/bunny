@@ -119,7 +119,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		return err
 	}
 
-	workDir := i.Paths.AppTmp(id)
+	workDir := i.Paths.AppStaging(id)
 	srcDir := filepath.Join(workDir, "src")
 	pkgDir := filepath.Join(workDir, "pkg")
 	cleanup := func() { os.RemoveAll(workDir) }
@@ -133,9 +133,10 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		return err
 	}
 
-	// Tag var/cache and var/tmp as disposable so backup tools skip them.
+	// Tag the download cache and the staging root as disposable so backup
+	// tools skip them.
 	markDisposable(i.Paths.Cache())
-	markDisposable(i.Paths.Tmp())
+	markDisposable(i.Paths.Staging())
 
 	prepareVars := map[string]string{
 		"id":      id,

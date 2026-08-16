@@ -57,10 +57,20 @@ func (p *Paths) VarApp() string                    { return filepath.Join(p.Var(
 func (p *Paths) AppData(id string) string          { return filepath.Join(p.VarApp(), id) }
 func (p *Paths) Cache() string                     { return filepath.Join(p.Var(), "cache") }
 func (p *Paths) AppDownloadCache(id string) string { return filepath.Join(p.Cache(), id) }
-func (p *Paths) Tmp() string                       { return filepath.Join(p.Var(), "tmp") }
-func (p *Paths) AppTmp(id string) string           { return filepath.Join(p.Tmp(), id) }
 func (p *Paths) StateFile() string                 { return filepath.Join(p.Var(), "state.json") }
 func (p *Paths) MutationLock() string              { return filepath.Join(p.Var(), "mutation.lock") }
+
+// --- staging ---
+
+// Staging holds in-progress installs. It lives inside the app root, not under
+// var/, because the final step of an install is renaming the staged tree into
+// place: rename(2) cannot cross filesystems, and only a sibling directory
+// guarantees the two are on the same one. Downloads stay in the cache, which
+// may live anywhere, since they are hard-linked or copied into the staging
+// dir rather than renamed.
+func (p *Paths) Staging() string { return filepath.Join(p.App(), ".staging") }
+
+func (p *Paths) AppStaging(id string) string { return filepath.Join(p.Staging(), id) }
 
 // ManifestFile is the runtime cache of the install-time manifest, used so
 // `bunny run` never has to hit the remote catalog at launch time.

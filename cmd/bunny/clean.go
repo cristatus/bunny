@@ -8,9 +8,9 @@ import (
 	"github.com/cristatus/bunny/internal/ui"
 )
 
-// CleanCmd prunes the download cache and tmp dirs.
+// CleanCmd prunes the download cache and abandoned staged installs.
 //
-// Default: drop cache files for uninstalled apps + everything in var/tmp/.
+// Default: drop cache files for uninstalled apps + everything staged.
 // `--all` widens to include caches for installed apps (forces a re-download
 // next install). Per-app data dirs (var/app/<id>/) are NOT touched here —
 // those go via `bunny uninstall --purge`.
