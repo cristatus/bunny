@@ -92,11 +92,18 @@ func Remove(binDir string, names []string, bunnyPath string) error {
 // shared with other tools' entry points (pipx, cargo, hand-written links), and
 // silently clobbering one of those is not recoverable.
 //
-// A link is ours when it points at something named "bunny", which every shim
-// does by construction, or when it resolves to the same file as the bunny
-// binary. The name check is what makes the test survive a moved or renamed
-// binary: a dangling shim stays repairable instead of stranded, while a link
-// into some other tool's directory is never claimed.
+// A link is ours in three cases, in order of how much they prove:
+//
+//   - it points at the bunny binary inside this shim directory, which is
+//     bunny's own and where every shim it writes points;
+//   - it resolves to the same file as the running bunny binary;
+//   - it is dangling and points at a file called "bunny", which is nobody's
+//     working entry point, so reclaiming it keeps a shim repairable after the
+//     binary it named moves away.
+//
+// The first is what survives being run from a different bunny binary than the
+// shims name, and the target's directory is what keeps that from claiming an
+// unrelated /opt/some-tool/bunny.
 func ownedTarget(path, bunnyPath string) (string, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -112,7 +119,12 @@ func ownedTarget(path, bunnyPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read link %s: %w", path, err)
 	}
-	if filepath.Base(target) == ReservedName {
+	binDir := filepath.Dir(path)
+	absTarget := target
+	if !filepath.IsAbs(absTarget) {
+		absTarget = filepath.Join(binDir, absTarget)
+	}
+	if filepath.Clean(absTarget) == filepath.Join(binDir, ReservedName) {
 		return target, nil
 	}
 	resolved, resolveErr := filepath.EvalSymlinks(path)
@@ -121,6 +133,9 @@ func ownedTarget(path, bunnyPath string) (string, error) {
 			return target, nil
 		}
 		return "", fmt.Errorf("%s is not a bunny shim (points to %s)", path, resolved)
+	}
+	if filepath.Base(target) == ReservedName {
+		return target, nil
 	}
 	return "", fmt.Errorf("%s is not a bunny shim (dangling link to %s)", path, target)
 }

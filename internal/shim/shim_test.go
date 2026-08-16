@@ -270,3 +270,60 @@ func TestRemoveRefusesForeignDanglingLink(t *testing.T) {
 		t.Error("foreign dangling link was removed")
 	}
 }
+
+// A link to some other tool's binary that happens to be named "bunny" is not
+// ours. The name is not proof of ownership; where it points is.
+func TestInstallAndRemoveRefuseForeignBunnyNamedBinary(t *testing.T) {
+	binDir := t.TempDir()
+	bunny := filepath.Join(binDir, ReservedName)
+	if err := os.WriteFile(bunny, []byte("binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	// An unrelated project's entry point, also called "bunny", outside binDir.
+	otherDir := t.TempDir()
+	other := filepath.Join(otherDir, ReservedName)
+	if err := os.WriteFile(other, []byte("someone else's binary"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(binDir, "node")
+	if err := os.Symlink(other, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Install(binDir, []string{"node"}, bunny); err == nil {
+		t.Fatal("Install claimed a link to an unrelated binary named bunny")
+	}
+	if err := Remove(binDir, []string{"node"}, bunny); err == nil {
+		t.Fatal("Remove claimed a link to an unrelated binary named bunny")
+	}
+	if target, err := os.Readlink(link); err != nil || target != other {
+		t.Fatalf("foreign link changed: %q, %v", target, err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("foreign binary disturbed: %v", err)
+	}
+}
+
+// Shims stay ours when a different bunny binary is the one running, which is
+// the case during `make install`, an upgrade, or a one-off ./bin/bunny.
+func TestShimsStayOwnedWhenRunFromAnotherBinary(t *testing.T) {
+	binDir := t.TempDir()
+	installed := filepath.Join(binDir, ReservedName)
+	if err := os.WriteFile(installed, []byte("installed"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(binDir, []string{"node"}, installed); err != nil {
+		t.Fatal(err)
+	}
+	// A freshly built binary elsewhere, run against shims naming the installed one.
+	running := filepath.Join(t.TempDir(), ReservedName)
+	if err := os.WriteFile(running, []byte("freshly built"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Install(binDir, []string{"node"}, running); err != nil {
+		t.Fatalf("reinstalling shims from another binary should work: %v", err)
+	}
+	if err := Remove(binDir, []string{"node"}, running); err != nil {
+		t.Fatalf("removing shims from another binary should work: %v", err)
+	}
+}
