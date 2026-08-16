@@ -2,6 +2,8 @@ package checker
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -76,6 +78,12 @@ func ParseChecksumPattern(content, pattern string) (string, string, error) {
 	if len(m) < 2 {
 		return "", "", fmt.Errorf("hash-pattern did not match with a capture group")
 	}
+	// Electron update feeds encode the digest in base64 rather than hex, so
+	// try that first: base64 is case-sensitive and the lowercasing below
+	// would destroy it.
+	if hash, algorithm, ok := decodeBase64Digest(m[1]); ok {
+		return hash, algorithm, nil
+	}
 	hash := strings.ToLower(m[1])
 	switch {
 	case IsValidSHA256(hash):
@@ -84,6 +92,24 @@ func ParseChecksumPattern(content, pattern string) (string, string, error) {
 		return hash, "sha512", nil
 	default:
 		return "", "", fmt.Errorf("hash-pattern captured an invalid SHA-256/SHA-512 digest")
+	}
+}
+
+// decodeBase64Digest converts a base64-encoded SHA-256 or SHA-512 digest to
+// the lowercase hex the rest of bunny stores. The decoded byte count is what
+// identifies the algorithm; anything else is not a digest we understand.
+func decodeBase64Digest(s string) (hash, algorithm string, ok bool) {
+	raw, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return "", "", false
+	}
+	switch len(raw) {
+	case 32:
+		return hex.EncodeToString(raw), "sha256", true
+	case 64:
+		return hex.EncodeToString(raw), "sha512", true
+	default:
+		return "", "", false
 	}
 }
 
