@@ -163,7 +163,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		return err
 	}
 
-	if err := WritePackageMarker(pkgDir, PackageMarker{
+	if err := writePackageMarker(pkgDir, packageMarker{
 		ID: id, Version: m.Version, Kind: kind, Bunny: i.Version,
 	}); err != nil {
 		cleanup()
@@ -617,7 +617,7 @@ func (i *Installer) place(id, kind, pkgDir string, force bool) (*placement, erro
 		// --force replaces bunny's own install, never whatever else happens to
 		// be sitting at that path: install roots are configurable, so the
 		// target may be a directory the user keeps things in.
-		if err := checkOwned(finalDir, id); err != nil {
+		if err := i.checkOwned(finalDir, id); err != nil {
 			return nil, err
 		}
 		backup := finalDir + ".old"
@@ -673,7 +673,7 @@ func (i *Installer) stageRemoveApp(id string) (*removalPlacement, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("stat app dir: %w", err)
 	}
-	if err := checkOwned(finalDir, id); err != nil {
+	if err := i.checkOwned(finalDir, id); err != nil {
 		return nil, err
 	}
 	os.RemoveAll(trashDir)
@@ -693,7 +693,7 @@ func (i *Installer) installShims(m *manifest.Manifest) error {
 
 func (i *Installer) installDesktopIntegration(m *manifest.Manifest, id, appDir string) error {
 	finalVars := i.Paths.VarsAt(id, m.Version, appDir)
-	if err := desktop.InstallEntries(i.Paths, m.Desktop, finalVars); err != nil {
+	if err := desktop.InstallEntries(i.Paths, m.Desktop, finalVars, id); err != nil {
 		return err
 	}
 	if err := desktop.InstallIcons(i.Paths, m.Icons, finalVars); err != nil {

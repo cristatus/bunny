@@ -34,7 +34,7 @@ func TestInstallDesktopEntry(t *testing.T) {
 	}
 	vars := map[string]string{"bin": "/x/bin"}
 
-	if err := InstallEntries(p, entries, vars); err != nil {
+	if err := InstallEntries(p, entries, vars, "code"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -96,7 +96,7 @@ func TestEntriesNotOwnedByBunnyAreLeftAlone(t *testing.T) {
 	}
 
 	entries := []manifest.DesktopEntry{{ID: "code.desktop", Name: "Code", Exec: "/bin/true"}}
-	if err := InstallEntries(p, entries, map[string]string{"id": "code"}); err == nil {
+	if err := InstallEntries(p, entries, nil, "code"); err == nil {
 		t.Error("installing over a foreign entry should be refused")
 	}
 	if err := RemoveEntries(p, entries); err != nil {

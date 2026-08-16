@@ -1,12 +1,9 @@
-// Package config is the user's own settings file, at ~/.config/bunny/config.yaml
-// or $BUNNY_HOME/config.yaml when bunny is collapsed under a single root.
+// Package config is the user's settings file, at ~/.config/bunny/config.yaml
+// or $BUNNY_HOME/config.yaml under a single-root install.
 //
-// It is the only place isolation policy lives. Catalog manifests describe how
-// to install and wire a package; they no longer decide whether a tool's global
-// data (`~/.m2`, `~/.gradle`, npm's prefix) gets redirected somewhere private.
-// Bunny's default is to redirect nothing, so a tool run through bunny writes
-// exactly where it would have written had the user installed it themselves.
-// Users who want per-version isolation opt into it here, one env var at a time.
+// It is the only place isolation policy lives. Manifests describe how to
+// install and wire a package, never whether a tool's global data is
+// redirected: bunny redirects nothing by default, and users opt in here.
 package config
 
 import (
@@ -15,9 +12,10 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -32,12 +30,10 @@ const Wildcard = "*"
 type Config struct {
 	Catalog Catalog `yaml:"catalog,omitempty"`
 
-	// Env adds environment variables to a package's launch environment. The
-	// outer key is a package id ("node-22"), a capability ("node"), or "*" for
-	// every package. Values expand the same placeholders manifests use, so
-	// "{data}/gradle" resolves per package version.
-	//
-	// This is how isolation is expressed: bunny ships none of it by default.
+	// Env adds environment variables at launch, keyed by package id
+	// ("node-22"), capability ("node"), or "*". Values expand the same
+	// placeholders manifests use, so "{data}/gradle" resolves per version.
+	// This is how isolation is expressed; bunny ships none of it.
 	Env map[string]map[string]string `yaml:"env,omitempty"`
 
 	// Dirs are created before launch, keyed like Env. Most tools create their
@@ -45,13 +41,10 @@ type Config struct {
 	// inside a compound variable (MAVEN_ARGS) that bunny cannot parse out.
 	Dirs map[string][]string `yaml:"dirs,omitempty"`
 
-	// Install overrides where each kind of package is installed, keyed by
-	// "app", "cli", or "sdk". Point "sdk" somewhere shallow and memorable and
-	// every JDK, Maven, and Gradle install lands where an IDE's file picker
-	// can reach it, since bunny no longer isolates them and the install tree is
-	// a plain directory any tool can consume.
-	//
-	// A leading ~/ is expanded; anything else must be an absolute path.
+	// Install overrides where each kind of package goes, keyed by "app",
+	// "cli", or "sdk". Pointing "sdk" somewhere shallow puts every JDK and
+	// build tool where an IDE's file picker can reach it. A leading ~/ is
+	// expanded; anything else must be absolute.
 	Install map[string]string `yaml:"install,omitempty"`
 }
 
@@ -102,13 +95,13 @@ func Load(path string) (*Config, error) {
 // Validate rejects env entries that could not be safely exported and install
 // roots that are not usable directories.
 func (c *Config) Validate() error {
-	for _, key := range sortedKeys(c.Env) {
+	for _, key := range slices.Sorted(maps.Keys(c.Env)) {
 		if err := manifest.ValidateEnv("env."+key, c.Env[key]); err != nil {
 			return err
 		}
 	}
-	for _, kind := range sortedInstallKeys(c.Install) {
-		if !manifest.ValidKind(kind) || kind == "" {
+	for _, kind := range slices.Sorted(maps.Keys(c.Install)) {
+		if !manifest.KnownKind(kind) {
 			return fmt.Errorf("install.%s: must be one of %s", kind, strings.Join(manifest.Kinds, ", "))
 		}
 		root, err := expandHome(c.Install[kind])
@@ -151,15 +144,6 @@ func expandHome(path string) (string, error) {
 	return filepath.Join(home, path[2:]), nil
 }
 
-func sortedInstallKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
 // keysFor returns the config keys that apply to a package, least specific
 // first, so a later overlay wins: "*", then the capability, then the id.
 func keysFor(id, capability string) []string {
@@ -173,11 +157,9 @@ func keysFor(id, capability string) []string {
 	return keys
 }
 
-// OverlayEnv returns base with the user's configured entries layered on top.
-// The result is a fresh map; base is never mutated. Nil-safe, so callers with
-// no config on hand can pass nil and get the manifest's env back unchanged.
-//
-// Placeholders are left unexpanded: the caller owns the vars map.
+// OverlayEnv returns base with the user's configured entries layered on top,
+// as a fresh map. Nil-safe. Placeholders are left unexpanded: the caller owns
+// the vars map.
 func (c *Config) OverlayEnv(base map[string]string, id, capability string) map[string]string {
 	merged := make(map[string]string, len(base))
 	for key, value := range base {
@@ -205,13 +187,4 @@ func (c *Config) DirsFor(id, capability string) []string {
 		out = append(out, c.Dirs[key]...)
 	}
 	return out
-}
-
-func sortedKeys(m map[string]map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for key := range m {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
 }

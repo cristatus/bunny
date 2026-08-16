@@ -21,7 +21,7 @@ import (
 )
 
 // InstallEntries writes .desktop files for every entry in the manifest.
-func InstallEntries(p *paths.Paths, entries []manifest.DesktopEntry, vars map[string]string) error {
+func InstallEntries(p *paths.Paths, entries []manifest.DesktopEntry, vars map[string]string, pkgID string) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -33,7 +33,7 @@ func InstallEntries(p *paths.Paths, entries []manifest.DesktopEntry, vars map[st
 		if err := checkEntryOwned(dst); err != nil {
 			return err
 		}
-		content := buildDesktopEntry(&d, vars, vars["id"])
+		content := buildDesktopEntry(&d, vars, pkgID)
 		if err := fsutil.WriteFile(dst, []byte(content), 0644); err != nil {
 			return fmt.Errorf("write desktop entry %s: %w", d.ID, err)
 		}
@@ -60,13 +60,12 @@ func RemoveEntries(p *paths.Paths, entries []manifest.DesktopEntry) error {
 }
 
 // managedKey marks a .desktop file as bunny's. X- keys are the spec's reserved
-// space for exactly this, and the desktop ignores unknown ones.
+// space for exactly this, and desktops ignore unknown ones.
 const managedKey = "X-Bunny-Package"
 
-// checkEntryOwned reports whether an existing .desktop file is one bunny
-// wrote. Entries now land in the shared ~/.local/share/applications, so a name
-// collision with a distro package or a hand-written launcher is possible, and
-// neither overwriting nor deleting someone else's entry is recoverable.
+// checkEntryOwned refuses an existing .desktop file bunny did not write.
+// Entries share ~/.local/share/applications with distro packages and
+// hand-written launchers, and clobbering one is not recoverable.
 func checkEntryOwned(path string) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

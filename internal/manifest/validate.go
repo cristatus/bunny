@@ -113,7 +113,7 @@ func (m *Manifest) Validate() error {
 	if m.Toolchains != "" && m.Toolchains != "gradle" && m.Toolchains != "maven" {
 		return vErr("toolchains", `must be "gradle" or "maven"`)
 	}
-	if !ValidKind(m.Kind) {
+	if m.Kind != "" && !KnownKind(m.Kind) {
 		return vErr("kind", `must be "app", "cli", or "sdk"`)
 	}
 	// A desktop entry means a graphical application, which is what KindOf

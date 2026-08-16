@@ -30,10 +30,8 @@ func environmentDPath() (string, error) {
 
 // sessionPath returns the PATH the systemd user manager exports, which is what
 // graphical sessions inherit. The second result is false when that cannot be
-// determined: no systemd, no running user manager, a container, plain SSH.
-//
-// A package-level var so tests can drive both branches without depending on
-// the machine they run on.
+// determined: no systemd, no user manager, a container, plain SSH. A var so
+// tests can drive both branches.
 var sessionPath = systemdSessionPath
 
 func systemdSessionPath() (string, bool) {
@@ -67,19 +65,16 @@ func sessionAlreadyProvides(dir string) (provides, known bool) {
 	return false, true
 }
 
-// writeEnvironmentD writes ~/.config/environment.d/bunny.conf with the session
-// prepends, and reports whether it wrote. bunny owns the file; the write is
-// idempotent. Under the XDG layout only PATH is needed: desktop entries and
-// icons already live in XDG_DATA_HOME, which the desktop scans without being
-// told.
+// writeEnvironmentD writes ~/.config/environment.d/bunny.conf and reports
+// whether it wrote. Under XDG only PATH is needed, since desktop entries
+// already live where the desktop scans.
 //
-// It is skipped when the session already exports the shim dir, because
-// systemd's generator does no deduplication: the file would only add a second
-// identical PATH entry. Two guards keep that safe. It cannot skip when the
-// answer is unknown, since a missing entry is a far worse outcome than a
-// duplicate one. And it never skips over a file that already exists, or the
-// check would read bunny's own earlier contribution to the session and decline
-// to correct a line that has since gone stale.
+// It skips when the session already exports the shim dir, because systemd's
+// generator does not deduplicate and the file would only add a second
+// identical entry. Two guards: it cannot skip when the answer is unknown, a
+// missing entry being far worse than a duplicate, and it never skips over an
+// existing file, or it would read bunny's own earlier contribution and decline
+// to correct a line gone stale.
 func writeEnvironmentD(p *paths.Paths) (string, bool, error) {
 	path, err := environmentDPath()
 	if err != nil {

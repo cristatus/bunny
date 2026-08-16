@@ -1,21 +1,18 @@
 // Package paths is the single source of truth for "where does X live".
 // Every other package consumes it; nothing here touches the filesystem.
 //
-// Bunny has one logical layout and two ways to prefix it. By default each
-// class of file goes to its XDG base directory, so bunny's own data sits
-// where a Linux desktop already expects to find it: desktop entries land in
-// ~/.local/share/applications and are picked up with no XDG_DATA_DIRS
-// plumbing, and shims land in ~/.local/bin, which is usually on PATH already.
-//
-// Setting $BUNNY_HOME collapses the whole layout back under a single root.
-// That keeps the self-contained install available for containers, CI, tests,
-// and anyone who wants one directory they can delete.
+// There is one logical layout with two ways to prefix it. By default each
+// class of file goes to its XDG base directory, so desktop entries land where
+// the desktop already scans and shims land in ~/.local/bin. Setting
+// $BUNNY_HOME collapses the layout under a single root instead, which is what
+// containers, CI, tests, and fleet images want.
 package paths
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 
 	"github.com/cristatus/bunny/internal/manifest"
 )
@@ -23,12 +20,12 @@ import (
 // EnvHome is the environment variable that collapses bunny into a single root.
 const EnvHome = "BUNNY_HOME"
 
-// Paths centralizes every directory bunny reads or writes. The unexported
-// roots are resolved once at construction so every accessor is a plain join,
-// with no branching on which layout is active.
+// Paths centralizes every directory bunny reads or writes. The roots are
+// resolved once at construction, so accessors are plain joins with no
+// branching on which layout is active.
 type Paths struct {
-	// Root is the single-prefix install root when $BUNNY_HOME is in use, and
-	// "" under the XDG layout. Only diagnostics should need to ask.
+	// Root is the single-prefix install root under $BUNNY_HOME, "" under XDG.
+	// Only diagnostics should need to ask.
 	Root string
 
 	data   string // installs, catalog, state, per-package data
@@ -41,20 +38,14 @@ type Paths struct {
 	// roots overrides the default install root per kind ("app"/"cli"/"sdk").
 	roots map[string]string
 	// locate reports an installed package's kind and, when it sits outside the
-	// default root for that kind, its recorded path. Set from state, which is
-	// what makes a config change affect the next install rather than strand
-	// existing ones.
+	// default root for that kind, its recorded path. Backed by state.
 	locate func(id string) (kind, path string)
 }
 
 // WithLayout returns a copy of p that resolves install locations through the
-// user's configured roots and what state recorded about each package.
-//
-// The two answer different questions. roots decides where a *new* install
-// goes; locate says where an existing one already is. Consulting the recorded
-// location is what makes the roots safe to change: editing config, or a
-// catalog changing a package's kind, can never move or lose a tree that is
-// already on disk.
+// user's configured roots and what state recorded about each package. roots
+// decides where a new install goes, locate where an existing one already is.
+// Consulting the recorded location is what makes roots safe to change.
 func (p *Paths) WithLayout(roots map[string]string, locate func(id string) (kind, path string)) *Paths {
 	clone := *p
 	clone.roots = roots
@@ -133,31 +124,25 @@ func (p *Paths) Catalog() string { return filepath.Join(p.data, "catalog") }
 
 // InstallRoot returns the directory packages of the given kind are installed
 // into: the user's configured root when there is one, else a per-kind
-// directory under bunny's data dir. An unknown kind falls back to "cli".
+// directory under bunny's data dir. An unknown kind falls back to cli.
 func (p *Paths) InstallRoot(kind string) string {
-	if !manifest.ValidKind(kind) || kind == "" {
+	if !manifest.KnownKind(kind) {
 		kind = manifest.KindCLI
 	}
-	if root, ok := p.roots[kind]; ok && root != "" {
+	if root := p.roots[kind]; root != "" {
 		return root
 	}
 	return filepath.Join(p.data, kind)
 }
 
 // InstallRoots returns every distinct install root, sorted, so callers that
-// have to sweep all of them (pruning abandoned staging dirs, diagnostics) do
-// not have to know how many kinds exist.
+// sweep all of them do not have to know how many kinds exist.
 func (p *Paths) InstallRoots() []string {
 	seen := map[string]bool{}
-	var out []string
 	for _, kind := range manifest.Kinds {
-		if root := p.InstallRoot(kind); !seen[root] {
-			seen[root] = true
-			out = append(out, root)
-		}
+		seen[p.InstallRoot(kind)] = true
 	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }
 
 // InstallDir is where a package of the given kind will be installed. Use it
@@ -170,9 +155,7 @@ func (p *Paths) InstallDir(id, kind string) string {
 // --- Per-resource dirs ---
 
 // AppDir is where an installed package lives, and the {app} placeholder. A
-// path recorded at install time wins, so a package installed somewhere custom
-// keeps working after the configured roots change; otherwise the location is
-// derived from the kind it was installed as.
+// recorded path wins; otherwise the location comes from the recorded kind.
 func (p *Paths) AppDir(id string) string {
 	kind := manifest.KindCLI
 	if p.locate != nil {
@@ -191,8 +174,8 @@ func (p *Paths) BunnyBinary() string     { return filepath.Join(p.Bin(), "bunny"
 func (p *Paths) Shim(name string) string { return filepath.Join(p.Bin(), name) }
 
 // AppData is a package's own data dir, the {data} placeholder. It holds the
-// install-time manifest snapshot and whatever the user redirects here through
-// config, and it deliberately outlives an uninstall unless --purge is given.
+// install-time manifest snapshot and anything config redirects here, and
+// outlives an uninstall unless --purge is given.
 func (p *Paths) AppData(id string) string { return filepath.Join(p.data, "data", id) }
 
 func (p *Paths) AppDownloadCache(id string) string { return filepath.Join(p.Cache(), id) }
@@ -201,12 +184,10 @@ func (p *Paths) MutationLock() string              { return filepath.Join(p.data
 
 // --- staging ---
 
-// Staging holds in-progress installs. It lives inside the app root, not beside
-// the cache, because the final step of an install is renaming the staged tree
-// into place: rename(2) cannot cross filesystems, and only a sibling directory
-// guarantees the two are on the same one. Downloads stay in the cache, which
-// may live anywhere, since they are hard-linked or copied into the staging
-// dir rather than renamed.
+// Staging holds in-progress installs, inside the install root rather than
+// beside the cache: an install ends by renaming the staged tree into place,
+// and rename(2) cannot cross filesystems. Downloads stay in the cache, which
+// may live anywhere, since they are copied rather than renamed.
 func (p *Paths) Staging(kind string) string {
 	return filepath.Join(p.InstallRoot(kind), ".staging")
 }
@@ -245,10 +226,9 @@ func (p *Paths) ZshCompletions() string {
 }
 func (p *Paths) FishCompletions() string { return p.fish }
 
-// VarsAt is Vars with {app} pinned to a known directory. The install path
-// needs it: placeholders are expanded while the tree is being integrated,
-// which happens before state records where the package went, so asking Vars
-// to look the location up would get the fallback root rather than the truth.
+// VarsAt is Vars with {app} pinned to a known directory. Integration expands
+// placeholders before state records where the package went, so a lookup would
+// return the fallback root rather than the truth.
 func (p *Paths) VarsAt(id, version, appDir string) map[string]string {
 	vars := p.Vars(id, version)
 	vars["app"] = appDir
