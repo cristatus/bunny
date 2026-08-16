@@ -18,40 +18,39 @@ shared primitives: manifest, fsutil
 
 ## Durable state and ownership
 
-`internal/paths` is the source of truth for every path bunny reads or writes.
-It resolves one logical layout under two possible prefix sets, the XDG base
+`internal/paths` is the source of truth for every path bunny reads or writes. It
+resolves one logical layout under two possible prefix sets, the XDG base
 directories by default and a single root when `$BUNNY_HOME` is set, so no other
 package branches on which is active. Install locations additionally come from
-two sources: the user's configured roots decide where a *new* install goes, and
+two sources: the user's configured roots decide where a _new_ install goes, and
 the path recorded in state says where an existing one already is. Reading the
 recorded path is what makes the roots safe to change.
 
-`internal/config` is the source of truth for user policy: it owns
-`config.yaml` and is the only place that decides whether a tool's global data
-is redirected. Manifests describe how to install and wire a package; they never
-express isolation policy. `runtime.Launcher` layers the two in a fixed order
-(host, dependency env, manifest env, config env), so a user override cannot be
-silently outranked by a catalog change.
+`internal/config` is the source of truth for user policy: it owns `config.yaml`
+and is the only place that decides whether a tool's global data is redirected.
+Manifests describe how to install and wire a package; they never express
+isolation policy. `runtime.Launcher` layers the two in a fixed order (host,
+dependency env, manifest env, config env), so a user override cannot be silently
+outranked by a catalog change.
 
 `internal/state` is the source of truth for installed packages, active
 capability providers, command ownership, and runtime-installed global commands.
 State is schema-versioned, validated on load and save, and replaced atomically.
 
 Every state-changing CLI command holds `mutation.lock`, beside `state.json`.
-State is reloaded after acquiring the lock, so two Bunny processes cannot
-commit mutations based on the same stale snapshot. New mutating commands should use
+State is reloaded after acquiring the lock, so two Bunny processes cannot commit
+mutations based on the same stale snapshot. New mutating commands should use
 `App.withMutation`; read-only commands should not take the lock.
 
-Regular files in `bin/` are never treated as Bunny-owned shims. The command
-name `bunny` is reserved at manifest validation and shim layers.
+Regular files in `bin/` are never treated as Bunny-owned shims. The command name
+`bunny` is reserved at manifest validation and shim layers.
 
 ## Catalog views
 
-The live catalog is used for discovery and new installs. Runtime and cleanup
-use the install-time manifest snapshot in `manifests/{id}.yaml`, falling back
-to the live catalog only when that snapshot is absent. A corrupt snapshot is an
-error rather than a reason to silently use a potentially different live
-manifest.
+The live catalog is used for discovery and new installs. Runtime and cleanup use
+the install-time manifest snapshot in `manifests/{id}.yaml`, falling back to the
+live catalog only when that snapshot is absent. A corrupt snapshot is an error
+rather than a reason to silently use a potentially different live manifest.
 
 Snapshots sit beside `state.json`, in the same durability class as the rest of
 bunny's bookkeeping. `{data}` belongs to the package once config redirects a
@@ -60,9 +59,9 @@ keeps nothing there that it could not regenerate.
 
 Remote index responses and checker metadata are size-bounded and timeout-bound.
 The index cache is atomically replaced and uses a six-hour
-stale-while-revalidate policy, so an expired cache remains usable offline.
-Each index package summary includes `provides` and `requires` when present in
-the manifest. List, search, completion, and reverse-dependency discovery can
+stale-while-revalidate policy, so an expired cache remains usable offline. Each
+index package summary includes `provides` and `requires` when present in the
+manifest. List, search, completion, and reverse-dependency discovery can
 therefore remain lightweight instead of fetching every remote manifest.
 
 ## Mutation transactions
@@ -87,8 +86,8 @@ previous state and shim set.
   are hard errors.
 - Optional desktop integration may fail without discarding an otherwise usable
   package, but partial files are cleaned up and the failure is reported.
-- Batch-like operations join independent failures rather than hiding all but
-  the last one.
+- Batch-like operations join independent failures rather than hiding all but the
+  last one.
 - Cleanup reports successful removals alongside any paths it could not remove.
 - Atomic file helpers never report a directory-sync error after the rename has
   already committed; callers must not roll back related state on a false
@@ -96,12 +95,11 @@ previous state and shim set.
 
 ## Adding behavior
 
-Put path construction in `paths`, persisted invariants in `state` or
-`manifest`, transport behavior in `catalog`/`checker`/`installer.Downloader`,
-and filesystem integration in its owning internal package. The CLI should
-mainly establish the mutation boundary, call those operations, and present the
-result.
+Put path construction in `paths`, persisted invariants in `state` or `manifest`,
+transport behavior in `catalog`/`checker`/`installer.Downloader`, and filesystem
+integration in its owning internal package. The CLI should mainly establish the
+mutation boundary, call those operations, and present the result.
 
 For a mutating workflow, test both the success path and a failure at the state
-save boundary. Also verify that filesystem artifacts and the in-memory state
-are restored together.
+save boundary. Also verify that filesystem artifacts and the in-memory state are
+restored together.

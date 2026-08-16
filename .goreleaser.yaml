@@ -31,7 +31,7 @@ archives:
       - LICENSE*
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
 
 snapshot:
   version_template: "{{ incpatch .Version }}-snapshot"
@@ -39,7 +39,9 @@ snapshot:
 changelog:
   sort: asc
   use: github
-  format: "{{ .SHA }}: {{ .Message }}{{ if .Logins }} ({{ .Logins | englishJoin }}){{ end }}"
+  format:
+    "{{ .SHA }}: {{ .Message }}{{ if .Logins }} ({{ .Logins | englishJoin }}){{
+    end }}"
   filters:
     exclude:
       - '^docs(\(.+\))?:'
@@ -48,9 +50,9 @@ changelog:
       - '^ci(\(.+\))?:'
       - '^refactor(\(.+\))?:'
       - '^build(\(.+\))?:'
-      - '^Init$'
-      - 'Merge pull request'
-      - 'Merge branch'
+      - "^Init$"
+      - "Merge pull request"
+      - "Merge branch"
   groups:
     - title: Features
       regexp: '^.*?feat(\(.+\))??!?:.+$'

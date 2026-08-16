@@ -57,9 +57,9 @@ Don't run untrusted software through bunny.
 
 ## Opting into isolation
 
-Isolation lives in `~/.config/bunny/config.yaml`, keyed by package id, capability, or
-`*` for everything. Values expand the same placeholders manifests use, so
-`{data}` resolves per package version:
+Isolation lives in `~/.config/bunny/config.yaml`, keyed by package id,
+capability, or `*` for everything. Values expand the same placeholders manifests
+use, so `{data}` resolves per package version:
 
 ```yaml
 env:
@@ -68,13 +68,13 @@ env:
   gradle:
     GRADLE_USER_HOME: "{data}/gradle"
   maven:
-    MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+    MAVEN_ARGS:
+      "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
 ```
 
-Precedence at launch, lowest to highest: the host environment, each
-dependency's manifest `env:`, the package's own manifest `env:`, then your
-config. Config always wins, which is what makes it an override rather than a
-suggestion.
+Precedence at launch, lowest to highest: the host environment, each dependency's
+manifest `env:`, the package's own manifest `env:`, then your config. Config
+always wins, which is what makes it an override rather than a suggestion.
 
 Note the Maven line: `MAVEN_ARGS` is a single variable doing two jobs, so
 overriding it means restating the toolchains flag the manifest set. The
@@ -86,8 +86,8 @@ See [Configuration](config.md) for the full file reference.
 
 - the install tree (including `npm -g` globals): removed on uninstall, at the
   location recorded when it was installed.
-- `manifests/<id>.yaml` (the install-time snapshot runtime and uninstall
-  read): removed.
+- `manifests/<id>.yaml` (the install-time snapshot runtime and uninstall read):
+  removed.
 - `data/<id>/<your configured dirs>`: kept unless `--purge`.
 
 Data at native host paths (`~/.m2`, `~/.gradle`, `~/.npm`, `~/.config/Code`) is

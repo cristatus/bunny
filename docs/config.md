@@ -54,9 +54,9 @@ catalog:
 ```
 
 `remote` defaults to the public
-[bunny-catalog](https://github.com/cristatus/bunny-catalog). `local` defaults
-to `~/.local/share/bunny/catalog`, and setting it is the usual way to work on
-a catalog: point bunny at your checkout and `bunny dev validate` and
+[bunny-catalog](https://github.com/cristatus/bunny-catalog). `local` defaults to
+`~/.local/share/bunny/catalog`, and setting it is the usual way to work on a
+catalog: point bunny at your checkout and `bunny dev validate` and
 `bunny dev update` operate on it directly. A path that does not exist is not an
 error, bunny simply uses the remote, so `bunny doctor` reports which one is in
 play:
@@ -69,24 +69,24 @@ See [Team deployment](teams.md).
 
 ### `install`
 
-Where each kind of package is installed. Keys are the three install kinds, and
-a value is an absolute path or one starting with `~/`:
+Where each kind of package is installed. Keys are the three install kinds, and a
+value is an absolute path or one starting with `~/`:
 
-| Kind | Contains | Default |
-|---|---|---|
+| Kind  | Contains                                                                       | Default                    |
+| ----- | ------------------------------------------------------------------------------ | -------------------------- |
 | `sdk` | JDKs, Node, Maven, Gradle, sbt, pnpm: anything another tool may need a path to | `~/.local/share/bunny/sdk` |
-| `cli` | plain commands (ripgrep, jq, gh) | `~/.local/share/bunny/cli` |
-| `app` | GUI applications (code, cursor, zed, jetbrains-toolbox) | `~/.local/share/bunny/app` |
+| `cli` | plain commands (ripgrep, jq, gh)                                               | `~/.local/share/bunny/cli` |
+| `app` | GUI applications (code, cursor, zed, jetbrains-toolbox)                        | `~/.local/share/bunny/app` |
 
 The kind comes from the package's manifest. It is separate from `tags:`, which
 describe what a package is for search, and from the catalog's folder layout,
 which bunny reads from the index rather than deriving.
 
 The reason to set this is usually `sdk`. Bunny does not isolate SDK data, so an
-install tree is a plain, self-contained directory that any tool can consume,
-and IDEs ask you to point at exactly these paths: IntelliJ wants a JDK home, a
-Maven home, and a Gradle home. Navigating to `~/.local/share/bunny/sdk/jdk-21`
-in a file picker is worse than navigating to `~/opt/jdk-21`.
+install tree is a plain, self-contained directory that any tool can consume, and
+IDEs ask you to point at exactly these paths: IntelliJ wants a JDK home, a Maven
+home, and a Gradle home. Navigating to `~/.local/share/bunny/sdk/jdk-21` in a
+file picker is worse than navigating to `~/opt/jdk-21`.
 
 ```yaml
 install:
@@ -107,8 +107,8 @@ recorded location rather than a recomputed one. To move an existing package,
 uninstall and reinstall it.
 
 Roots may be on different filesystems: each one gets its own `.staging`
-subdirectory, so the atomic rename that finishes an install never has to cross
-a filesystem boundary.
+subdirectory, so the atomic rename that finishes an install never has to cross a
+filesystem boundary.
 
 Pointing a root at a directory you also keep things in is safe. Every install
 tree carries a `.bunny-package` marker naming the package that owns it, and
@@ -123,43 +123,43 @@ and wire a package, never whether your data gets redirected.
 
 Keys are matched from least to most specific, so a later match wins:
 
-| Key | Matches |
-|---|---|
-| `*` | every package |
+| Key                                    | Matches                        |
+| -------------------------------------- | ------------------------------ |
+| `*`                                    | every package                  |
 | a capability (`node`, `jdk`, `gradle`) | every package that provides it |
-| a package id (`node-22`, `jdk-21`) | that package only |
+| a package id (`node-22`, `jdk-21`)     | that package only              |
 
 ```yaml
 env:
   "*":
     LANG: C.UTF-8
   node:
-    NPM_CONFIG_PREFIX: "{data}/npm-global"   # all Node versions
+    NPM_CONFIG_PREFIX: "{data}/npm-global" # all Node versions
   node-22:
     NODE_OPTIONS: "--max-old-space-size=8192" # this version only
 ```
 
 Values expand the same placeholders manifests use:
 
-| Placeholder | Expands to |
-|---|---|
-| `{app}` | the package's install tree, wherever it was installed |
-| `{data}` | the per-package data dir, `~/.local/share/bunny/data/<id>`, yours to clear |
-| `{home}` | your real `$HOME` |
-| `{bin}` | the shim dir, `~/.local/bin` |
-| `{share}` | `~/.local/share` |
-| `{id}`, `{version}` | the package id and version |
+| Placeholder         | Expands to                                                                 |
+| ------------------- | -------------------------------------------------------------------------- |
+| `{app}`             | the package's install tree, wherever it was installed                      |
+| `{data}`            | the per-package data dir, `~/.local/share/bunny/data/<id>`, yours to clear |
+| `{home}`            | your real `$HOME`                                                          |
+| `{bin}`             | the shim dir, `~/.local/bin`                                               |
+| `{share}`           | `~/.local/share`                                                           |
+| `{id}`, `{version}` | the package id and version                                                 |
 
 A manifest's `prepare:` steps see a different set, because they run while the
 package is being built rather than after it is installed:
 
-| Placeholder | Expands to |
-|---|---|
-| `{src}` | the downloaded sources, and the working directory |
-| `{pkg}` | the tree being built, which becomes `{app}` |
-| `{work}` | the staging root holding both, the only writable area |
-| `{data}` | the package's real data dir |
-| `{id}`, `{version}` | the package id and version |
+| Placeholder         | Expands to                                            |
+| ------------------- | ----------------------------------------------------- |
+| `{src}`             | the downloaded sources, and the working directory     |
+| `{pkg}`             | the tree being built, which becomes `{app}`           |
+| `{work}`            | the staging root holding both, the only writable area |
+| `{data}`            | the package's real data dir                           |
+| `{id}`, `{version}` | the package id and version                            |
 
 `{data}` expands to the same real path it will have at run time, so a step can
 bake it into a config file and seed that directory in one go. The writes are
@@ -170,8 +170,8 @@ There is no `{app}` during `prepare:`; the install tree does not exist yet.
 Write to `{pkg}`, which is renamed into place at the end of the install.
 
 Because `{data}` is per package id, a capability-keyed entry still gives each
-version its own directory: `node-22` and `node-24` both get
-`NPM_CONFIG_PREFIX`, pointing at different paths.
+version its own directory: `node-22` and `node-24` both get `NPM_CONFIG_PREFIX`,
+pointing at different paths.
 
 Config env is applied to a package's dependencies too. Setting `jdk` env reaches
 every tool that declares `requires: ["jdk"]`, not just a direct `java` launch.
@@ -193,7 +193,8 @@ variable that bunny cannot parse:
 ```yaml
 env:
   maven:
-    MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+    MAVEN_ARGS:
+      "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
 dirs:
   maven:
     - "{data}/repository"
@@ -201,9 +202,9 @@ dirs:
 
 ### Recipes
 
-Per-version isolation for the tools that had it built in before bunny 0.5.
-Take only the entries you want; each one costs disk and a cold cache on first
-use, which is exactly why none of them are the default.
+Per-version isolation for the tools that had it built in before bunny 0.5. Take
+only the entries you want; each one costs disk and a cold cache on first use,
+which is exactly why none of them are the default.
 
 ```yaml
 env:
@@ -217,9 +218,12 @@ env:
   gradle:
     GRADLE_USER_HOME: "{data}/gradle"
   maven:
-    MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+    MAVEN_ARGS:
+      "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
   sbt:
-    SBT_OPTS: "-Dsbt.global.base={data}/sbt -Dsbt.boot.directory={data}/boot -Dsbt.ivy.home={data}/ivy"
+    SBT_OPTS:
+      "-Dsbt.global.base={data}/sbt -Dsbt.boot.directory={data}/boot
+      -Dsbt.ivy.home={data}/ivy"
     COURSIER_CACHE: "{data}/coursier"
   deno:
     DENO_DIR: "{data}/deno"
@@ -235,11 +239,11 @@ dirs:
 
 Two caveats worth knowing before you copy the whole block:
 
-- **`GRADLE_USER_HOME` moves more than caches.** Your `~/.gradle/gradle.properties`
-  (credentials, `org.gradle.jvmargs`) stops being read. Copy it into the new
-  location, or leave Gradle alone: it already namespaces its caches by version
-  under `~/.gradle/caches/<version>/`, and daemons are keyed by JVM and JVM args,
-  so versions do not actually collide.
+- **`GRADLE_USER_HOME` moves more than caches.** Your
+  `~/.gradle/gradle.properties` (credentials, `org.gradle.jvmargs`) stops being
+  read. Copy it into the new location, or leave Gradle alone: it already
+  namespaces its caches by version under `~/.gradle/caches/<version>/`, and
+  daemons are keyed by JVM and JVM args, so versions do not actually collide.
 - **`PNPM_STORE_DIR` defeats pnpm's design.** The store is one global
   content-addressable pool hardlinked into every project. Splitting it per Node
   version gives pnpm npm's disk profile.
@@ -255,5 +259,7 @@ of `$HOME` while sharing one cache across versions, point at a fixed path:
 ```yaml
 env:
   maven:
-    MAVEN_ARGS: "-Dmaven.repo.local={home}/.cache/maven/repository --toolchains {data}/toolchains.xml"
+    MAVEN_ARGS:
+      "-Dmaven.repo.local={home}/.cache/maven/repository --toolchains
+      {data}/toolchains.xml"
 ```

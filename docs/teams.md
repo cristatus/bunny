@@ -1,6 +1,8 @@
 # Team deployment
 
-Bunny is built to be forked. The catalog is a directory of YAML manifests in a git repo, and the CLI reads its catalog URL from `~/.config/bunny/config.yaml`, enough for a team to have one source of truth for "the official toolchain".
+Bunny is built to be forked. The catalog is a directory of YAML manifests in a
+git repo, and the CLI reads its catalog URL from `~/.config/bunny/config.yaml`,
+enough for a team to have one source of truth for "the official toolchain".
 
 ## The shape of a team deployment
 
@@ -27,7 +29,8 @@ cp /path/to/dotfiles/bunny/config.yaml ~/.config/bunny/config.yaml
 bunny install jdk-21 maven gradle node-22
 ```
 
-That is the entire onboarding: a new hire goes from zero to a matching toolchain in a few minutes.
+That is the entire onboarding: a new hire goes from zero to a matching toolchain
+in a few minutes.
 
 ## Pointing at your fork
 
@@ -38,17 +41,24 @@ catalog:
   remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
 ```
 
-The URL needs to serve `index.json` at its root and the path each index entry records, `packages/<id>/manifest.yaml` by default. Anything that does that works: GitHub raw, GitLab raw, an internal pages site, an S3 bucket with directory listing, even a file:// path.
+The URL needs to serve `index.json` at its root and the path each index entry
+records, `packages/<id>/manifest.yaml` by default. Anything that does that
+works: GitHub raw, GitLab raw, an internal pages site, an S3 bucket with
+directory listing, even a file:// path.
 
 For a private GitHub/GitLab repo, the simplest options are:
 
 - a public mirror via internal CI (push to a public-readable bucket)
 - a self-hosted reverse proxy that injects an auth token
-- distribute a pre-populated catalog directory, at `~/.local/share/bunny/catalog/` or anywhere `catalog.local` points (a local catalog always wins over the remote)
+- distribute a pre-populated catalog directory, at
+  `~/.local/share/bunny/catalog/` or anywhere `catalog.local` points (a local
+  catalog always wins over the remote)
 
 ## Local catalog override
 
-Per-package overrides go into `~/.local/share/bunny/catalog/packages/<id>/manifest.yaml`. If a package id exists in both local and remote, local wins. Use this for:
+Per-package overrides go into
+`~/.local/share/bunny/catalog/packages/<id>/manifest.yaml`. If a package id
+exists in both local and remote, local wins. Use this for:
 
 - pinning a package to a specific version while the team catalog moves
 - testing a manifest change before opening a PR upstream
@@ -56,7 +66,8 @@ Per-package overrides go into `~/.local/share/bunny/catalog/packages/<id>/manife
 
 ## Vendoring an internal JDK build
 
-If your org distributes its own JDK build (custom CA bundles, vendored `lib/security/cacerts`), publish it like any other manifest:
+If your org distributes its own JDK build (custom CA bundles, vendored
+`lib/security/cacerts`), publish it like any other manifest:
 
 ```yaml
 id: jdk-21-corp
@@ -76,32 +87,46 @@ prepare:
   - "tar xf jdk.tar.gz -C {pkg} --strip-components=1"
 
 bin:
-  - { name: java,    path: "{app}/bin/java" }
-  - { name: javac,   path: "{app}/bin/javac" }
-  - { name: jshell,  path: "{app}/bin/jshell" }
-  - { name: jar,     path: "{app}/bin/jar" }
+  - { name: java, path: "{app}/bin/java" }
+  - { name: javac, path: "{app}/bin/javac" }
+  - { name: jshell, path: "{app}/bin/jshell" }
+  - { name: jar, path: "{app}/bin/jar" }
   - { name: keytool, path: "{app}/bin/keytool" }
 ```
 
-Because it `provides: jdk`, it slots into the same capability slot as upstream Temurin, so a project's `.bunny-version` pinning `jdk 21` will pick it up automatically.
+Because it `provides: jdk`, it slots into the same capability slot as upstream
+Temurin, so a project's `.bunny-version` pinning `jdk 21` will pick it up
+automatically.
 
 ## Pre-configured tools (Maven, Gradle)
 
-You can ship a Maven manifest that points Maven at your internal Nexus. Drop a `settings.xml` into the package data dir with a `prepare:` step, then reference it from the manifest's `env:` via `MAVEN_ARGS` (e.g. `--settings {data}/settings.xml`) so every `mvn` invocation picks it up. For details on settings.xml and corp CA bundles, see [Corporate environments](corporate.md).
+You can ship a Maven manifest that points Maven at your internal Nexus. Drop a
+`settings.xml` into the package data dir with a `prepare:` step, then reference
+it from the manifest's `env:` via `MAVEN_ARGS` (e.g.
+`--settings {data}/settings.xml`) so every `mvn` invocation picks it up. For
+details on settings.xml and corp CA bundles, see
+[Corporate environments](corporate.md).
 
 ## Updating the team catalog
 
-Same flow as the upstream catalog: a daily GitHub Actions cron runs `bunny dev update` and opens a PR with version bumps. Reviewers approve, merge, and team members get the new versions on their next `bunny update --apply`.
+Same flow as the upstream catalog: a daily GitHub Actions cron runs
+`bunny dev update` and opens a PR with version bumps. Reviewers approve, merge,
+and team members get the new versions on their next `bunny update --apply`.
 
-For tighter control, run `bunny dev update <id>` manually for the packages you trust to auto-bump and skip the cron entirely on internal manifests.
+For tighter control, run `bunny dev update <id>` manually for the packages you
+trust to auto-bump and skip the cron entirely on internal manifests.
 
 ## Auditing what a team member has installed
 
-`~/.local/share/bunny/state.json` is a flat JSON file listing installed packages and versions. A short script gathered across machines (or surfaced via your existing MDM) gives you the picture. There's no built-in fleet view yet; see [ROADMAP](../ROADMAP.md).
+`~/.local/share/bunny/state.json` is a flat JSON file listing installed packages
+and versions. A short script gathered across machines (or surfaced via your
+existing MDM) gives you the picture. There's no built-in fleet view yet; see
+[ROADMAP](../ROADMAP.md).
 
 ## Lockfiles
 
-The catalog itself is the lockfile. Pin `catalog.remote` to a specific commit instead of `main` and the team is locked to that revision until you update it:
+The catalog itself is the lockfile. Pin `catalog.remote` to a specific commit
+instead of `main` and the team is locked to that revision until you update it:
 
 ```yaml
 catalog:

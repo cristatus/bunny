@@ -2,8 +2,8 @@
 
 All notable changes to Bunny are documented in this file.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
+this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
@@ -13,20 +13,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   or `*`. This is where per-version data isolation now lives; see
   [Configuration](docs/config.md) for recipes reproducing the old defaults.
 - `install:` in `config.yaml` sets where each kind of package is installed.
-  `install.sdk: ~/opt` puts every JDK and build tool where an IDE's file
-  picker can reach it.
+  `install.sdk: ~/opt` puts every JDK and build tool where an IDE's file picker
+  can reach it.
 - `catalog.local` in `config.yaml` points bunny at a catalog checkout, which
   takes precedence over the remote. It was fixed at
   `~/.local/share/bunny/catalog`, so using a working copy meant a symlink.
 - `config.example.yaml`, a commented copy of every setting, and
   [Configuration](docs/config.md) covering the file, the env precedence order,
-  and the placeholders. `bunny doctor` reports the path bunny reads, whether
-  or not the file exists.
+  and the placeholders. `bunny doctor` reports the path bunny reads, whether or
+  not the file exists.
 - `prepare:` steps can use `{data}`, which expands to the package's real data
-  path. The sandbox stands a staging directory in its place and merges what
-  the step wrote once the install commits, copying only files that are not
-  already there. A manifest can seed a default config and bake the same path
-  into a config file in one step.
+  path. The sandbox stands a staging directory in its place and merges what the
+  step wrote once the install commits, copying only files that are not already
+  there. A manifest can seed a default config and bake the same path into a
+  config file in one step.
 
 ### Changed
 
@@ -35,14 +35,14 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   install roots. Per-version isolation is opt-in through `env:`.
 - **Bunny follows the XDG base directories**: installs, catalog, and state in
   `~/.local/share/bunny`, config in `~/.config/bunny`, downloads in
-  `~/.cache/bunny`, shims in `~/.local/bin`. Desktop entries and icons go to
-  the real XDG directories, so `bunny init` no longer sets `XDG_DATA_DIRS` and
-  an installed IDE appears in the launcher without logging out.
+  `~/.cache/bunny`, shims in `~/.local/bin`. Desktop entries and icons go to the
+  real XDG directories, so `bunny init` no longer sets `XDG_DATA_DIRS` and an
+  installed IDE appears in the launcher without logging out.
 - `BUNNY_HOME` collapses the whole layout under one root instead of naming the
   default, for containers, CI, and fleet images.
-- Packages install into one of three roots by kind: `sdk/`, `cli/`, `app/`,
-  each configurable. Manifests declare `kind:`; an undeclared one is inferred,
-  and a desktop entry implies `app`.
+- Packages install into one of three roots by kind: `sdk/`, `cli/`, `app/`, each
+  configurable. Manifests declare `kind:`; an undeclared one is inferred, and a
+  desktop entry implies `app`.
 - `state.json` records each package's kind and where it is installed. Changing
   an install root decides where new installs go; packages already on disk are
   updated where they are.
@@ -53,20 +53,20 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `bunny list --tag java` and `bunny search` filter on them, the vocabulary is
   declared in the catalog's `tags.yaml` and enforced by `dev validate`, and
   packages live in a flat `packages/<id>/` directory whose path the index
-  records explicitly, so the catalog's layout no longer dictates URLs or
-  install locations.
+  records explicitly, so the catalog's layout no longer dictates URLs or install
+  locations.
 - `bunny list` shows each package's kind rather than its tags. A kind is one
   short word and says where the package installs; tags are a search dimension,
-  and `bunny info` prints them in full. The index records a resolved `kind`
-  per package, so `--remote` reports it without fetching every manifest.
-- `-l/--log-level` replaces progress output instead of competing with it. With
-  a level set there is no spinner, per-package status line, or summary: the
-  same events become log records. Commands whose output is the requested data
-  still print it. `debug` opens with the resolved layout, config path, install
-  roots, and catalog source, then names the staging directory, install target,
-  download cache, manifest snapshot, and the shims added or removed. Every
-  per-package outcome is logged, so a skipped or failed package is reported
-  rather than exiting non-zero in silence.
+  and `bunny info` prints them in full. The index records a resolved `kind` per
+  package, so `--remote` reports it without fetching every manifest.
+- `-l/--log-level` replaces progress output instead of competing with it. With a
+  level set there is no spinner, per-package status line, or summary: the same
+  events become log records. Commands whose output is the requested data still
+  print it. `debug` opens with the resolved layout, config path, install roots,
+  and catalog source, then names the staging directory, install target, download
+  cache, manifest snapshot, and the shims added or removed. Every per-package
+  outcome is logged, so a skipped or failed package is reported rather than
+  exiting non-zero in silence.
 - Waiting on the mutation lock says so, instead of appearing to hang.
 - `npm -g` installs into node's own prefix, matching `nvm`: globals belong to
   the Node version that installed them.
@@ -78,10 +78,9 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   install never crosses a filesystem. `bunny clean` sweeps every root.
 - `bunny setup` skips `environment.d/bunny.conf` when the systemd session
   already exports the shim dir, since the generator does not deduplicate.
-- `bunny doctor` reports the active layout, the config path, the catalog in
-  use, and the effective install root for each kind, so a setting left
-  commented out is visible without installing something to find out where it
-  landed.
+- `bunny doctor` reports the active layout, the config path, the catalog in use,
+  and the effective install root for each kind, so a setting left commented out
+  is visible without installing something to find out where it landed.
 
 ### Removed
 
@@ -93,26 +92,26 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 ### Fixed
 
 - **Bunny only replaces or removes what it installed.** These directories are
-  now shared with the rest of the system, so ownership is checked first:
-  install trees carry a `.bunny-package` marker, desktop entries an
-  `X-Bunny-Package` key, icons and completions are matched against the
-  install-time manifest, and a shim must point into bunny's own bin directory
-  or resolve to the running binary. A symlink whose target is merely *named*
-  `bunny`, such as an unrelated `/opt/some-tool/bunny`, no longer counts.
-  Uninstall removes the icon extension the manifest declares rather than
-  sweeping `.png`, `.svg`, and `.xpm` for the name.
+  now shared with the rest of the system, so ownership is checked first: install
+  trees carry a `.bunny-package` marker, desktop entries an `X-Bunny-Package`
+  key, icons and completions are matched against the install-time manifest, and
+  a shim must point into bunny's own bin directory or resolve to the running
+  binary. A symlink whose target is merely _named_ `bunny`, such as an unrelated
+  `/opt/some-tool/bunny`, no longer counts. Uninstall removes the icon extension
+  the manifest declares rather than sweeping `.png`, `.svg`, and `.xpm` for the
+  name.
 - Repointing an install root stranded every package of that kind. Bunny looked
   for them under the new root, `--force` could replace an unrelated directory
-  that happened to sit there, and an update built a second tree beside the
-  first instead of updating it.
+  that happened to sit there, and an update built a second tree beside the first
+  instead of updating it.
 - A `prepare:` step writing to `{work}` lost the files. The staging root sits
-  under `$HOME`, which the install sandbox masks, so the write landed in a
-  tmpfs and succeeded; under a `BUNNY_HOME` elsewhere the same write failed.
+  under `$HOME`, which the install sandbox masks, so the write landed in a tmpfs
+  and succeeded; under a `BUNNY_HOME` elsewhere the same write failed.
 - Progress and log records no longer interleave. Both write to stderr, and the
   live reporter redraws in place, so a log line landed mid-spinner:
   `node-24 ⠋ removing2026/08/16 INFO Uninstalling package=node-24`.
-- A package with no `kind:` is no longer assumed to be a cli tool, which put
-  GUI editors beside `ripgrep`.
+- A package with no `kind:` is no longer assumed to be a cli tool, which put GUI
+  editors beside `ripgrep`.
 - A clean first install of a GUI package writes its desktop entry and icon.
   Integration resolved `{app}` before state recorded the install location.
 - `make install` copies the binary to `~/.local/bin`, or `$BUNNY_HOME/bin`.
@@ -127,18 +126,18 @@ reinstall, which is quick and leaves no residue now that nothing is isolated.
 
 ### Added
 
-- `bunny dev validate` checks every local catalog manifest against
-  `index.json` without network access, for catalog CI.
+- `bunny dev validate` checks every local catalog manifest against `index.json`
+  without network access, for catalog CI.
 
 ### Fixed
 
-- `bunny dev update` only rewrites a package's secondary sources (e.g. a
-  bundled plugin) when its primary source also advanced, instead of bumping
-  them independently.
+- `bunny dev update` only rewrites a package's secondary sources (e.g. a bundled
+  plugin) when its primary source also advanced, instead of bumping them
+  independently.
 - Catalog index writes no longer HTML-escape `requires` operators, so
   constraints like `jdk>=17` survive a rewrite intact.
-- JDK update checks now follow Foojay's `checksum_uri` when its inline
-  checksum is blank (affects some vendor builds, e.g. JBR JCEF).
+- JDK update checks now follow Foojay's `checksum_uri` when its inline checksum
+  is blank (affects some vendor builds, e.g. JBR JCEF).
 
 ## [0.3.0] - 2026-07-22
 
@@ -165,12 +164,12 @@ reinstall, which is quick and leaves no residue now that nothing is isolated.
 
 - Update detection compares versions by precedence rather than exact string
   match, so a differing-but-not-newer upstream version (such as a vendor JDK
-  respin) is no longer offered as a downgrade, while build-number-only bumps
-  are still detected.
-- JDK update discovery now selects standard non-JavaFX archives consistently
-  and can verify vendor releases through configured checksum endpoints or
-  GitHub's published SHA-256 release-asset digests when Foojay exposes only
-  SHA-1 or no checksum.
+  respin) is no longer offered as a downgrade, while build-number-only bumps are
+  still detected.
+- JDK update discovery now selects standard non-JavaFX archives consistently and
+  can verify vendor releases through configured checksum endpoints or GitHub's
+  published SHA-256 release-asset digests when Foojay exposes only SHA-1 or no
+  checksum.
 - Download progress bars render as one continuous block on color terminals,
   removing the faint seams that repeated block glyphs left in some fonts.
 
