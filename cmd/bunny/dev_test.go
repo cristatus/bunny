@@ -33,7 +33,7 @@ func TestValidateCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	index, err := json.Marshal(catalog.Index{Packages: map[string]catalog.IndexEntry{
-		"foo": {Name: "Foo", Version: "1.0.0", Path: "packages/foo", Tags: []string{"cli"}},
+		"foo": {Name: "Foo", Version: "1.0.0", Path: "packages/foo", Tags: []string{"cli"}, Kind: "cli"},
 	}})
 	if err != nil {
 		t.Fatal(err)

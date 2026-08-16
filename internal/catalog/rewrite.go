@@ -84,7 +84,11 @@ func PrepareIndexEntry(indexPath, id string, entry IndexEntry) (PreparedWrite, e
 	} else {
 		delete(pkg, "tags")
 	}
-	delete(pkg, "category")
+	if entry.Kind != "" {
+		pkg["kind"] = entry.Kind
+	} else {
+		delete(pkg, "kind")
+	}
 	if entry.Description != "" {
 		pkg["description"] = entry.Description
 	} else {

@@ -109,7 +109,7 @@ node --version    # → 24.x
 ```
 bunny install <id>          install a package
 bunny uninstall <id>        remove (use --purge to also drop per-version SDK data)
-bunny list                  list tags, capability, version, and active provider
+bunny list                  list kind, capability, version, and active provider
 bunny list --remote         list the full catalog (--tag java / --capability jdk / --active)
 bunny info <id>             show capability, requirements, pins, and dependents
 bunny search <query>        search names, descriptions, capabilities, and requirements

@@ -38,10 +38,15 @@ and this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 - `BUNNY_HOME` now collapses the whole layout under one root instead of naming
   the default, for containers, CI, and fleet images.
 - `category:` is replaced by `tags:`, a list describing what a package is.
-  `bunny list --tag java` filters on them, the vocabulary is declared in the
-  catalog's `tags.yaml` and enforced by `dev validate`, and packages live in a
-  flat `packages/<id>/` directory whose path the index records explicitly, so
-  the catalog's layout no longer dictates URLs or install locations.
+  `bunny list --tag java` and `bunny search` filter on them, the vocabulary is
+  declared in the catalog's `tags.yaml` and enforced by `dev validate`, and
+  packages live in a flat `packages/<id>/` directory whose path the index
+  records explicitly, so the catalog's layout no longer dictates URLs or
+  install locations.
+- `bunny list` shows each package's kind rather than its tags. A kind is one
+  short word and says where the package installs; tags are a search dimension,
+  and `bunny info` prints them in full. The index records a resolved `kind`
+  per package, so `--remote` reports it without fetching every manifest.
 - Packages install into one of three roots by kind: `sdk/`, `cli/`, `app/`,
   each configurable. Manifests declare `kind:`; an undeclared one is inferred,
   and a desktop entry implies `app`.

@@ -254,13 +254,13 @@ func TestRewriteIndexEntry(t *testing.T) {
     "vscode": {
       "name": "Visual Studio Code",
       "version": "1.118.0",
-      "category": "editor",
+      "tags": ["editor"],
       "description": "Code editor from Microsoft"
     },
     "node-22": {
       "name": "Node.js 22 LTS",
       "version": "22.22.1",
-      "category": "sdk"
+      "tags": ["node"]
     }
   }
 }
@@ -271,7 +271,7 @@ func TestRewriteIndexEntry(t *testing.T) {
 	err := RewriteIndexEntry(path, "vscode", IndexEntry{
 		Name:        "Visual Studio Code",
 		Version:     "1.119.0",
-		Path:        "packages/editor",
+		Path:        "packages/vscode",
 		Description: "Code editor from Microsoft",
 		Provides:    "editor",
 		Requires:    []string{"jdk>=17"},
@@ -327,7 +327,7 @@ bin:
 	if err := os.WriteFile(indexPath, []byte(`{
   "version": 1,
   "packages": {
-    "rg": {"name": "ripgrep", "version": "13.0.0", "category": "cli"}
+    "rg": {"name": "ripgrep", "version": "13.0.0", "tags": ["cli"]}
   }
 }
 `), 0644); err != nil {

@@ -113,8 +113,9 @@ func validateCatalog(root string) error {
 		}
 		wantPath := catalog.PackagesDir + "/" + m.ID
 		if e.Name != m.Name || e.Version != m.Version || e.Path != wantPath ||
-			e.Description != m.Description || e.Provides != m.Provides ||
-			!slices.Equal(e.Requires, m.Requires) || !slices.Equal(e.Tags, m.Tags) {
+			e.Kind != m.KindOf() || e.Description != m.Description ||
+			e.Provides != m.Provides || !slices.Equal(e.Requires, m.Requires) ||
+			!slices.Equal(e.Tags, m.Tags) {
 			return fmt.Errorf("%s: index.json metadata does not match manifest", m.ID)
 		}
 	}
@@ -261,6 +262,7 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 				Version:     r.LatestVersion,
 				Path:        catalog.PackagesDir + "/" + j.pkg.ID,
 				Tags:        append([]string(nil), j.m.Tags...),
+				Kind:        j.m.KindOf(),
 				Description: j.m.Description,
 				Provides:    j.m.Provides,
 				Requires:    append([]string(nil), j.m.Requires...),

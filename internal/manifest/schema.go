@@ -22,9 +22,9 @@ type Manifest struct {
 	// Kind selects which install root the package lands in: "sdk" for anything
 	// another tool may need a path to (JDKs, Node, Maven, Gradle), "app" for
 	// GUI applications, "cli" for plain commands. It is deliberately separate
-	// from Category, which names the catalog folder and is used to build
-	// download URLs: the catalog's repo layout should not dictate the user's
-	// disk layout. Defaults to KindCLI when unset.
+	// from the catalog's own layout, which each index entry records as a path:
+	// where a manifest sits in the repo should not dictate where the package
+	// lands on disk. Defaults to KindCLI when unset.
 	Kind     string `yaml:"kind,omitempty"`
 	Homepage string `yaml:"homepage,omitempty"`
 	License  string `yaml:"license,omitempty"`

@@ -151,7 +151,7 @@ func stdinIsTTY() bool {
 // UninstallCmd removes one or more packages.
 type UninstallCmd struct {
 	IDs   []string `arg:"" name:"id" help:"Package ID(s)"`
-	Purge bool     `help:"Also remove the per-app data dir under var/app/{id}/"`
+	Purge bool     `help:"Also remove the package's data dir"`
 	Yes   bool     `short:"y" help:"Skip the --purge confirmation prompt"`
 }
 

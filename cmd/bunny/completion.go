@@ -197,7 +197,7 @@ const bashCompletion = `_bunny() {
     for (( i=1; i < COMP_CWORD; i++ )); do
         w="${COMP_WORDS[i]}"
         case "$w" in
-            --log-level|-l|--pager|--category|-c|--capability|--command|--shell) (( i++ )); continue ;;
+            --log-level|-l|--pager|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
             -*) continue ;;
         esac
         if [[ -z "$sub" ]]; then sub="$w"; else operand="$w"; break; fi
@@ -277,7 +277,7 @@ local sub="" operand="" w i
 for (( i = 2; i < CURRENT; i++ )); do
     w=${words[i]}
     case $w in
-        --log-level|-l|--pager|--category|-c|--capability|--command|--shell) (( i++ )); continue ;;
+        --log-level|-l|--pager|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
         -*) continue ;;
     esac
     if [[ -z $sub ]]; then sub=$w; else operand=$w; break; fi
@@ -350,7 +350,7 @@ end
 function __bunny_provider_ids
     bunny complete-ids --providers 2>/dev/null
 end
-function __bunny_categories
+function __bunny_tags
     bunny complete-tags 2>/dev/null
 end
 function __bunny_capabilities
@@ -375,7 +375,7 @@ complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcom
 # per-subcommand flags
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d 'Also remove the per-app data dir'
-complete -c bunny -n '__fish_seen_subcommand_from list' -s c -l category -r -f -a '(__bunny_categories)' -d 'Filter by category'
+complete -c bunny -n '__fish_seen_subcommand_from list' -s t -l tag -r -f -a '(__bunny_tags)' -d 'Filter by tag'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l capability -r -f -a '(__bunny_capabilities)' -d 'Filter by provided capability'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only active providers'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l remote -d 'List all packages in the catalog'

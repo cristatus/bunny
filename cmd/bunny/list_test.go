@@ -13,9 +13,9 @@ func TestRenderInstalled(t *testing.T) {
 	var b bytes.Buffer
 	p := ui.NewWithColor(&b, false)
 	rows := []installedRow{
-		{id: "bat", tags: []string{"cli"}, version: "1.0", provides: ""},
-		{id: "jbr-21", tags: []string{"java", "jdk"}, version: "21", provides: "jdk"},
-		{id: "jdk-21", tags: []string{"java", "jdk"}, version: "21", provides: "jdk", active: true},
+		{id: "bat", kind: "cli", version: "1.0", provides: ""},
+		{id: "jbr-21", kind: "sdk", version: "21", provides: "jdk"},
+		{id: "jdk-21", kind: "sdk", version: "21", provides: "jdk", active: true},
 	}
 
 	out := renderInstalled(p, rows)
@@ -48,14 +48,36 @@ func TestRenderRemoteShowsCapabilityAndActive(t *testing.T) {
 	var b bytes.Buffer
 	p := ui.NewWithColor(&b, false)
 	rows := []remoteRow{{
-		pkg:    catalog.PackageInfo{ID: "zulu-21", Tags: []string{"java", "jdk"}, Provides: "jdk", Version: "21"},
+		pkg:    catalog.PackageInfo{ID: "zulu-21", Tags: []string{"java", "jdk"}, Kind: "sdk", Provides: "jdk", Version: "21"},
 		active: true, status: "installed", statusStyle: ui.Good,
 	}}
 	out := renderRemote(p, rows)
-	for _, want := range []string{"Provides", "Active", "jdk", "yes", "installed", "1 packages"} {
+	// Tags are a filter dimension, not a column: they belong to `bunny info`.
+	if strings.Contains(out, "Tags") || strings.Contains(out, "java") {
+		t.Errorf("listing should not print tags: %q", out)
+	}
+	for _, want := range []string{"Kind", "sdk", "Provides", "Active", "jdk", "yes", "installed", "1 packages"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("remote output missing %q: %q", want, out)
 		}
+	}
+}
+
+// Tags are absent from every listing, so search is the only thing that makes
+// them reachable.
+func TestSearchMatchesTags(t *testing.T) {
+	pkg := catalog.PackageInfo{
+		ID: "mvnd", Name: "Maven Daemon", Description: "Fast Maven client",
+		Tags: []string{"java", "build-tool"},
+	}
+	if !searchMatches(pkg, "build-tool") {
+		t.Error("a tag should be searchable")
+	}
+	if !searchMatches(pkg, "maven") {
+		t.Error("name should still match")
+	}
+	if searchMatches(pkg, "node") {
+		t.Error("unrelated query should not match")
 	}
 }
 

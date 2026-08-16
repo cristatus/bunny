@@ -119,7 +119,7 @@ func TestCompletionScript(t *testing.T) {
 				t.Errorf("%s script missing log-level value %q", shell, v)
 			}
 		}
-		// Per-subcommand flags + the --category value helper.
+		// Per-subcommand flags + the --tag value helper.
 		for _, f := range []string{"force", "purge", "tag", "capability", "active", "command", "complete-tags", "complete-capabilities"} {
 			if !strings.Contains(s, f) {
 				t.Errorf("%s script missing %q", shell, f)

@@ -31,7 +31,7 @@ func (c *ListCmd) Run(a *App) error {
 }
 
 // matchesTag reports whether a package carrying the given tags passes the
-// --category filter (no filter set → always true). Kept in one place so the
+// --tag filter (no filter set → always true). Kept in one place so the
 // installed and remote listings can never diverge on how they filter.
 func (c *ListCmd) matchesTag(tags []string) bool {
 	return c.Tag == "" || slices.Contains(tags, c.Tag)
@@ -42,26 +42,30 @@ func (c *ListCmd) matchesCapability(capability string) bool {
 }
 
 func (c *ListCmd) listInstalled(a *App) error {
-	// Build a lookup map from catalog so we can show tags.
+	// The catalog fills in what state does not record: tags for --tag, and a
+	// kind for a package installed before its manifest declared one.
 	catalogInfo := map[string]catalog.PackageInfo{}
 	if info, err := a.Catalog.List(); err == nil {
 		for _, p := range info {
 			catalogInfo[p.ID] = p
 		}
 	}
-	// Tags are only known from the catalog; without it a --tag filter would
-	// silently drop every row. Surface that instead of printing nothing.
+	// Tags live only in the catalog; without it a --tag filter would silently
+	// drop every row. Surface that instead of printing nothing.
 	if c.Tag != "" && len(catalogInfo) == 0 {
 		return fmt.Errorf("cannot filter by --tag %q: catalog data is unavailable", c.Tag)
 	}
 	var rows []installedRow
 	for id, pkg := range a.State.Packages {
 		var tags []string
-		provides := pkg.Provides
+		provides, kind := pkg.Provides, pkg.Kind
 		if p, ok := catalogInfo[id]; ok {
 			tags = p.Tags
 			if provides == "" {
 				provides = p.Provides
+			}
+			if kind == "" {
+				kind = p.Kind
 			}
 		}
 		active := provides != "" && a.State.Providers[provides] == id
@@ -69,7 +73,7 @@ func (c *ListCmd) listInstalled(a *App) error {
 			continue
 		}
 		rows = append(rows, installedRow{
-			id: id, tags: tags, version: pkg.Version, provides: provides, active: active,
+			id: id, kind: kind, version: pkg.Version, provides: provides, active: active,
 		})
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].id < rows[j].id })
@@ -79,9 +83,8 @@ func (c *ListCmd) listInstalled(a *App) error {
 
 // installedRow is one line of the installed listing.
 type installedRow struct {
-	id, version, provides string
-	tags                  []string
-	active                bool // active provider for its capability
+	id, kind, version, provides string
+	active                      bool // active provider for its capability
 }
 
 // renderInstalled formats the installed listing (no human-name column).
@@ -94,13 +97,13 @@ func renderInstalled(p *ui.Printer, rows []installedRow) string {
 		}
 		cells = append(cells, []ui.Cell{
 			{Text: r.id},
-			{Text: strings.Join(r.tags, ",")},
+			{Text: r.kind},
 			{Text: r.provides},
 			{Text: r.version},
 			{Text: active, Style: style},
 		})
 	}
-	out := p.Table([]string{"Package", "Tags", "Provides", "Version", "Active"}, cells)
+	out := p.Table([]string{"Package", "Kind", "Provides", "Version", "Active"}, cells)
 	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
@@ -144,12 +147,12 @@ func renderRemote(p *ui.Printer, rows []remoteRow) string {
 			active, activeStyle = "yes", ui.Good
 		}
 		cells = append(cells, []ui.Cell{
-			{Text: r.pkg.ID}, {Text: strings.Join(r.pkg.Tags, ",")}, {Text: r.pkg.Provides},
+			{Text: r.pkg.ID}, {Text: r.pkg.Kind}, {Text: r.pkg.Provides},
 			{Text: r.pkg.Version}, {Text: active, Style: activeStyle},
 			{Text: r.status, Style: r.statusStyle},
 		})
 	}
-	out := p.Table([]string{"Package", "Category", "Provides", "Version", "Active", "Status"}, cells)
+	out := p.Table([]string{"Package", "Kind", "Provides", "Version", "Active", "Status"}, cells)
 	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
@@ -270,9 +273,19 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, detail infoDetail) string {
 }
 
 // SearchCmd does a substring match on catalog summary metadata, including
-// provided capabilities and runtime requirements.
+// tags, provided capabilities, and runtime requirements. Tags are not a
+// column in any listing, so search is where they earn their keep.
 type SearchCmd struct {
 	Query string `arg:"" help:"Search query"`
+}
+
+// searchMatches reports whether a package matches an already-lowercased query.
+func searchMatches(pkg catalog.PackageInfo, q string) bool {
+	return strings.Contains(strings.ToLower(pkg.ID), q) ||
+		strings.Contains(strings.ToLower(pkg.Name), q) ||
+		strings.Contains(strings.ToLower(pkg.Description), q) ||
+		strings.Contains(strings.ToLower(pkg.Provides), q) ||
+		containsFold(pkg.Requires, q) || containsFold(pkg.Tags, q)
 }
 
 func (c *SearchCmd) Run(a *App) error {
@@ -283,11 +296,7 @@ func (c *SearchCmd) Run(a *App) error {
 	q := strings.ToLower(c.Query)
 	var matches []catalog.PackageInfo
 	for _, pkg := range pkgs {
-		if strings.Contains(strings.ToLower(pkg.ID), q) ||
-			strings.Contains(strings.ToLower(pkg.Name), q) ||
-			strings.Contains(strings.ToLower(pkg.Description), q) ||
-			strings.Contains(strings.ToLower(pkg.Provides), q) ||
-			containsFold(pkg.Requires, q) {
+		if searchMatches(pkg, q) {
 			matches = append(matches, pkg)
 		}
 	}

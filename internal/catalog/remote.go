@@ -28,8 +28,8 @@ var httpClient = &http.Client{Timeout: 5 * time.Minute}
 const (
 	indexTTL = 6 * time.Hour
 	// defaultRevalidateTimeout bounds how long the hot path waits for a
-	// stale-index refresh before serving the cached copy. A slow or flaky link
-	// no longer stalls interactive commands for the full httpClient timeout.
+	// stale-index refresh before serving the cached copy, so a slow or flaky
+	// link cannot stall an interactive command for the full httpClient timeout.
 	defaultRevalidateTimeout = 3 * time.Second
 	maxCatalogBody           = 4 << 20
 )
@@ -48,11 +48,28 @@ type IndexEntry struct {
 	// Path is the package's directory in the catalog, relative to its root.
 	// Recorded rather than derived so the catalog can lay itself out however
 	// it likes without bunny modelling the scheme.
-	Path        string   `json:"path"`
-	Tags        []string `json:"tags,omitempty"`
+	Path string   `json:"path"`
+	Tags []string `json:"tags,omitempty"`
+	// Kind is the manifest's resolved kind, recorded so a remote listing can
+	// report where a package installs without downloading every manifest.
+	Kind        string   `json:"kind,omitempty"`
 	Description string   `json:"description"`
 	Provides    string   `json:"provides,omitempty"`
 	Requires    []string `json:"requires,omitempty"`
+}
+
+// info converts an index entry into the loader-facing summary.
+func (e IndexEntry) info(id string) PackageInfo {
+	return PackageInfo{
+		ID:          id,
+		Tags:        append([]string(nil), e.Tags...),
+		Kind:        e.Kind,
+		Name:        e.Name,
+		Description: e.Description,
+		Version:     e.Version,
+		Provides:    e.Provides,
+		Requires:    append([]string(nil), e.Requires...),
+	}
 }
 
 // HTTPGet matches the small subset of net/http we need; injectable for tests.
@@ -118,15 +135,7 @@ func (r *Remote) List() ([]PackageInfo, error) {
 	}
 	out := make([]PackageInfo, 0, len(idx.Packages))
 	for id, e := range idx.Packages {
-		out = append(out, PackageInfo{
-			ID:          id,
-			Tags:        append([]string(nil), e.Tags...),
-			Name:        e.Name,
-			Description: e.Description,
-			Version:     e.Version,
-			Provides:    e.Provides,
-			Requires:    append([]string(nil), e.Requires...),
-		})
+		out = append(out, e.info(id))
 	}
 	return out, nil
 }
@@ -144,15 +153,7 @@ func (r *Remote) ListCached() ([]PackageInfo, error) {
 	}
 	out := make([]PackageInfo, 0, len(idx.Packages))
 	for id, e := range idx.Packages {
-		out = append(out, PackageInfo{
-			ID:          id,
-			Tags:        append([]string(nil), e.Tags...),
-			Name:        e.Name,
-			Description: e.Description,
-			Version:     e.Version,
-			Provides:    e.Provides,
-			Requires:    append([]string(nil), e.Requires...),
-		})
+		out = append(out, e.info(id))
 	}
 	return out, nil
 }

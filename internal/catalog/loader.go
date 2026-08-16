@@ -7,8 +7,11 @@ import "github.com/cristatus/bunny/internal/manifest"
 
 // PackageInfo is a lightweight summary of a manifest, used by `bunny list`.
 type PackageInfo struct {
-	ID          string
-	Tags        []string
+	ID   string
+	Tags []string
+	// Kind is the resolved install kind ("app", "cli", "sdk"), so a listing
+	// can say where a package lands without fetching its manifest.
+	Kind        string
 	Name        string
 	Description string
 	Version     string

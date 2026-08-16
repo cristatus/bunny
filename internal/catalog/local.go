@@ -14,7 +14,7 @@ import (
 )
 
 // Local serves manifests from a directory of the form
-// `<root>/<category>/<id>/manifest.yaml`.
+// `<root>/packages/<id>/manifest.yaml`.
 type Local struct {
 	root string
 }
@@ -66,6 +66,7 @@ func (l *Local) List() ([]PackageInfo, error) {
 		pkgs = append(pkgs, PackageInfo{
 			ID:          m.ID,
 			Tags:        append([]string(nil), m.Tags...),
+			Kind:        m.KindOf(),
 			Name:        m.Name,
 			Description: m.Description,
 			Version:     m.Version,

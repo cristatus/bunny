@@ -27,8 +27,8 @@ func (c *cleanFakeCatalog) LoadFile(string, string) ([]byte, error) { return nil
 // setup builds a Cleaner over a temp $BUNNY_HOME with:
 //   - app `keep` installed at v1.0, expects cache file "keep-1.0.tar.gz"
 //   - app `gone` not installed but with a leftover cache dir
-//   - var/cache/keep/ has both the current file and a stale older one
-//   - var/tmp/anything/ as crashed-install leftover
+//   - the download cache for `keep` has both the current file and a stale older one
+//   - a staged tree left behind by a crashed install
 func setup(t *testing.T) (*Cleaner, *paths.Paths) {
 	t.Helper()
 	root := t.TempDir()
