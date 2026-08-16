@@ -71,13 +71,40 @@ func TestRemoveEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(p.Desktop(), "x.desktop")
-	os.WriteFile(dst, []byte{}, 0644)
+	os.WriteFile(dst, []byte("[Desktop Entry]\n"+managedKey+"=code\n"), 0644)
 
 	if err := RemoveEntries(p, []manifest.DesktopEntry{{ID: "x.desktop"}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dst); !os.IsNotExist(err) {
 		t.Error("expected entry to be removed")
+	}
+}
+
+// Entries live in the shared ~/.local/share/applications, so a name collision
+// with a distro package or a hand-written launcher must not cost the user
+// their file, in either direction.
+func TestEntriesNotOwnedByBunnyAreLeftAlone(t *testing.T) {
+	p := paths.At(t.TempDir())
+	if err := os.MkdirAll(p.Desktop(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(p.Desktop(), "code.desktop")
+	foreign := "[Desktop Entry]\nName=Someone else's launcher\n"
+	if err := os.WriteFile(dst, []byte(foreign), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := []manifest.DesktopEntry{{ID: "code.desktop", Name: "Code", Exec: "/bin/true"}}
+	if err := InstallEntries(p, entries, map[string]string{"id": "code"}); err == nil {
+		t.Error("installing over a foreign entry should be refused")
+	}
+	if err := RemoveEntries(p, entries); err != nil {
+		t.Fatalf("removal should skip, not fail: %v", err)
+	}
+	data, err := os.ReadFile(dst)
+	if err != nil || string(data) != foreign {
+		t.Errorf("foreign entry was modified or removed: %q, %v", data, err)
 	}
 }
 

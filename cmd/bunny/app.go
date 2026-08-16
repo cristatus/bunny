@@ -106,6 +106,7 @@ func New() (*App, error) {
 	app.Catalog = cat
 	app.Installed = catalog.NewInstalled(cat, p.ManifestFile)
 	app.Installer = installer.New(p, cat, st)
+	app.Installer.Version = version
 	app.local = local
 	app.remote = remote
 	return app, nil

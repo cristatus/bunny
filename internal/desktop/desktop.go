@@ -29,8 +29,11 @@ func InstallEntries(p *paths.Paths, entries []manifest.DesktopEntry, vars map[st
 		return err
 	}
 	for _, d := range entries {
-		content := buildDesktopEntry(&d, vars)
 		dst := filepath.Join(p.Desktop(), d.ID)
+		if err := checkEntryOwned(dst); err != nil {
+			return err
+		}
+		content := buildDesktopEntry(&d, vars, vars["id"])
 		if err := fsutil.WriteFile(dst, []byte(content), 0644); err != nil {
 			return fmt.Errorf("write desktop entry %s: %w", d.ID, err)
 		}
@@ -39,16 +42,45 @@ func InstallEntries(p *paths.Paths, entries []manifest.DesktopEntry, vars map[st
 	return nil
 }
 
-// RemoveEntries deletes .desktop files referenced by the manifest.
+// RemoveEntries deletes .desktop files referenced by the manifest, skipping
+// any that bunny did not write.
 func RemoveEntries(p *paths.Paths, entries []manifest.DesktopEntry) error {
 	var errs []error
 	for _, d := range entries {
 		path := filepath.Join(p.Desktop(), d.ID)
+		if err := checkEntryOwned(path); err != nil {
+			log.Warn("Leaving desktop entry alone", "id", d.ID, "reason", err)
+			continue
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove desktop entry %s: %w", d.ID, err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// managedKey marks a .desktop file as bunny's. X- keys are the spec's reserved
+// space for exactly this, and the desktop ignores unknown ones.
+const managedKey = "X-Bunny-Package"
+
+// checkEntryOwned reports whether an existing .desktop file is one bunny
+// wrote. Entries now land in the shared ~/.local/share/applications, so a name
+// collision with a distro package or a hand-written launcher is possible, and
+// neither overwriting nor deleting someone else's entry is recoverable.
+func checkEntryOwned(path string) error {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect desktop entry %s: %w", filepath.Base(path), err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), managedKey+"=") {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s was not created by bunny", path)
 }
 
 // InstallIcons copies icons into the XDG icons hierarchy.
@@ -181,9 +213,10 @@ func RemoveCompletions(p *paths.Paths, comps *manifest.Completions, vars map[str
 
 // --- internal ---
 
-func buildDesktopEntry(d *manifest.DesktopEntry, vars map[string]string) string {
+func buildDesktopEntry(d *manifest.DesktopEntry, vars map[string]string, pkg string) string {
 	var b strings.Builder
 	b.WriteString("[Desktop Entry]\n")
+	fmt.Fprintf(&b, "%s=%s\n", managedKey, pkg)
 
 	entryType := d.Type
 	if entryType == "" {

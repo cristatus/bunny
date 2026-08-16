@@ -47,6 +47,10 @@ type Installer struct {
 	Prepare   PrepareFn
 	BunnyPath BunnyPathFn
 	SaveState SaveStateFn
+
+	// Version is stamped into each install tree's marker, as provenance for
+	// working out later which bunny put a directory there.
+	Version string
 }
 
 // New returns an Installer wired with default Download + Prepare + BunnyPath.
@@ -157,6 +161,13 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if err := i.runPrepare(ctx, m, srcDir, pkgDir, prepareVars); err != nil {
 		cleanup()
 		return err
+	}
+
+	if err := WritePackageMarker(pkgDir, PackageMarker{
+		ID: id, Version: m.Version, Kind: kind, Bunny: i.Version,
+	}); err != nil {
+		cleanup()
+		return fmt.Errorf("mark install tree: %w", err)
 	}
 
 	hook.Phase("installing")
@@ -603,6 +614,12 @@ func (i *Installer) place(id, kind, pkgDir string, force bool) (*placement, erro
 		if !force {
 			return nil, fmt.Errorf("%s already exists (use --force to reinstall)", finalDir)
 		}
+		// --force replaces bunny's own install, never whatever else happens to
+		// be sitting at that path: install roots are configurable, so the
+		// target may be a directory the user keeps things in.
+		if err := checkOwned(finalDir, id); err != nil {
+			return nil, err
+		}
 		backup := finalDir + ".old"
 		os.RemoveAll(backup)
 		if err := os.Rename(finalDir, backup); err != nil {
@@ -655,6 +672,9 @@ func (i *Installer) stageRemoveApp(id string) (*removalPlacement, error) {
 		return &removalPlacement{finalDir: finalDir, trashDir: trashDir}, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("stat app dir: %w", err)
+	}
+	if err := checkOwned(finalDir, id); err != nil {
+		return nil, err
 	}
 	os.RemoveAll(trashDir)
 	if err := os.Rename(finalDir, trashDir); err != nil {
