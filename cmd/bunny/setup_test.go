@@ -12,9 +12,12 @@ import (
 func TestWriteEnvironmentDSingleRoot(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	p := paths.At("/h/.bunny")
-	path, err := writeEnvironmentD(p)
+	path, wrote, err := writeEnvironmentD(p)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !wrote {
+		t.Fatal("a single-root install always needs the session env")
 	}
 	if filepath.Base(path) != "bunny.conf" || !strings.Contains(path, "environment.d") {
 		t.Errorf("path = %q", path)
@@ -28,7 +31,7 @@ func TestWriteEnvironmentDSingleRoot(t *testing.T) {
 		t.Errorf("missing PATH line: %s", s)
 	}
 	// idempotent: second write returns same path, no error
-	if _, err := writeEnvironmentD(p); err != nil {
+	if _, _, err := writeEnvironmentD(p); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -45,9 +48,12 @@ func TestWriteEnvironmentDXDGOmitsDataDirs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path, err := writeEnvironmentD(p)
+	path, wrote, err := writeEnvironmentD(p)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !wrote {
+		t.Fatal("expected the file to be written")
 	}
 	data, _ := os.ReadFile(path)
 	if strings.Contains(string(data), "XDG_DATA_DIRS") {
@@ -166,5 +172,93 @@ func TestSetupCmdRejectsInvalidShell(t *testing.T) {
 	// no shell rc should be modified
 	if _, err := os.Stat(filepath.Join(home, ".bashrc")); err == nil {
 		t.Error(".bashrc should not be created for invalid shell")
+	}
+}
+
+// stubSession makes the session PATH deterministic, so both branches can be
+// tested without depending on the machine running them.
+func stubSession(t *testing.T, value string, known bool) {
+	t.Helper()
+	prev := sessionPath
+	sessionPath = func() (string, bool) { return value, known }
+	t.Cleanup(func() { sessionPath = prev })
+}
+
+func xdgPaths(t *testing.T) *paths.Paths {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(paths.EnvHome, "")
+	for _, v := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(v, "")
+	}
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	p, err := paths.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// systemd's generator does not deduplicate, so writing when the session
+// already exports the shim dir would only add a second identical PATH entry.
+func TestWriteEnvironmentDSkipsWhenSessionAlreadyProvides(t *testing.T) {
+	p := xdgPaths(t)
+	stubSession(t, "/usr/bin:"+p.Bin()+":/bin", true)
+
+	path, wrote, err := writeEnvironmentD(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrote {
+		t.Error("expected the write to be skipped")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("no file should have been created")
+	}
+}
+
+// "Cannot tell" must not mean "skip": a missing PATH entry breaks toolchains
+// inside GUI-launched IDEs, which is far worse than a duplicate one.
+func TestWriteEnvironmentDWritesWhenSessionUnknown(t *testing.T) {
+	p := xdgPaths(t)
+	stubSession(t, "", false)
+
+	_, wrote, err := writeEnvironmentD(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !wrote {
+		t.Error("an undeterminable session must still get the file")
+	}
+}
+
+// The check would otherwise read bunny's own earlier contribution to the
+// session and decline to correct a line that has since gone stale.
+func TestWriteEnvironmentDRewritesExistingFile(t *testing.T) {
+	p := xdgPaths(t)
+	stubSession(t, p.Bin(), true) // session already provides it
+
+	path, err := environmentDPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	stale := "# managed by bunny — do not edit\nPATH=/old/bunny/bin:${PATH}\n"
+	if err := os.WriteFile(path, []byte(stale), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, wrote, err := writeEnvironmentD(p); err != nil || !wrote {
+		t.Fatalf("existing file must be kept correct: wrote=%v err=%v", wrote, err)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "/old/bunny/bin") {
+		t.Errorf("stale entry survived: %s", data)
+	}
+	if !strings.Contains(string(data), p.Bin()) {
+		t.Errorf("current shim dir missing: %s", data)
 	}
 }

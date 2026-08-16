@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/paths"
@@ -25,14 +28,68 @@ func environmentDPath() (string, error) {
 	return filepath.Join(cfg, "environment.d", "bunny.conf"), nil
 }
 
+// sessionPath returns the PATH the systemd user manager exports, which is what
+// graphical sessions inherit. The second result is false when that cannot be
+// determined: no systemd, no running user manager, a container, plain SSH.
+//
+// A package-level var so tests can drive both branches without depending on
+// the machine they run on.
+var sessionPath = systemdSessionPath
+
+func systemdSessionPath() (string, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	out, err := exec.CommandContext(ctx, "systemctl", "--user", "show-environment").Output()
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if value, ok := strings.CutPrefix(line, "PATH="); ok {
+			return value, true
+		}
+	}
+	return "", true // systemd answered, and it exports no PATH of its own
+}
+
+// sessionAlreadyProvides reports whether the graphical session already has dir
+// on PATH, and whether that could be established at all.
+func sessionAlreadyProvides(dir string) (provides, known bool) {
+	value, ok := sessionPath()
+	if !ok {
+		return false, false
+	}
+	for _, entry := range filepath.SplitList(value) {
+		if entry == dir {
+			return true, true
+		}
+	}
+	return false, true
+}
+
 // writeEnvironmentD writes ~/.config/environment.d/bunny.conf with the session
-// prepends. bunny owns the file; write is idempotent. Under the XDG layout only
-// PATH is needed: desktop entries and icons already live in XDG_DATA_HOME,
-// which the desktop scans without being told.
-func writeEnvironmentD(p *paths.Paths) (string, error) {
+// prepends, and reports whether it wrote. bunny owns the file; the write is
+// idempotent. Under the XDG layout only PATH is needed: desktop entries and
+// icons already live in XDG_DATA_HOME, which the desktop scans without being
+// told.
+//
+// It is skipped when the session already exports the shim dir, because
+// systemd's generator does no deduplication: the file would only add a second
+// identical PATH entry. Two guards keep that safe. It cannot skip when the
+// answer is unknown, since a missing entry is a far worse outcome than a
+// duplicate one. And it never skips over a file that already exists, or the
+// check would read bunny's own earlier contribution to the session and decline
+// to correct a line that has since gone stale.
+func writeEnvironmentD(p *paths.Paths) (string, bool, error) {
 	path, err := environmentDPath()
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+	_, statErr := os.Stat(path)
+	if os.IsNotExist(statErr) && p.XDG() {
+		if provides, known := sessionAlreadyProvides(p.Bin()); known && provides {
+			return path, false, nil
+		}
 	}
 	content := "# managed by bunny — do not edit\n"
 	if !p.XDG() {
@@ -40,12 +97,12 @@ func writeEnvironmentD(p *paths.Paths) (string, error) {
 	}
 	content += fmt.Sprintf("PATH=%s:${PATH}\n", p.Bin())
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == content {
-		return path, nil
+		return path, true, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", err
+		return "", false, err
 	}
-	return path, fsutil.WriteFile(path, []byte(content), 0644)
+	return path, true, fsutil.WriteFile(path, []byte(content), 0644)
 }
 
 // detectShell returns the shell basename from $SHELL, or "" if unknown/unset.
@@ -148,11 +205,15 @@ func (c *SetupCmd) Run(a *App) error {
 		p := ui.New(os.Stdout)
 		p.Println()
 
-		envPath, err := writeEnvironmentD(a.Paths)
+		envPath, wroteEnv, err := writeEnvironmentD(a.Paths)
 		if err != nil {
 			return fmt.Errorf("write environment.d: %w", err)
 		}
-		p.Println("wrote session env to " + tildePath(envPath))
+		if wroteEnv {
+			p.Println("wrote session env to " + tildePath(envPath))
+		} else {
+			p.Println("session env already provides " + tildePath(bin) + ", skipped")
+		}
 
 		if err := writeCompletionFile(a.Paths, shell); err != nil {
 			return fmt.Errorf("write completion: %w", err)
