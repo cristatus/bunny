@@ -217,7 +217,7 @@ const bashCompletion = `_bunny() {
         local flags="__GLOBALS__"
         case "$sub" in
             install)      flags="$flags --force" ;;
-            uninstall)    flags="$flags --purge" ;;
+            uninstall)    flags="$flags --purge --yes" ;;
             list)         flags="$flags --tag --capability --active --remote" ;;
             run)          flags="$flags --command" ;;
             setup)        flags="$flags --shell" ;;
@@ -239,7 +239,7 @@ const bashCompletion = `_bunny() {
         if [[ "$operand" == update ]]; then
             COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") )
         elif [[ -z "$operand" ]]; then
-            COMPREPLY=( $(compgen -W "update" -- "$cur") )
+            COMPREPLY=( $(compgen -W "update validate" -- "$cur") )
         fi
         return
     fi
@@ -258,7 +258,8 @@ const bashCompletion = `_bunny() {
         info|search)              COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
         use)                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
         pin|unpin)                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
-        update|clean|reshim|run)  COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
+        update|clean|run)         COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
+        reshim)                   COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null) $(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
         init|completion)          COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     esac
 }
@@ -297,7 +298,7 @@ if [[ $cur == -* ]]; then
     flags=(__GLOBALS__)
     case $sub in
         install) flags+=(--force) ;;
-        uninstall) flags+=(--purge) ;;
+        uninstall) flags+=(--purge --yes) ;;
         list) flags+=(--tag --capability --active --remote) ;;
         run) flags+=(--command) ;;
         setup) flags+=(--shell) ;;
@@ -317,7 +318,7 @@ if [[ $sub == dev ]]; then
     if [[ $operand == update ]]; then
         compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"}
     elif [[ -z $operand ]]; then
-        compadd -- update
+        compadd -- update validate
     fi
     return
 fi
@@ -334,7 +335,8 @@ case $sub in
     info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
     use) compadd -- ${(f)"$(bunny complete-ids --providers 2>/dev/null)"} ;;
     pin|unpin) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
-    update|clean|reshim|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
+    update|clean|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
+    reshim) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
     init|completion) compadd -- bash zsh fish ;;
 esac
 `
@@ -366,16 +368,18 @@ complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean resh
 complete -c bunny -f -n '__fish_seen_subcommand_from use; and not __fish_seen_subcommand_from dev' -a '(__bunny_provider_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from pin unpin' -a '(__bunny_capabilities)'
 complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash zsh fish'
-complete -c bunny -f -n '__fish_seen_subcommand_from dev; and not __fish_seen_subcommand_from update' -a update
+complete -c bunny -f -n '__fish_seen_subcommand_from dev; and not __fish_seen_subcommand_from update validate' -a 'update validate'
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcommand_from update' -a '(__bunny_ids)'
 # per-subcommand flags
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
-complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d 'Also remove the per-app data dir'
+complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d "Also remove the package's data dir"
+complete -c bunny -n '__fish_seen_subcommand_from uninstall' -s y -l yes -d 'Skip the --purge confirmation prompt'
 complete -c bunny -n '__fish_seen_subcommand_from list' -s t -l tag -r -f -a '(__bunny_tags)' -d 'Filter by tag'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l capability -r -f -a '(__bunny_capabilities)' -d 'Filter by provided capability'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only active providers'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l remote -d 'List all packages in the catalog'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
+complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'
 complete -c bunny -n '__fish_seen_subcommand_from clean' -l all -d 'Drop all download cache'
