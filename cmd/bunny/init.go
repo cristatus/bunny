@@ -12,7 +12,9 @@ import (
 //
 // Under XDG that is nearly all it does, since desktop entries and bash/fish
 // completions go where the system already looks. A single-root install keeps
-// those inside the root, so the snippet also sets XDG_DATA_DIRS.
+// those inside the root, so the snippet also sets XDG_DATA_DIRS, and re-exports
+// $BUNNY_HOME so the root survives into shells that were not the one setup ran
+// in.
 type InitCmd struct {
 	Shell string `arg:"" optional:"" enum:"bash,zsh,fish" default:"bash" help:"Shell type (bash, zsh, or fish)"`
 }
@@ -29,15 +31,17 @@ func initSnippet(p *paths.Paths, shell string) string {
 	bin, share := p.Bin(), p.Share()
 	switch shell {
 	case "fish":
-		out := fmt.Sprintf("contains -- %[1]s $PATH; or set -gx PATH %[1]s $PATH\n", bin)
-		if !p.XDG() {
-			out += fmt.Sprintf(`set -q XDG_DATA_DIRS[1]; or set -gx XDG_DATA_DIRS /usr/local/share:/usr/share
+		pathGuard := fmt.Sprintf("contains -- %[1]s $PATH; or set -gx PATH %[1]s $PATH\n", bin)
+		if p.XDG() {
+			return pathGuard
+		}
+		return rootExport(p, "test -n \"$%[1]s\"; or set -gx %[1]s %[2]s\n") +
+			pathGuard +
+			fmt.Sprintf(`set -q XDG_DATA_DIRS[1]; or set -gx XDG_DATA_DIRS /usr/local/share:/usr/share
 if not string match -q -- "*:%[1]s:*" ":$XDG_DATA_DIRS:"
     set -gx XDG_DATA_DIRS %[1]s:$XDG_DATA_DIRS
 end
 `, share)
-		}
-		return out
 	case "zsh":
 		// Add bunny's completions dir to fpath. If compinit already ran (say
 		// oh-my-zsh ran it before this snippet), re-run it so it scans the new
@@ -53,20 +57,33 @@ end
 }
 
 // posixGuards is the bash/zsh-shared dedup-guarded PATH prepend, plus the
-// XDG_DATA_DIRS prepend a single-root install needs so the desktop can find
-// entries and icons stored inside that root.
+// $BUNNY_HOME re-export and XDG_DATA_DIRS prepend a single-root install needs so
+// the layout resolves and the desktop can find entries and icons inside its root.
 func posixGuards(p *paths.Paths) string {
-	out := fmt.Sprintf(`case ":$PATH:" in
+	pathGuard := fmt.Sprintf(`case ":$PATH:" in
     *":%[1]s:"*) ;;
     *) export PATH="%[1]s:$PATH" ;;
 esac
 `, p.Bin())
 	if p.XDG() {
-		return out
+		return pathGuard
 	}
-	return out + fmt.Sprintf(`case ":${XDG_DATA_DIRS:-}:" in
+	return rootExport(p, "export %[1]s=\"${%[1]s:-%[2]s}\"\n") +
+		pathGuard +
+		fmt.Sprintf(`case ":${XDG_DATA_DIRS:-}:" in
     *":%[1]s:"*) ;;
     *) export XDG_DATA_DIRS="%[1]s:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
 esac
 `, p.Share())
+}
+
+// rootExport formats the assignment that re-establishes $BUNNY_HOME, given a
+// shell-specific template taking the variable name as %[1]s and the root as
+// %[2]s. Every invocation resolves the layout from this variable, shims
+// included, so a single-root install that only put its bin dir on PATH would
+// leave those shims reading the XDG layout instead. The template assigns only
+// when the variable is unset or empty, matching what paths.Resolve treats as
+// absent and leaving a deliberate override in place.
+func rootExport(p *paths.Paths, template string) string {
+	return fmt.Sprintf(template, paths.EnvHome, p.Root)
 }

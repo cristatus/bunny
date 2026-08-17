@@ -1,8 +1,8 @@
 package paths
 
 import (
-	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cristatus/bunny/internal/manifest"
@@ -156,18 +156,37 @@ func TestVars(t *testing.T) {
 	}
 }
 
-func TestResolveAbsPath(t *testing.T) {
-	t.Setenv(EnvHome, "relative/path")
-	p, err := Resolve()
-	if err != nil {
-		t.Fatal(err)
+// A relative root would follow the working directory, so shims would resolve to
+// a different install per directory. Erroring beats ignoring the variable, which
+// would silently serve the XDG layout in place of the root that was asked for.
+func TestResolveRejectsRelativeRoot(t *testing.T) {
+	for _, v := range []string{"relative/path", "./b", "..", "b"} {
+		t.Setenv(EnvHome, v)
+		if _, err := Resolve(); err == nil {
+			t.Errorf("%s=%q should be rejected", EnvHome, v)
+		} else if !strings.Contains(err.Error(), EnvHome) {
+			t.Errorf("error should name the variable, got %v", err)
+		}
 	}
-	if !filepath.IsAbs(p.Root) {
-		t.Errorf("Root should be absolute, got %q", p.Root)
-	}
-	cwd, _ := os.Getwd()
-	if want := filepath.Join(cwd, "relative/path"); p.Root != want {
-		t.Errorf("Root = %q, want %q", p.Root, want)
+}
+
+// An absolute root is cleaned, so a trailing slash or a traversal does not reach
+// state.json and the manifests as a second spelling of the same directory.
+func TestResolveCleansAbsoluteRoot(t *testing.T) {
+	for _, c := range []struct{ set, want string }{
+		{"/opt/bunny", "/opt/bunny"},
+		{"/opt/bunny/", "/opt/bunny"},
+		{"/opt//bunny", "/opt/bunny"},
+		{"/opt/x/../bunny", "/opt/bunny"},
+	} {
+		t.Setenv(EnvHome, c.set)
+		p, err := Resolve()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.Root != c.want {
+			t.Errorf("%s=%q: Root = %q, want %q", EnvHome, c.set, p.Root, c.want)
+		}
 	}
 }
 

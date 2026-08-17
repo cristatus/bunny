@@ -233,8 +233,11 @@ The three install roots let you move a whole class at once: `install.sdk: ~/opt`
 puts every JDK and build tool where an IDE's file picker can reach it. See
 [Configuration](docs/config.md).
 
-Set `BUNNY_HOME` and the layout collapses under that single root instead, which
-is what containers, CI, and fleet images want.
+Set `BUNNY_HOME` to an absolute path and the layout collapses under that single
+root instead, which is what containers, CI, and fleet images want. Every
+invocation resolves the layout from it, so `bunny setup` records the root in the
+session env and in the shell rc: a shell that never had the variable still finds
+the install.
 
 ## Building from source
 

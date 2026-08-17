@@ -24,6 +24,11 @@ func TestWriteEnvironmentDSingleRoot(t *testing.T) {
 	}
 	data, _ := os.ReadFile(path)
 	s := string(data)
+	// The graphical session resolves the layout from this, so a session given
+	// only PATH would launch shims that read the XDG layout instead.
+	if !strings.Contains(s, "BUNNY_HOME=/h/.bunny\n") {
+		t.Errorf("missing root line: %s", s)
+	}
 	if !strings.Contains(s, "XDG_DATA_DIRS=/h/.bunny/share:${XDG_DATA_DIRS}") {
 		t.Errorf("missing XDG line: %s", s)
 	}
@@ -59,6 +64,9 @@ func TestWriteEnvironmentDXDGOmitsDataDirs(t *testing.T) {
 	if strings.Contains(string(data), "XDG_DATA_DIRS") {
 		t.Errorf("XDG layout should not set XDG_DATA_DIRS: %s", data)
 	}
+	if strings.Contains(string(data), paths.EnvHome) {
+		t.Errorf("XDG layout should not set %s: %s", paths.EnvHome, data)
+	}
 	if !strings.Contains(string(data), "PATH="+p.Bin()) {
 		t.Errorf("missing PATH line: %s", data)
 	}
@@ -93,7 +101,7 @@ func TestEnsureRcInit(t *testing.T) {
 	rc := filepath.Join(t.TempDir(), ".zshrc")
 	os.WriteFile(rc, []byte("# my zshrc\n"), 0644)
 
-	added, err := ensureRcInit(rc, "/h/.bunny/bin/bunny", "zsh")
+	added, err := ensureRcInit(rc, "", "/h/.bunny/bin/bunny", "zsh")
 	if err != nil || !added {
 		t.Fatalf("first run should append: added=%v err=%v", added, err)
 	}
@@ -102,12 +110,37 @@ func TestEnsureRcInit(t *testing.T) {
 		t.Errorf("missing eval line: %s", data)
 	}
 	// idempotent: second run detects bunny init, does not append again
-	added2, _ := ensureRcInit(rc, "/h/.bunny/bin/bunny", "zsh")
+	added2, _ := ensureRcInit(rc, "", "/h/.bunny/bin/bunny", "zsh")
 	if added2 {
 		t.Error("second run should not append")
 	}
 	if strings.Count(string(mustRead(t, rc)), "init zsh") != 1 {
 		t.Error("init line duplicated")
+	}
+}
+
+// The rc runs in shells that never had $BUNNY_HOME, and `bunny init` reads the
+// layout from its own environment, so the rc line has to carry the root. An
+// unpinned line would emit the XDG snippet and put ~/.local/bin on PATH while
+// the install lives under the root.
+func TestInitEvalLinePinsSingleRoot(t *testing.T) {
+	for _, c := range []struct{ shell, want string }{
+		{"bash", `eval "$(env BUNNY_HOME='/opt/bunny' /opt/bunny/bin/bunny init bash)"`},
+		{"zsh", `eval "$(env BUNNY_HOME='/opt/bunny' /opt/bunny/bin/bunny init zsh)"`},
+		{"fish", `env BUNNY_HOME='/opt/bunny' /opt/bunny/bin/bunny init fish | source`},
+	} {
+		got := initEvalLine("/opt/bunny", "/opt/bunny/bin/bunny", c.shell)
+		if strings.TrimSpace(got) != c.want {
+			t.Errorf("%s: got %q, want %q", c.shell, strings.TrimSpace(got), c.want)
+		}
+		// The line still has to look like a bunny init line to the dedup guard.
+		if !rcHasBunnyInit(got) {
+			t.Errorf("%s: pinned line not recognised as bunny init: %q", c.shell, got)
+		}
+	}
+	// Under XDG there is no root to pin, and the bare line stays bare.
+	if got := initEvalLine("", "/h/.local/bin/bunny", "bash"); strings.Contains(got, paths.EnvHome) {
+		t.Errorf("XDG layout should not pin a root: %q", got)
 	}
 }
 

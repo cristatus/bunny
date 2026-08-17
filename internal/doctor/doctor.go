@@ -18,6 +18,10 @@ import (
 	"github.com/cristatus/bunny/internal/shim"
 )
 
+// executable reports the running binary. A var so tests can place it inside a
+// layout they control.
+var executable = os.Executable
+
 // PinState is the slice of state.State PinResolution needs.
 type PinState interface {
 	IsInstalled(id string) bool
@@ -44,6 +48,7 @@ type Result struct {
 func RunAll(p *paths.Paths, catalogDir, remote string) []Result {
 	return []Result{
 		layoutCheck(p),
+		strayBinaryCheck(p),
 		configCheck(p),
 		catalogCheck(catalogDir, remote),
 		installRootsCheck(p),
@@ -80,6 +85,39 @@ func layoutCheck(p *paths.Paths) Result {
 		}
 	}
 	return Result{Name: name, Detail: detail, Severity: OK}
+}
+
+// strayBinaryCheck reports a running binary that belongs to a layout other than
+// the one bunny resolved. $BUNNY_HOME selects the layout on every invocation, so
+// a single-root install reached from a shell missing that variable resolves to
+// the XDG layout while its binary, shims, and packages all sit under the root.
+// No other check can see it: PATH holds the root's bin dir, and every check
+// passes against an empty XDG layout.
+//
+// A binary outside the resolved bin dir is ordinary otherwise, a build in a
+// source tree being the common case, so this only warns when the binary sits in
+// another layout's bin dir. A sibling state file is what identifies one, and it
+// also means there is something there to be cut off from.
+func strayBinaryCheck(p *paths.Paths) Result {
+	const name = "binary"
+	exe, err := executable()
+	if err != nil {
+		return Result{Name: name, Detail: "cannot determine the running binary: " + err.Error(), Severity: Warn}
+	}
+	dir := filepath.Dir(exe)
+	if dir == p.Bin() {
+		return Result{Name: name, Detail: tilde(exe), Severity: OK}
+	}
+	root := filepath.Dir(dir)
+	if _, err := os.Stat(paths.At(root).StateFile()); err != nil {
+		return Result{Name: name, Detail: tilde(exe), Severity: OK}
+	}
+	return Result{
+		Name:     name,
+		Detail:   fmt.Sprintf("%s belongs to the install at %s, which is not the active layout", tilde(exe), tilde(root)),
+		Severity: Warn,
+		Fix:      "export " + paths.EnvHome + "=" + root,
+	}
 }
 
 // configCheck names the user config path whether or not it exists. Absence is

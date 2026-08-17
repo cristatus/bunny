@@ -7,19 +7,13 @@
 # Environment:
 #   BUNNY_VERSION   Specific version to install (e.g. v0.4.0). Defaults to latest.
 #   BUNNY_HOME      Collapse bunny under a single root instead of the XDG
-#                   directories. The binary lands at $BUNNY_HOME/bin/bunny.
+#                   directories, as an absolute path. The binary lands at
+#                   $BUNNY_HOME/bin/bunny.
 
 set -eu
 
 REPO="cristatus/bunny"
 VERSION="${BUNNY_VERSION:-latest}"
-# Without BUNNY_HOME, bunny uses the XDG layout and its shims live in
-# ~/.local/bin, which is already on PATH on most distributions.
-if [ -n "${BUNNY_HOME:-}" ]; then
-  INSTALL_DIR="$BUNNY_HOME/bin"
-else
-  INSTALL_DIR="$HOME/.local/bin"
-fi
 
 die() {
   printf 'error: %s\n' "$*" >&2
@@ -29,6 +23,21 @@ die() {
 need() {
   command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"
 }
+
+# Without BUNNY_HOME, bunny uses the XDG layout and its shims live in
+# ~/.local/bin, which is already on PATH on most distributions.
+if [ -n "${BUNNY_HOME:-}" ]; then
+  # bunny requires an absolute root, a relative one moving the whole layout as
+  # the user cd's around. Refuse here rather than install into a directory the
+  # binary would then refuse to use.
+  case "$BUNNY_HOME" in
+  /*) ;;
+  *) die "BUNNY_HOME must be an absolute path (got: $BUNNY_HOME)" ;;
+  esac
+  INSTALL_DIR="$BUNNY_HOME/bin"
+else
+  INSTALL_DIR="$HOME/.local/bin"
+fi
 
 need curl
 need tar
@@ -86,10 +95,20 @@ chmod +x "$stage"
 mv -f "$stage" "$INSTALL_DIR/bunny"
 
 printf '\nInstalled bunny %s to %s\n' "$tag" "$INSTALL_DIR/bunny"
+
+# setup resolves the layout from the environment it runs in, so a BUNNY_HOME
+# passed as a prefix to this script (set for this command only) has to be
+# repeated. Without it setup would wire up the XDG layout while the binary sits
+# under the single root. setup then persists the value itself.
+setup="$INSTALL_DIR/bunny setup"
+if [ -n "${BUNNY_HOME:-}" ]; then
+  setup="BUNNY_HOME=$BUNNY_HOME $setup"
+fi
+
 cat <<EOF
 
 Next steps:
-  $INSTALL_DIR/bunny setup
+  $setup
   exec \$SHELL
   bunny doctor
 EOF

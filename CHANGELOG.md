@@ -100,6 +100,22 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `/opt/some-tool/bunny`, no longer counts. Uninstall removes the icon extension
   the manifest declares rather than sweeping `.png`, `.svg`, and `.xpm` for the
   name.
+- A single-root install survives into a new shell. Every invocation resolves the
+  layout from `$BUNNY_HOME`, shims included, so `bunny setup` writes it to
+  `environment.d`, pins it on the `bunny init` line it adds to the rc, and that
+  call's snippet exports it onward. A shell given only the bin directory on
+  `PATH` read the XDG layout, where nothing is installed: `bunny list` came up
+  empty and every shim failed to find its package. `install.sh` repeats a
+  `BUNNY_HOME` given as a prefix on the `bunny setup` line it prints, that form
+  setting it for the install command alone.
+- `BUNNY_HOME` must be an absolute path, and both bunny and `install.sh` say so
+  rather than accepting one resolved against the working directory, where the
+  layout would move as the user cd'd around.
+- `bunny doctor` warns when the running binary belongs to an install other than
+  the active layout, naming the root and the `export` that reaches it. Every
+  other check passes in that state: `PATH` holds the root's bin directory, and
+  the checks all run against an empty XDG layout. A build in a source tree, the
+  ordinary reason to run a binary from outside the layout, stays quiet.
 - Repointing an install root stranded every package of that kind. Bunny looked
   for them under the new root, `--force` could replace an unrelated directory
   that happened to sit there, and an update built a second tree beside the first

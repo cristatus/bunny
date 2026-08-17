@@ -92,6 +92,60 @@ func TestShimsCheck(t *testing.T) {
 	}
 }
 
+// withExecutable points the check at a binary of the test's choosing.
+func withExecutable(t *testing.T, path string) {
+	t.Helper()
+	prev := executable
+	executable = func() (string, error) { return path, nil }
+	t.Cleanup(func() { executable = prev })
+}
+
+func TestStrayBinaryCheckInResolvedBinIsOK(t *testing.T) {
+	p := paths.At(t.TempDir())
+	withExecutable(t, p.BunnyBinary())
+	if r := strayBinaryCheck(p); r.Severity != OK {
+		t.Errorf("a binary in the resolved bin dir is fine, got %+v", r)
+	}
+}
+
+// A build in a source tree sits outside every layout, which is not a problem.
+func TestStrayBinaryCheckOutsideAnyLayoutIsOK(t *testing.T) {
+	build := filepath.Join(t.TempDir(), "bin", "bunny")
+	if err := os.MkdirAll(filepath.Dir(build), 0755); err != nil {
+		t.Fatal(err)
+	}
+	withExecutable(t, build)
+	if r := strayBinaryCheck(paths.At(t.TempDir())); r.Severity != OK {
+		t.Errorf("a build outside any layout should not warn, got %+v", r)
+	}
+}
+
+// The failure this exists for: a single-root install reached from a shell with
+// no $BUNNY_HOME, where every other check passes against an empty XDG layout.
+func TestStrayBinaryCheckWarnsForAnotherLayout(t *testing.T) {
+	root := t.TempDir()
+	other := paths.At(root)
+	if err := os.MkdirAll(other.Bin(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other.StateFile(), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	withExecutable(t, other.BunnyBinary())
+
+	// Resolved layout: somewhere else entirely, as an unset $BUNNY_HOME gives.
+	r := strayBinaryCheck(paths.At(t.TempDir()))
+	if r.Severity != Warn {
+		t.Fatalf("expected a warning, got %+v", r)
+	}
+	if !strings.Contains(r.Detail, root) {
+		t.Errorf("detail should name the install it belongs to: %q", r.Detail)
+	}
+	if !strings.Contains(r.Fix, paths.EnvHome+"="+root) {
+		t.Errorf("fix should point at the root: %q", r.Fix)
+	}
+}
+
 func TestRunAllProducesAllChecks(t *testing.T) {
 	results := RunAll(paths.At(t.TempDir()), t.TempDir(), "")
 	if len(results) < 5 {

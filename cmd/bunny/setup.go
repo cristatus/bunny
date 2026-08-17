@@ -20,7 +20,7 @@ import (
 
 // environmentDPath is where systemd's per-user environment generator reads
 // bunny's session env, so the graphical session sees the same PATH (and, for a
-// single-root install, the same XDG_DATA_DIRS) as a login shell.
+// single-root install, the same $BUNNY_HOME and XDG_DATA_DIRS) as a login shell.
 func environmentDPath() (string, error) {
 	cfg, err := os.UserConfigDir() // $XDG_CONFIG_HOME or ~/.config
 	if err != nil {
@@ -68,7 +68,9 @@ func sessionAlreadyProvides(dir string) (provides, known bool) {
 
 // writeEnvironmentD writes ~/.config/environment.d/bunny.conf and reports
 // whether it wrote. Under XDG only PATH is needed, since desktop entries
-// already live where the desktop scans.
+// already live where the desktop scans. A single-root install also needs
+// $BUNNY_HOME, which is what every invocation resolves the layout from, and
+// XDG_DATA_DIRS to reach the entries kept inside the root.
 //
 // It skips when the session already exports the shim dir, because systemd's
 // generator does not deduplicate and the file would only add a second
@@ -89,6 +91,7 @@ func writeEnvironmentD(p *paths.Paths) (string, bool, error) {
 	}
 	content := "# managed by bunny — do not edit\n"
 	if !p.XDG() {
+		content += fmt.Sprintf("%s=%s\n", paths.EnvHome, p.Root)
 		content += fmt.Sprintf("XDG_DATA_DIRS=%s:${XDG_DATA_DIRS}\n", p.Share())
 	}
 	content += fmt.Sprintf("PATH=%s:${PATH}\n", p.Bin())
@@ -136,16 +139,27 @@ func rcHasBunnyInit(content string) bool { return bunnyInitRe.MatchString(conten
 
 // initEvalLine is the line setup appends to the rc. Absolute bunny path so it
 // resolves before PATH is set; fish uses `| source`, others `eval`.
-func initEvalLine(bunnyBin, shell string) string {
-	if shell == "fish" {
-		return fmt.Sprintf("%s init fish | source\n", bunnyBin)
+//
+// A single-root install pins $BUNNY_HOME on the invocation, root being "" under
+// XDG. `bunny init` resolves the layout from the environment it runs in, and an
+// rc runs in shells that never had the variable: an unpinned call there emits
+// the XDG snippet and points PATH at ~/.local/bin, away from the root the rest
+// of the install lives under. The snippet a pinned call emits exports the root
+// onward, so this one line establishes the layout for the whole shell.
+func initEvalLine(root, bunnyBin, shell string) string {
+	cmd := bunnyBin
+	if root != "" {
+		cmd = fmt.Sprintf("env %s='%s' %s", paths.EnvHome, root, bunnyBin)
 	}
-	return fmt.Sprintf("eval \"$(%s init %s)\"\n", bunnyBin, shell)
+	if shell == "fish" {
+		return fmt.Sprintf("%s init fish | source\n", cmd)
+	}
+	return fmt.Sprintf("eval \"$(%s init %s)\"\n", cmd, shell)
 }
 
 // ensureRcInit appends initEvalLine to rcPath unless an existing bunny init
 // line is present. Returns true if it appended. Creates the file/dirs if missing.
-func ensureRcInit(rcPath, bunnyBin, shell string) (bool, error) {
+func ensureRcInit(rcPath, root, bunnyBin, shell string) (bool, error) {
 	data, err := os.ReadFile(rcPath)
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -164,7 +178,7 @@ func ensureRcInit(rcPath, bunnyBin, shell string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	content := prefix + "# added by bunny setup\n" + initEvalLine(bunnyBin, shell)
+	content := prefix + "# added by bunny setup\n" + initEvalLine(root, bunnyBin, shell)
 	written, writeErr := f.WriteString(content)
 	if writeErr == nil && written != len(content) {
 		writeErr = io.ErrShortWrite
@@ -223,7 +237,7 @@ func (c *SetupCmd) Run(a *App) error {
 			return err
 		}
 		bunnyBin := filepath.Join(bin, "bunny")
-		added, err := ensureRcInit(rcPath, bunnyBin, shell)
+		added, err := ensureRcInit(rcPath, a.Paths.Root, bunnyBin, shell)
 		if err != nil {
 			return fmt.Errorf("configure %s: %w", rcPath, err)
 		}
@@ -237,7 +251,7 @@ func (c *SetupCmd) Run(a *App) error {
 
 		sessionVars := "PATH"
 		if !a.Paths.XDG() {
-			sessionVars = "PATH XDG_DATA_DIRS"
+			sessionVars = "PATH XDG_DATA_DIRS " + paths.EnvHome
 		}
 		p.Println()
 		p.Println("setup complete — restart your shell to activate bunny,")

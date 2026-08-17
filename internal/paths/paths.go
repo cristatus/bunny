@@ -9,6 +9,7 @@
 package paths
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 )
 
 // EnvHome is the environment variable that collapses bunny into a single root.
+// Its value must be an absolute path.
 const EnvHome = "BUNNY_HOME"
 
 // Paths centralizes every directory bunny reads or writes. The roots are
@@ -56,13 +58,19 @@ func (p *Paths) WithLayout(roots map[string]string, locate func(id string) (kind
 // Resolve returns the active Paths: a single root when $BUNNY_HOME is set,
 // otherwise the XDG base directories. No directory is created here; callers
 // do that lazily.
+//
+// A relative $BUNNY_HOME is an error rather than a path resolved against the
+// working directory, which would move the whole layout as the user cd'd around
+// and leave shims resolving to a different install per directory. Silently
+// ignoring it, the way the XDG spec requires for its own variables, is worse
+// here: this is the variable that selects the layout, so ignoring it hands back
+// the XDG layout with none of the packages the caller meant to reach.
 func Resolve() (*Paths, error) {
 	if root := os.Getenv(EnvHome); root != "" {
-		abs, err := filepath.Abs(root)
-		if err != nil {
-			return nil, err
+		if !filepath.IsAbs(root) {
+			return nil, fmt.Errorf("%s must be an absolute path, got %q", EnvHome, root)
 		}
-		return At(abs), nil
+		return At(filepath.Clean(root)), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

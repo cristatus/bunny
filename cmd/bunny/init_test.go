@@ -48,6 +48,28 @@ func TestInitSnippetSingleRootDedupGuards(t *testing.T) {
 	}
 }
 
+// Every invocation resolves the layout from $BUNNY_HOME, shims included, so the
+// snippet has to re-establish it. A snippet that only put the bin dir on PATH
+// would give a fresh shell bunny's binary and shims while they all read the XDG
+// layout, where nothing is installed.
+func TestInitSnippetSingleRootReexportsRoot(t *testing.T) {
+	p := paths.At("/h/.bunny")
+	for _, c := range []struct{ shell, want string }{
+		{"bash", `export BUNNY_HOME="${BUNNY_HOME:-/h/.bunny}"`},
+		{"zsh", `export BUNNY_HOME="${BUNNY_HOME:-/h/.bunny}"`},
+		{"fish", `test -n "$BUNNY_HOME"; or set -gx BUNNY_HOME /h/.bunny`},
+	} {
+		snippet := initSnippet(p, c.shell)
+		if !strings.Contains(snippet, c.want) {
+			t.Errorf("%s: want %q in:\n%s", c.shell, c.want, snippet)
+		}
+		// The root has to be set before anything derived from it is used.
+		if i, j := strings.Index(snippet, "BUNNY_HOME"), strings.Index(snippet, p.Bin()); i > j {
+			t.Errorf("%s: root must be exported before the PATH prepend:\n%s", c.shell, snippet)
+		}
+	}
+}
+
 // Under XDG, desktop entries and bash/fish completions are already in
 // locations the system scans, so the snippet must not touch XDG_DATA_DIRS.
 // Shrinking what a user has to paste into their rc is the point of the layout.
@@ -67,6 +89,11 @@ func TestInitSnippetXDGDropsDataDirs(t *testing.T) {
 		snippet := initSnippet(p, shell)
 		if strings.Contains(snippet, "XDG_DATA_DIRS") {
 			t.Errorf("%s: XDG layout should not set XDG_DATA_DIRS:\n%s", shell, snippet)
+		}
+		// Exporting the root is what selects the single-root layout, so the XDG
+		// snippet must not mention it at all.
+		if strings.Contains(snippet, paths.EnvHome) {
+			t.Errorf("%s: XDG layout should not set %s:\n%s", shell, paths.EnvHome, snippet)
 		}
 		if !strings.Contains(snippet, p.Bin()) {
 			t.Errorf("%s: missing PATH entry for %s", shell, p.Bin())
