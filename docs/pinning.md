@@ -1,15 +1,14 @@
 # Per-project version pinning
 
-Drop a `.bunny-version` file in a project root and bunny resolves shim
+Drop a `.bunny-version` file in a project root and Bunny resolves shim
 invocations from inside that tree to the pinned versions. No shell hooks, no
-`cd` listeners, no IDE plugin required. Bunny also reads the pin files other
-tools already leave behind (`.sdkmanrc`, `.tool-versions`, `.java-version`), so
-existing projects work without conversion (see
-[Reading other tools' pin files](#reading-other-tools-pin-files)).
+`cd` listeners, and no IDE plugins required. Bunny also reads the pin files
+other tools leave behind (`.sdkmanrc`, `.tool-versions`, `.java-version`), so
+existing projects work without conversion.
 
 ## The file
 
-`.bunny-version` is a flat list of `<provides> <version>` lines:
+`.bunny-version` is a list of `<capability> <version>` lines:
 
 ```
 jdk 21
@@ -17,20 +16,28 @@ maven 3.9
 node 22
 ```
 
-Each line names a `provides:` capability (declared by manifests in the catalog)
-and the version of that capability you want active in this tree. `jdk 21` means
-"use any installed package whose `provides: jdk` matches version 21": bunny
-picks the matching installed manifest (e.g. `jdk-21`) and dispatches the shim
-there.
+Each line names a capability declared by manifests in the catalog and the version
+you want active in this tree. `jdk 21` means "use any installed package providing
+`jdk` at version 21": Bunny selects the matching installed package (such as
+`jdk-21` or `corretto-21`) and dispatches the shim there.
 
 Comments (`#`) and blank lines are allowed.
 
+### CLI commands
+
+```bash
+# Pin capabilities in the current directory's ./.bunny-version
+bunny pin jdk 21
+bunny pin node 22
+
+# Remove a pin
+bunny unpin node
+```
+
 ## Reading other tools' pin files
 
-Bunny does not require you to convert anything. In each directory it also
-recognizes the pin files these tools write, mapping their `java`/`jdk` and
-`node`/`nodejs` keys onto bunny capabilities and normalizing the version to a
-major:
+Bunny recognizes pin files written by other tools, mapping `java`/`jdk` and
+`node`/`nodejs` keys to Bunny capabilities:
 
 | File             | Tool        | Format read                    |
 | ---------------- | ----------- | ------------------------------ |
@@ -39,27 +46,25 @@ major:
 | `.sdkmanrc`      | SDKMAN      | `<key>=<value>` lines          |
 | `.java-version`  | jenv        | a single bare version          |
 
-When several of these exist **in the same directory**, that's the precedence
-order above: `.bunny-version` wins, then `.tool-versions`, `.sdkmanrc`,
-`.java-version`. Keys for tools bunny has no capability for (e.g. `ruby` in a
-`.tool-versions`) are simply ignored, and a non-numeric value like `latest` is
-skipped rather than guessed.
+When several of these exist in the same directory, precedence follows the table
+order above: `.bunny-version` wins, followed by `.tool-versions`, `.sdkmanrc`,
+and `.java-version`. Keys for tools Bunny does not manage are ignored, and
+non-numeric values like `latest` are skipped.
 
 ## How resolution works
 
 When a shim like `java`, `mvn`, or `node` is invoked:
 
-1. bunny starts at the current working directory.
+1. Bunny starts at the current working directory.
 2. It walks up the directory tree looking for any recognized pin file.
-3. In the nearest directory that has one, it picks the version pinned for the
-   shim's `provides:` capability (consulting the files in the precedence order
-   above).
+3. In the nearest directory containing one, it selects the version pinned for the
+   shim's capability (consulting files in the precedence order above).
 4. If nothing pins that capability, it falls back to the global default set by
    `bunny use`.
 
-This means a shim works the same in your terminal, in IntelliJ's embedded
-terminal, in `make`, and in CI: they all hit the same lookup logic via
-`argv[0]`.
+Because resolution happens in the shim binary via `argv[0]`, it behaves
+identically in your shell, inside IntelliJ's embedded terminal, under `make`,
+and in CI pipelines.
 
 ## Examples
 
@@ -80,22 +85,17 @@ $ cd ~/work/new-app && java -version
 openjdk version "21.x"
 ```
 
-The global default (set by `bunny use jdk-21`) only kicks in outside any pinned
-tree.
+The global default (set by `bunny use jdk-21`) applies outside any pinned tree.
 
 ## IDE integration
 
-Because resolution happens in the shim binary (not in a shell hook), IDEs that
-spawn `java` / `mvn` / `node` directly through `$PATH` get the right version
-automatically as long as they inherit the project working directory. That's
-typical for IntelliJ, Eclipse, VS Code, and most JDK auto-detection plugins.
+IDEs that spawn `java`, `mvn`, or `node` directly through `$PATH` get the right
+version automatically as long as they inherit the project working directory.
+This is standard for IntelliJ, Eclipse, VS Code, and JDK detection plugins.
 
-If your IDE shells out from a different working directory, point its tool path
-at `~/.local/bin/<shim>` and either:
-
-- set the IDE's working directory to the project root, or
-- have the IDE pass the project root explicitly (e.g.
-  `mvn -f /path/to/project/pom.xml`).
+If your IDE executes processes from a different working directory, point its
+tool path at `~/.local/bin/<shim>` and ensure the IDE sets the working directory
+to the project root (or passes project files explicitly).
 
 ## Inspecting what would resolve
 
@@ -105,11 +105,10 @@ bunny info <id>  # shows details for a package
 
 ## Common gotchas
 
-- **`provides:` not `id:`.** `.bunny-version` pins by capability, not by package
-  id. Write `jdk 21`, not `jdk-21`. The package id `jdk-21` happens to encode
-  the version, but the pin file works at the capability layer so `temurin-21`
-  and `corretto-21` are interchangeable from the project's perspective.
-- **Pinned version isn't installed.** Bunny falls back to the global default and
-  logs a warning. `bunny install jdk-17` to make it real.
-- **Multiple `.bunny-version` files in the tree.** The closest one wins.
-  Subprojects with their own pin override the parent.
+- **Capabilities versus Package IDs**: `.bunny-version` pins by capability (`jdk 21`),
+  not package ID (`jdk-21`). This ensures `temurin-21` and `corretto-21` remain
+  interchangeable from the project's perspective.
+- **Pinned version not installed**: Bunny falls back to the global default and
+  emits a warning. Run `bunny install jdk-17` to install it.
+- **Multiple pin files in a tree**: The closest directory wins. Subprojects with
+  their own pin override parent directories.

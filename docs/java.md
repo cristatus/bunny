@@ -1,47 +1,44 @@
 # First-class Java
 
-Bunny is built around the Java workstation. That means four things beyond "it
-installs JDKs": you can pick a JDK _vendor_, your build tools compile against
-the _right_ JDK regardless of which one launched them, a tool can _require_ a
-minimum JDK, and bunny reads the pin files you already have.
+Bunny is built around the Java workstation. That means multi-vendor JDK support,
+automated build toolchains, runtime version constraints, and pin file
+interoperability.
 
 ## Multiple JDKs, multiple vendors
 
-Every JDK package declares `provides: jdk`, so they all compete for the same
-capability slot and a project pin (`jdk 21`) matches whichever vendor you
-installed.
+Every JDK package in the catalog declares `provides: jdk`. They share the same
+capability slot, so a project pin (`jdk 21`) matches whichever vendor you have
+installed:
 
 ```bash
-bunny install jdk-21        # Eclipse Temurin (the default line)
+bunny install jdk-21        # Eclipse Temurin (default)
 bunny install corretto-21   # Amazon Corretto
 bunny install zulu-21       # Azul Zulu
 bunny install graalvm-21    # GraalVM Community
 
-bunny use corretto-21       # make Corretto the global default
-bunny run zulu-21 -- java -version   # one-off, without switching the default
+bunny use corretto-21       # set Corretto as the global default
+bunny run zulu-21 -- java -version   # one-off execution without changing the default
 ```
 
 JDK manifests update through the vendor-neutral
-[Foojay Disco API](https://api.foojay.io/), so adding a new vendor or major line
-is a one-line manifest (`update: {type: foojay, distribution: <vendor>}`), with
-no per-vendor scraping. Installs are checksum-verified end to end.
+[Foojay Disco API](https://api.foojay.io/). Adding a new vendor or major line
+is a simple manifest entry (`update: {type: foojay, distribution: <vendor>}`).
+All downloads are verified end-to-end with SHA-256 checksums.
 
-## Build toolchains (Gradle & Maven)
+## Build toolchains (Gradle and Maven)
 
-The JDK that _launches_ Gradle or Maven is not always the JDK a project should
-_compile_ with. You might run everything under JDK 21 while a legacy module must
-target 17. Both build tools solve this with "toolchains": they select a JDK by
-version from a list of known installations. Bunny generates that list.
+The JDK that launches Gradle or Maven is not always the JDK a project compiles
+against. You might run builds under JDK 21 while a module targets Java 17. Both
+build tools support "toolchains" to select JDKs by version from known
+installation paths. Bunny automatically generates and maintains that list.
 
-`bunny toolchains` writes toolchain config pointing at every installed
-`provides: jdk` package. It runs automatically whenever you install or uninstall
-a JDK (or a tool that declares `toolchains:`), so the list stays in sync; run it
-by hand only to force a refresh.
+`bunny toolchains` writes toolchain configuration pointing at every installed
+`provides: jdk` package. It runs automatically when you install or uninstall a
+JDK or tool declaring toolchain dependencies. You can also run it manually to
+force a refresh.
 
-**Gradle**: a managed block is merged into the Gradle user home's
-`gradle.properties`, which by default is the real `~/.gradle/gradle.properties`
-(the rest of the file is preserved; set `GRADLE_USER_HOME` in
-[config.yaml](config.md) and the block follows it):
+**Gradle**: Bunny writes a managed block into `~/.gradle/gradle.properties` (or
+the active `GRADLE_USER_HOME`):
 
 ```properties
 # >>> bunny managed (jdk toolchains) >>>
@@ -50,14 +47,13 @@ org.gradle.java.installations.auto-download=false
 # <<< bunny managed <<<
 ```
 
-A build declaring
-`java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }` now
-resolves to bunny's JDK 17, with no `auto-download` and no manual
-`-Dorg.gradle...` flags.
+A build declaring `java { toolchain { languageVersion = JavaLanguageVersion.of(17) } }`
+resolves to Bunny's JDK 17 without triggering external downloads or requiring
+manual `-Dorg.gradle...` flags.
 
-**Maven**: a `toolchains.xml` is generated and passed via `MAVEN_ARGS`
-(`--toolchains …`), so `maven-toolchains-plugin` matches `<jdk><version>17`
-against bunny's installs:
+**Maven**: Bunny generates a `toolchains.xml` file and passes it via `MAVEN_ARGS`
+(`--toolchains …`), allowing `maven-toolchains-plugin` to match `<jdk><version>17`
+against installed JDKs:
 
 ```xml
 <toolchain>
@@ -69,24 +65,24 @@ against bunny's installs:
 
 ## Version constraints (`requires`)
 
-A package can require a minimum JDK rather than any JDK:
+Packages can declare minimum JDK version constraints:
 
 ```yaml
 requires: ["jdk>=17"]
 ```
 
-Bunny enforces this both ways. At **install** time it refuses unless a JDK that
-satisfies the constraint is installed. At **run** time it sets `JAVA_HOME` to a
-_satisfying_ JDK, preferring the active one, otherwise the newest installed JDK
-that qualifies, even when your global default is older.
+Bunny enforces constraints at two points:
+- **Install time**: Refuses installation unless a satisfying JDK is present.
+- **Run time**: Dynamically sets `JAVA_HOME` to a qualifying JDK (preferring the
+  active default, or the newest installed satisfying version).
 
 This is not theoretical: the Micronaut CLI ships class files compiled for Java
 25, so its manifest declares `jdk>=25`. With JDK 21 as your default and JDK 25
 also installed, `mn --version` still runs correctly because bunny launches it
 under 25.
 
-## Reading your existing pin files
+## Reading existing pin files
 
-You don't have to convert anything. Alongside its own `.bunny-version`, bunny
-reads `.sdkmanrc` (SDKMAN), `.tool-versions` (asdf/mise), and `.java-version`
-(jenv); see [Per-project pinning](pinning.md).
+You do not need to convert existing configuration files. Alongside its own
+`.bunny-version`, Bunny reads `.sdkmanrc` (SDKMAN), `.tool-versions` (asdf/mise),
+and `.java-version` (jenv). See [Per-project pinning](pinning.md).

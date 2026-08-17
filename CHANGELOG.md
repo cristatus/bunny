@@ -96,7 +96,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   trees carry a `.bunny-package` marker, desktop entries an `X-Bunny-Package`
   key, icons and completions are matched against the install-time manifest, and
   a shim must point into bunny's own bin directory or resolve to the running
-  binary. A symlink whose target is merely _named_ `bunny`, such as an unrelated
+  binary. A symlink whose target is merely named `bunny`, such as an unrelated
   `/opt/some-tool/bunny`, no longer counts. Uninstall removes the icon extension
   the manifest declares rather than sweeping `.png`, `.svg`, and `.xpm` for the
   name.

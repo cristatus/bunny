@@ -2,35 +2,35 @@
 
 Bunny is built to be forked. The catalog is a directory of YAML manifests in a
 git repo, and the CLI reads its catalog URL from `~/.config/bunny/config.yaml`,
-enough for a team to have one source of truth for "the official toolchain".
+allowing a team to maintain a single source of truth for its official toolchain.
 
 ## The shape of a team deployment
 
 ```
 your-org/
-├── bunny-catalog/          fork of cristatus/bunny-catalog (or built from scratch)
+├── bunny-catalog/                      # fork of cristatus/bunny-catalog (or built from scratch)
 │   ├── index.json
-│   ├── tags.yaml                       # the tag vocabulary manifests may use
+│   ├── tags.yaml                       # tag vocabulary manifests may use
 │   └── packages/
-│       ├── jdk-21/manifest.yaml        # internal vendored Temurin build with corp certs
+│       ├── jdk-21/manifest.yaml        # internal Temurin build with corp certs
 │       ├── node-22/manifest.yaml
-│       ├── maven/manifest.yaml         # pre-configured to your internal Nexus
+│       ├── maven/manifest.yaml         # pre-configured to internal Nexus
 │       └── gradle/manifest.yaml
 └── dotfiles/
     └── bunny/config.yaml               # points catalog.remote at your fork
 ```
 
-Team members:
+Team onboarding:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
-~/.local/bin/bunny init >> ~/.zshrc && exec $SHELL
+~/.local/bin/bunny setup && exec $SHELL
 cp /path/to/dotfiles/bunny/config.yaml ~/.config/bunny/config.yaml
 bunny install jdk-21 maven gradle node-22
 ```
 
-That is the entire onboarding: a new hire goes from zero to a matching toolchain
-in a few minutes.
+A new developer goes from a blank machine to a matching workstation in a few
+minutes.
 
 ## Pointing at your fork
 
@@ -41,33 +41,34 @@ catalog:
   remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
 ```
 
-The URL needs to serve `index.json` at its root and the path each index entry
-records, `packages/<id>/manifest.yaml` by default. Anything that does that
-works: GitHub raw, GitLab raw, an internal pages site, an S3 bucket with
-directory listing, even a file:// path.
+The URL needs to serve `index.json` at its root and the manifest path recorded
+by each index entry (`packages/<id>/manifest.yaml` by default). Any standard
+HTTP or file endpoint works: GitHub raw, GitLab raw, internal static sites,
+S3 buckets, or local `file://` URLs.
 
-For a private GitHub/GitLab repo, the simplest options are:
+For a private repository, typical setups include:
 
-- a public mirror via internal CI (push to a public-readable bucket)
-- a self-hosted reverse proxy that injects an auth token
-- distribute a pre-populated catalog directory, at
-  `~/.local/share/bunny/catalog/` or anywhere `catalog.local` points (a local
-  catalog always wins over the remote)
+- a public-readable mirror bucket populated by internal CI
+- a lightweight reverse proxy injecting auth headers
+- a distributed catalog checkout placed at `~/.local/share/bunny/catalog/` or
+  configured via `catalog.local` (local manifests always override remote entries)
 
 ## Local catalog override
 
-Per-package overrides go into
-`~/.local/share/bunny/catalog/packages/<id>/manifest.yaml`. If a package id
-exists in both local and remote, local wins. Use this for:
+Per-package overrides live in
+`~/.local/share/bunny/catalog/packages/<id>/manifest.yaml`. If a package ID
+exists in both local and remote catalogs, the local manifest takes precedence.
+Use this to:
 
-- pinning a package to a specific version while the team catalog moves
-- testing a manifest change before opening a PR upstream
-- patching a `prepare:` script for a one-off platform issue
+- pin a specific package version locally while the team catalog evolves
+- test manifest modifications before submitting an upstream pull request
+- patch a `prepare:` build step for local platform experiments
 
 ## Vendoring an internal JDK build
 
-If your org distributes its own JDK build (custom CA bundles, vendored
-`lib/security/cacerts`), publish it like any other manifest:
+If your organization distributes a customized JDK build (including corporate
+root certificates or custom `cacerts` keystores), publish it like any standard
+manifest:
 
 ```yaml
 id: jdk-21-corp
@@ -94,43 +95,44 @@ bin:
   - { name: keytool, path: "{app}/bin/keytool" }
 ```
 
-Because it `provides: jdk`, it slots into the same capability slot as upstream
-Temurin, so a project's `.bunny-version` pinning `jdk 21` will pick it up
+Because it declares `provides: jdk`, it occupies the standard Java capability
+slot, so any project `.bunny-version` pinning `jdk 21` resolves to it
 automatically.
 
 ## Pre-configured tools (Maven, Gradle)
 
-You can ship a Maven manifest that points Maven at your internal Nexus. Drop a
-`settings.xml` into the package data dir with a `prepare:` step, then reference
-it from the manifest's `env:` via `MAVEN_ARGS` (e.g.
-`--settings {data}/settings.xml`) so every `mvn` invocation picks it up. For
-details on settings.xml and corp CA bundles, see
+You can ship a Maven manifest pre-configured for an internal repository manager.
+A `prepare:` step copies a template `settings.xml` into `{data}`, and the
+manifest's `env:` block references it via `MAVEN_ARGS` (such as
+`--settings {data}/settings.xml`). Because `{data}` is seeded only when a file is
+missing, user modifications survive subsequent package upgrades. See
 [Corporate environments](corporate.md).
 
 ## Updating the team catalog
 
-Same flow as the upstream catalog: a daily GitHub Actions cron runs
-`bunny dev update` and opens a PR with version bumps. Reviewers approve, merge,
-and team members get the new versions on their next `bunny update --apply`.
+Team catalogs follow the same workflow as the upstream catalog: a scheduled
+CI job runs `bunny dev update` and opens pull requests for version bumps.
+Team members receive the new versions on their next `bunny update --apply`.
+
+Run `bunny dev validate` in CI to ensure manifests match `index.json` before
+merging.
 
 For tighter control, run `bunny dev update <id>` manually for the packages you
 trust to auto-bump and skip the cron entirely on internal manifests.
 
-## Auditing what a team member has installed
+## Auditing installations
 
-`~/.local/share/bunny/state.json` is a flat JSON file listing installed packages
-and versions. A short script gathered across machines (or surfaced via your
-existing MDM) gives you the picture. There's no built-in fleet view yet; see
-[ROADMAP](../ROADMAP.md).
+`~/.local/share/bunny/state.json` provides a flat JSON record of installed
+packages and versions on each machine, making it straightforward to parse from
+configuration management or MDM tooling. There's no built-in fleet view yet;
+see [ROADMAP](../ROADMAP.md).
 
-## Lockfiles
+## Lockfiles and reproducibility
 
-The catalog itself is the lockfile. Pin `catalog.remote` to a specific commit
-instead of `main` and the team is locked to that revision until you update it:
+The catalog repository functions as a lockfile. Pinning `catalog.remote` to a
+specific Git commit SHA guarantees reproducible toolchains across the entire team:
 
 ```yaml
 catalog:
   remote: https://raw.githubusercontent.com/your-org/bunny-catalog/<sha>
 ```
-
-This is the simplest way to make a release of the team toolchain reproducible.
