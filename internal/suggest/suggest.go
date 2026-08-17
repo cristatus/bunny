@@ -3,6 +3,8 @@
 // behaves consistently between unknown commands and unknown package ids.
 package suggest
 
+import "strings"
+
 // Distance returns the Levenshtein edit distance between a and b.
 func Distance(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
@@ -34,7 +36,7 @@ func Closest(target string, candidates []string) (string, bool) {
 	for _, c := range candidates {
 		d := Distance(target, c)
 		qualifies := d <= 2 && 2*d <= len(target)
-		if !qualifies && len(target) > 0 && len(c) >= len(target) && c[:len(target)] == target {
+		if !qualifies && len(target) > 0 && strings.HasPrefix(c, target) {
 			qualifies = true
 			d = 3 // prefix matches rank just below close edits
 		}

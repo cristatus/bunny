@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"os"
+	"slices"
 	"syscall"
 
 	"github.com/charmbracelet/log"
@@ -70,7 +71,7 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 	if err := os.MkdirAll(vars["data"], 0755); err != nil {
 		return nil, fmt.Errorf("create data directory %s: %w", vars["data"], err)
 	}
-	dirs := append(append([]string{}, m.Dirs...), l.Config.DirsFor(m.ID, m.Provides)...)
+	dirs := append(slices.Clone(m.Dirs), l.Config.DirsFor(m.ID, m.Provides)...)
 	for _, dir := range dirs {
 		dir = manifest.Expand(dir, vars)
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -112,7 +113,7 @@ func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs 
 	return &Prepared{
 		Manifest: m,
 		BinPath:  exePath,
-		CmdArgs:  append([]string{}, userArgs...),
+		CmdArgs:  slices.Clone(userArgs),
 		Env:      env,
 		Vars:     vars,
 	}, nil

@@ -233,7 +233,7 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 	}
 	runDevChecks(ctx, secondaryJobs)
 
-	// Phase 2: apply rewrites sequentially, in order, collecting a row per
+	// Phase 3: apply rewrites sequentially, in order, collecting a row per
 	// rewritten package so the whole set aligns.
 	type row struct{ id, change, note string }
 	var rows []row

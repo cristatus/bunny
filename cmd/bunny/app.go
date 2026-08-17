@@ -60,11 +60,10 @@ func (a *App) reporter() progress.Reporter {
 	return progress.New(os.Stderr)
 }
 
-// logReporter is the Reporter used while -l is on. Phases and byte counts are
-// rendering, and drop out; per-package outcomes are not, and are logged. A
-// skipped or failed package is reported nowhere else, and a batch that fails
-// exits non-zero without printing (see errHandled), so dropping these would
-// mean a silent failure.
+// logReporter is the Reporter used while -l is on. Phase/byte events are
+// dropped; per-package outcomes are logged, since a skipped or failed package
+// is reported nowhere else and a failing batch exits non-zero without
+// printing (see errHandled).
 type logReporter struct{}
 
 func (logReporter) Begin(parent context.Context, ids []string) context.Context {
@@ -113,9 +112,7 @@ func (a *App) status() *ui.Printer {
 	return ui.New(os.Stdout)
 }
 
-// reporterHook adapts a per-package progress.Reporter to the installer's
-// ProgressHook so the installer can drive phase and download updates for the
-// package currently being installed.
+// reporterHook adapts a progress.Reporter to installer.ProgressHook for one package.
 type reporterHook struct {
 	rep progress.Reporter
 	pkg string
@@ -163,10 +160,10 @@ func New() (*App, error) {
 		cat = remote
 	}
 
-	// The context every other record is read against, and the first thing worth
-	// knowing when an install lands somewhere unexpected: which config was read,
-	// which layout resolved, and which catalog won. Guarded because New runs on
-	// every shim dispatch, so `node --version` should not pay to assemble it.
+	// The first thing worth knowing when an install lands somewhere unexpected:
+	// which config was read, which layout resolved, which catalog won. Guarded
+	// because New runs on every shim dispatch, so `node --version` shouldn't pay
+	// to assemble it.
 	if log.GetLevel() <= log.DebugLevel {
 		log.Debug("Layout", "xdg", p.XDG(), "config", p.UserConfigFile(),
 			"state", p.StateFile(), "manifests", p.Manifests(), "bin", p.Bin(),
@@ -393,10 +390,9 @@ func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error
 		}
 	}
 
-	// Compare each installed package's version against the catalog's. The
-	// catalog is the source of truth for available versions — kept current by
-	// `bunny dev update`, which is what actually queries upstream sources. This
-	// command never hits a package's source; it's a fast local comparison.
+	// The catalog is the source of truth for available versions — kept current
+	// by `bunny dev update`, which queries upstream. This command never hits a
+	// package's source: it's a fast local comparison.
 	report := &UpdateReport{}
 	for _, p := range pkgs {
 		if id != "" && p.ID != id {
@@ -404,7 +400,7 @@ func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error
 		}
 		installed, ok := a.State.Packages[p.ID]
 		if !ok {
-			continue // not installed → nothing to update
+			continue
 		}
 		if installed.Version != p.Version {
 			report.Results = append(report.Results, checker.Result{

@@ -33,14 +33,11 @@ func (g *GitHub) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 	}
 
 	// When tag-pattern is set, /releases/latest can return a tag from outside
-	// the constrained range — e.g., graalvm-ce-builds holds every JDK series
-	// in one repo, so a manifest pinned to 'jdk-21\.…' must reject the
-	// jdk-25.x latest. Search older releases for the most recent matching tag,
-	// and if nothing matches (the constrained major hasn't shipped recently
-	// enough to appear on the first page of /releases) signal "no update
-	// available" instead of falling through with the unrelated tag — without
-	// this guard, extractVersion's fallback would emit the raw upstream tag
-	// as if it were the new version.
+	// the constrained range — e.g. graalvm-ce-builds holds every JDK series in
+	// one repo, so a manifest pinned to 'jdk-21\.…' must reject a jdk-25.x
+	// latest. Fall back to searching older releases for a matching tag; if
+	// none matches, signal "no update" rather than let extractVersion's
+	// fallback emit the unrelated tag as the new version.
 	var assets []ghAsset
 	if cfg.TagPattern != "" {
 		if re, err := regexp.Compile(cfg.TagPattern); err == nil && !re.MatchString(tag) {

@@ -184,9 +184,9 @@ func keysFor(id, capability string) []string {
 // as a fresh map. Nil-safe. Placeholders are left unexpanded: the caller owns
 // the vars map.
 func (c *Config) OverlayEnv(base map[string]string, id, capability string) map[string]string {
-	merged := make(map[string]string, len(base))
-	for key, value := range base {
-		merged[key] = value
+	merged := maps.Clone(base)
+	if merged == nil {
+		merged = make(map[string]string)
 	}
 	if c == nil {
 		return merged

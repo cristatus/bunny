@@ -7,6 +7,7 @@ package reshim
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 )
 
@@ -39,11 +40,11 @@ func Plan(providers []Provider, protected map[string]bool, current map[string]st
 	add = map[string]string{}
 	desired := map[string]string{}
 
-	sorted := append([]Provider(nil), providers...)
+	sorted := slices.Clone(providers)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Capability < sorted[j].Capability })
 
 	for _, p := range sorted {
-		tools := append([]string(nil), p.Tools...)
+		tools := slices.Clone(p.Tools)
 		sort.Strings(tools)
 		for _, tool := range tools {
 			if protected[tool] {

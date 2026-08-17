@@ -48,7 +48,7 @@ type Downloader struct {
 	Retries int
 }
 
-// New returns a Downloader using bunny's shared (timeout-bound) HTTP client.
+// NewDownloader returns a Downloader using bunny's shared (timeout-bound) HTTP client.
 func NewDownloader() *Downloader { return &Downloader{Client: defaultClient, Retries: 2} }
 
 // Fetch downloads a single source into cacheDir, returns the absolute path.
@@ -96,7 +96,6 @@ func (d *Downloader) fetchContext(ctx context.Context, cacheDir string, src Sour
 	}
 	target := filepath.Join(cacheDir, name)
 
-	// If we have it cached and the checksum/size matches, skip the download.
 	if hasGoodIntegrity(target, src) {
 		return target, nil
 	}
@@ -290,7 +289,6 @@ func fileName(s Source) string {
 	if s.Name != "" {
 		return s.Name
 	}
-	// Fall back to the basename of the URL.
 	if u, err := url.Parse(s.URL); err == nil && u.Path != "" {
 		return filepath.Base(u.Path)
 	}

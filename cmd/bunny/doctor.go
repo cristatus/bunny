@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/cristatus/bunny/internal/doctor"
 	"github.com/cristatus/bunny/internal/ui"
@@ -48,7 +49,7 @@ func renderDoctor(p *ui.Printer, results []doctor.Result) (warnings, failures in
 		}
 		pad := ""
 		if gap := maxName - len(r.Name); gap > 0 {
-			pad = fmt.Sprintf("%*s", gap, "")
+			pad = strings.Repeat(" ", gap)
 		}
 		p.Printf("%s %s%s  %s\n", p.PaintStatus(glyph, style), r.Name, pad, r.Detail)
 		if r.Fix != "" {

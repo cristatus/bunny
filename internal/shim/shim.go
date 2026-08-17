@@ -94,16 +94,13 @@ func Remove(binDir string, names []string, bunnyPath string) error {
 //
 // A link is ours in three cases, in order of how much they prove:
 //
-//   - it points at the bunny binary inside this shim directory, which is
-//     bunny's own and where every shim it writes points;
+//   - it points at "<binDir>/bunny", which survives running from a different
+//     bunny binary than the one that wrote the shim, without claiming an
+//     unrelated dangling link to some other /opt/some-tool/bunny;
 //   - it resolves to the same file as the running bunny binary;
 //   - it is dangling and points at a file called "bunny", which is nobody's
 //     working entry point, so reclaiming it keeps a shim repairable after the
 //     binary it named moves away.
-//
-// The first is what survives being run from a different bunny binary than the
-// shims name, and the target's directory is what keeps that from claiming an
-// unrelated /opt/some-tool/bunny.
 func ownedTarget(path, bunnyPath string) (string, error) {
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
@@ -200,14 +197,14 @@ func BunnyBinaryPath(binDir string) (string, error) {
 	}
 	resolved, err := filepath.EvalSymlinks(exe)
 	if err != nil {
-		fallback := filepath.Join(binDir, "bunny")
+		fallback := filepath.Join(binDir, ReservedName)
 		if _, statErr := os.Stat(fallback); statErr == nil {
 			return fallback, nil
 		}
 		return "", err
 	}
-	if filepath.Dir(resolved) == binDir && filepath.Base(resolved) != "bunny" {
-		return filepath.Join(binDir, "bunny"), nil
+	if filepath.Dir(resolved) == binDir && filepath.Base(resolved) != ReservedName {
+		return filepath.Join(binDir, ReservedName), nil
 	}
 	return resolved, nil
 }

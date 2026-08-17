@@ -149,7 +149,7 @@ func (m *Manifest) Validate() error {
 		}
 		seenActions := map[string]bool{}
 		for j, action := range d.Actions {
-			if !desktopBasePattrn.MatchString(action.ID) || action.Name == "" {
+			if !desktopBasePattern.MatchString(action.ID) || action.Name == "" {
 				return vErr(fmt.Sprintf("desktop[%d].actions[%d]", i, j), "valid id and name are required")
 			}
 			if seenActions[action.ID] {
@@ -244,15 +244,15 @@ func hasNewline(values ...string) bool {
 // --- internal validators ---
 
 var (
-	idPattern         = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	binPattern        = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-	versionPattern    = regexp.MustCompile(`^[a-zA-Z0-9._+-]+$`)
-	desktopBasePattrn = regexp.MustCompile(`^[a-z0-9_-]+$`)
-	iconPattern       = regexp.MustCompile(`^[a-z0-9_-]+$`)
-	envPattern        = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	tagPattern        = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
-	iconSizePattern   = regexp.MustCompile(`^(?:[1-9][0-9]*x[1-9][0-9]*|scalable)$`)
-	hexPattern        = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+	idPattern          = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	binPattern         = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+	versionPattern     = regexp.MustCompile(`^[a-zA-Z0-9._+-]+$`)
+	desktopBasePattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+	iconPattern        = regexp.MustCompile(`^[a-z0-9_-]+$`)
+	envPattern         = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	tagPattern         = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	iconSizePattern    = regexp.MustCompile(`^(?:[1-9][0-9]*x[1-9][0-9]*|scalable)$`)
+	hexPattern         = regexp.MustCompile(`^[0-9a-fA-F]+$`)
 )
 
 // ValidateID enforces the package-ID syntax used in manifests, state, and
@@ -304,7 +304,7 @@ func validateDesktopID(id string) error {
 		return fmt.Errorf("must end with .desktop")
 	}
 	base := strings.TrimSuffix(id, ".desktop")
-	if !desktopBasePattrn.MatchString(base) {
+	if !desktopBasePattern.MatchString(base) {
 		return fmt.Errorf("invalid characters")
 	}
 	if strings.ContainsAny(id, "/\\") {

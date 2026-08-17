@@ -45,7 +45,7 @@ func (c *UpdateCmd) check(a *App) error {
 	p.Printf("%d of %d packages have updates\n\n", len(report.Results), len(a.State.Packages))
 	p.Print(renderUpdateTable(p, report.Results))
 	p.Println()
-	p.Println("run 'bunny update --apply' to install") // the one kept action line
+	p.Println("run 'bunny update --apply' to install")
 	return nil
 }
 

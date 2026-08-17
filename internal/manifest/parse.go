@@ -1,17 +1,17 @@
 package manifest
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Parse decodes a Manifest from YAML and validates it. Unknown fields are
-// rejected so contributors get an immediate signal when a manifest carries
-// stale schema (e.g. the old `paths:` or `sandbox:` blocks).
+// rejected so contributors get an immediate signal for a stale schema instead
+// of a silently ignored field.
 func Parse(r io.Reader) (*Manifest, error) {
 	var m Manifest
 	dec := yaml.NewDecoder(r)
@@ -42,5 +42,5 @@ func Parse(r io.Reader) (*Manifest, error) {
 
 // ParseBytes is a convenience wrapper around Parse.
 func ParseBytes(data []byte) (*Manifest, error) {
-	return Parse(strings.NewReader(string(data)))
+	return Parse(bytes.NewReader(data))
 }

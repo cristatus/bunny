@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -65,13 +66,13 @@ func (l *Local) List() ([]PackageInfo, error) {
 		}
 		pkgs = append(pkgs, PackageInfo{
 			ID:          m.ID,
-			Tags:        append([]string(nil), m.Tags...),
+			Tags:        slices.Clone(m.Tags),
 			Kind:        m.KindOf(),
 			Name:        m.Name,
 			Description: m.Description,
 			Version:     m.Version,
 			Provides:    m.Provides,
-			Requires:    append([]string(nil), m.Requires...),
+			Requires:    slices.Clone(m.Requires),
 		})
 	}
 	return pkgs, nil

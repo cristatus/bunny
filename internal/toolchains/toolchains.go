@@ -5,6 +5,7 @@ package toolchains
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -57,7 +58,7 @@ func MergeGradleProperties(existing string, homes []string) string {
 // MavenToolchainsXML returns a complete Maven toolchains.xml listing each JDK as
 // a jdk toolchain, matched on major version. Sorted by home for determinism.
 func MavenToolchainsXML(jdks []JDK) string {
-	sorted := append([]JDK(nil), jdks...)
+	sorted := slices.Clone(jdks)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Home < sorted[j].Home })
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
@@ -65,8 +66,8 @@ func MavenToolchainsXML(jdks []JDK) string {
 	for _, j := range sorted {
 		b.WriteString("  <toolchain>\n")
 		b.WriteString("    <type>jdk</type>\n")
-		b.WriteString(fmt.Sprintf("    <provides><version>%s</version></provides>\n", j.Major))
-		b.WriteString(fmt.Sprintf("    <configuration><jdkHome>%s</jdkHome></configuration>\n", j.Home))
+		fmt.Fprintf(&b, "    <provides><version>%s</version></provides>\n", j.Major)
+		fmt.Fprintf(&b, "    <configuration><jdkHome>%s</jdkHome></configuration>\n", j.Home)
 		b.WriteString("  </toolchain>\n")
 	}
 	b.WriteString("</toolchains>\n")

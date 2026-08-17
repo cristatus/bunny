@@ -30,7 +30,7 @@ type Report struct {
 	Errors  []error  // paths that could not be inspected or removed
 }
 
-// Cleaner is the entry point. Construct via New, call Clean.
+// Cleaner is the entry point. Construct via NewCleaner, call Clean.
 type Cleaner struct {
 	Paths     *paths.Paths
 	Catalog   catalog.Loader
@@ -38,7 +38,7 @@ type Cleaner struct {
 	State     *state.State
 }
 
-// New constructs a Cleaner.
+// NewCleaner constructs a Cleaner.
 func NewCleaner(p *paths.Paths, cat catalog.Loader, st *state.State) *Cleaner {
 	return &Cleaner{Paths: p, Catalog: cat, Installed: catalog.NewInstalled(cat, p.ManifestFile), State: st}
 }

@@ -7,14 +7,12 @@ import (
 )
 
 // InitCmd prints the shell snippet that puts bunny's shim dir on PATH, plus
-// $fpath for zsh completions. It is pure: `bunny setup` wires it into the rc
-// as an eval, so it runs on every shell start and must not have side effects.
+// $fpath for zsh completions. It must be pure (no side effects): `bunny setup`
+// wires it into the rc as an eval, so it runs on every shell start.
 //
-// Under XDG that is nearly all it does, since desktop entries and bash/fish
-// completions go where the system already looks. A single-root install keeps
-// those inside the root, so the snippet also sets XDG_DATA_DIRS, and re-exports
-// $BUNNY_HOME so the root survives into shells that were not the one setup ran
-// in.
+// Under XDG that's nearly all it does. A single-root install also sets
+// XDG_DATA_DIRS (so desktop entries inside the root are found) and re-exports
+// $BUNNY_HOME so the root survives into shells that never ran setup.
 type InitCmd struct {
 	Shell string `arg:"" optional:"" enum:"bash,zsh,fish" default:"bash" help:"Shell type (bash, zsh, or fish)"`
 }

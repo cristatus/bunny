@@ -7,10 +7,11 @@ package doctor
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/cristatus/bunny/internal/manifest"
@@ -257,11 +258,7 @@ func PinResolution(state PinState, cwd string) []Result {
 	out := []Result{
 		{Name: ".bunny-version", Detail: source, Severity: OK},
 	}
-	caps := make([]string, 0, len(pins))
-	for c := range pins {
-		caps = append(caps, c)
-	}
-	sort.Strings(caps)
+	caps := slices.Sorted(maps.Keys(pins))
 	for _, cap := range caps {
 		ver := pins[cap]
 		candidate := cap + "-" + ver

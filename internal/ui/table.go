@@ -119,7 +119,7 @@ func (p *Printer) KV(rows []KVRow) string {
 	}
 	var b strings.Builder
 	for _, r := range rows {
-		lead := strings.Repeat(" ", kw-dispWidth(r.Key)) // right-align the key
+		lead := strings.Repeat(" ", kw-dispWidth(r.Key))
 		b.WriteString(lead)
 		b.WriteString(p.paint(r.Key+":", Bold))
 		b.WriteString(" ")

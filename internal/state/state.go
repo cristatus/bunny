@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -57,9 +59,7 @@ type Package struct {
 	// Path is where the package actually is, always recorded. Reading a
 	// location instead of recomputing one is what lets the user repoint an
 	// install root, or the catalog change a package's kind, without stranding
-	// a tree already on disk, and a tree whose location is not written down is
-	// exactly the one bunny will not be able to find. Absolute paths in state
-	// are the price.
+	// an already-installed tree. Absolute paths in state are the price.
 	Path string `json:"path,omitempty"`
 }
 
@@ -124,27 +124,14 @@ func Load(path string) (*State, error) {
 // Clone returns a deep copy. Used by the installer to roll back state when
 // a multi-step install fails partway through.
 func (s *State) Clone() *State {
-	out := &State{
+	return &State{
 		Version:        s.Version,
 		Updated:        s.Updated,
-		Packages:       make(map[string]Package, len(s.Packages)),
-		Commands:       make(map[string]string, len(s.Commands)),
-		Providers:      make(map[string]string, len(s.Providers)),
-		GlobalCommands: make(map[string]string, len(s.GlobalCommands)),
+		Packages:       maps.Clone(s.Packages),
+		Commands:       maps.Clone(s.Commands),
+		Providers:      maps.Clone(s.Providers),
+		GlobalCommands: maps.Clone(s.GlobalCommands),
 	}
-	for k, v := range s.Packages {
-		out.Packages[k] = v
-	}
-	for k, v := range s.Commands {
-		out.Commands[k] = v
-	}
-	for k, v := range s.Providers {
-		out.Providers[k] = v
-	}
-	for k, v := range s.GlobalCommands {
-		out.GlobalCommands[k] = v
-	}
-	return out
 }
 
 // Save atomically writes state to path.
@@ -407,12 +394,7 @@ func (s *State) GlobalCommandCapability(name string) (string, bool) {
 
 // GlobalCommandNames returns sorted registered global command names.
 func (s *State) GlobalCommandNames() []string {
-	names := make([]string, 0, len(s.GlobalCommands))
-	for name := range s.GlobalCommands {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return slices.Sorted(maps.Keys(s.GlobalCommands))
 }
 
 // IsInstalled returns true if the package is recorded as installed.
@@ -491,10 +473,5 @@ func (s *State) IsSatisfied(req string) bool {
 
 // Installed returns sorted package IDs.
 func (s *State) Installed() []string {
-	ids := make([]string, 0, len(s.Packages))
-	for id := range s.Packages {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	return ids
+	return slices.Sorted(maps.Keys(s.Packages))
 }
