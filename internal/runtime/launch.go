@@ -24,6 +24,9 @@ type Prepared struct {
 	CmdArgs  []string
 	Env      []string
 	Vars     map[string]string
+	// BunnyEnv anchors Bunny's own resolved layout for shim re-entry after a
+	// sandbox redirects HOME and XDG directories.
+	BunnyEnv []string
 }
 
 // Launcher builds launch environments. It carries the four things every launch
@@ -97,6 +100,7 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 		CmdArgs:  cmdArgs,
 		Env:      env,
 		Vars:     vars,
+		BunnyEnv: l.Paths.RuntimeEnv(),
 	}, nil
 }
 
@@ -116,6 +120,7 @@ func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs 
 		CmdArgs:  slices.Clone(userArgs),
 		Env:      env,
 		Vars:     vars,
+		BunnyEnv: l.Paths.RuntimeEnv(),
 	}, nil
 }
 
@@ -173,13 +178,12 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, error) {
 	return builder.List(), nil
 }
 
-// Exec runs the prepared binary via direct exec. Returns only on failure.
-func Exec(p *Prepared) error {
-	return directExec(p)
-}
-
 func directExec(p *Prepared) error {
 	args := append([]string{p.BinPath}, p.CmdArgs...)
 	log.Debug("Direct exec", "binary", p.BinPath, "args", p.CmdArgs)
-	return syscall.Exec(p.BinPath, args, p.Env)
+	env, err := inheritSandboxEnv(p.Env)
+	if err != nil {
+		return err
+	}
+	return syscall.Exec(p.BinPath, args, env)
 }

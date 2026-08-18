@@ -193,7 +193,8 @@ func TestExampleConfigIsValidAndInert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s must be valid config: %v", path, err)
 	}
-	if len(cfg.Env) != 0 || len(cfg.Dirs) != 0 || len(cfg.Install) != 0 || cfg.Catalog.Remote != "" {
+	if len(cfg.Env) != 0 || len(cfg.Dirs) != 0 || len(cfg.Install) != 0 || cfg.Catalog.Remote != "" ||
+		len(cfg.Sandbox.Profiles) != 0 || len(cfg.Sandbox.Packages) != 0 {
 		t.Errorf("the example must be entirely commented out, got %+v", cfg)
 	}
 }
@@ -215,5 +216,105 @@ func TestLoadCatalogLocal(t *testing.T) {
 func TestLoadRejectsRelativeCatalogLocal(t *testing.T) {
 	if _, err := Load(write(t, "catalog:\n  local: ../catalog\n")); err == nil {
 		t.Fatal("expected a relative catalog.local to be rejected")
+	}
+}
+
+func TestLoadSandbox(t *testing.T) {
+	cfg, err := Load(write(t, `
+sandbox:
+  profiles:
+    custom-desktop:
+      home: isolated
+      hide: [~/.ssh]
+      features:
+        network: true
+        audio: true
+  packages:
+    vscode:
+      activation: on-demand
+      profile: custom-desktop
+      features:
+        audio: false
+      hide: [~/Documents/private]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	desktop, ok := cfg.Sandbox.Profiles["custom-desktop"]
+	if !ok {
+		t.Fatal("expected desktop profile")
+	}
+	if desktop.Home != "isolated" || !desktop.Features["network"] {
+		t.Fatalf("unexpected desktop profile: %+v", desktop)
+	}
+	vscode, ok := cfg.Sandbox.Packages["vscode"]
+	if !ok {
+		t.Fatal("expected vscode package activation")
+	}
+	if vscode.Activation != "on-demand" || vscode.Profile != "custom-desktop" || vscode.Features["audio"] || len(vscode.Hide) != 1 {
+		t.Fatalf("unexpected vscode package policy: %+v", vscode)
+	}
+}
+
+func TestBuiltinSandboxProfilesAreAvailableWithoutConfig(t *testing.T) {
+	var cfg *Config
+	for _, name := range []string{SandboxProfileDesktop, SandboxProfileOnlineCLI, SandboxProfileOfflineCLI} {
+		if _, ok := cfg.SandboxProfile(name); !ok {
+			t.Errorf("built-in profile %q is unavailable", name)
+		}
+	}
+	desktop, _ := cfg.SandboxProfile(SandboxProfileDesktop)
+	if desktop.Home != "isolated" || !desktop.Features["network"] || !desktop.Features["audio"] {
+		t.Errorf("unexpected desktop profile: %+v", desktop)
+	}
+	online, _ := cfg.SandboxProfile(SandboxProfileOnlineCLI)
+	if !online.Features["network"] || online.Features["x11"] || online.Features["audio"] {
+		t.Errorf("unexpected online-cli profile: %+v", online)
+	}
+	offline, _ := cfg.SandboxProfile(SandboxProfileOfflineCLI)
+	if offline.Features["network"] || offline.Features["dbus"] {
+		t.Errorf("unexpected offline-cli profile: %+v", offline)
+	}
+
+	// Callers receive a copy rather than mutable process-global policy.
+	desktop.Features["network"] = false
+	again, _ := cfg.SandboxProfile(SandboxProfileDesktop)
+	if !again.Features["network"] {
+		t.Fatal("mutating a resolved profile changed the built-in")
+	}
+}
+
+func TestLoadAcceptsBuiltinProfileAndRejectsRedefinition(t *testing.T) {
+	if _, err := Load(write(t, "sandbox:\n  packages:\n    vscode:\n      profile: desktop\n")); err != nil {
+		t.Fatalf("built-in profile should be selectable without a definition: %v", err)
+	}
+	if _, err := Load(write(t, "sandbox:\n  profiles:\n    desktop:\n      home: shared\n")); err == nil {
+		t.Fatal("expected built-in profile redefinition to be rejected")
+	}
+}
+
+func TestSandboxPackagePresenceActivatesEvenWhenEmpty(t *testing.T) {
+	cfg, err := Load(write(t, "sandbox:\n  packages:\n    vscode:\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Sandbox.Packages["vscode"]; !ok {
+		t.Fatal("an empty package entry must remain present for activation")
+	}
+}
+
+func TestLoadRejectsInvalidSandboxConfig(t *testing.T) {
+	for name, body := range map[string]string{
+		"global enable":   "sandbox:\n  enabled: true\n",
+		"unknown profile": "sandbox:\n  packages:\n    vscode:\n      profile: missing\n",
+		"unknown feature": "sandbox:\n  profiles:\n    custom:\n      features:\n        gpu: true\n",
+		"bad activation":  "sandbox:\n  packages:\n    vscode:\n      activation: sometimes\n",
+		"invalid package": "sandbox:\n  packages:\n    Bad_ID: {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Load(write(t, body)); err == nil {
+				t.Fatalf("expected %s to be rejected", name)
+			}
+		})
 	}
 }

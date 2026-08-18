@@ -28,12 +28,28 @@ while paths recorded in `state.json` track where existing packages reside.
 Reading the recorded path is what makes install roots safe to change without
 stranding installed tools.
 
-`internal/config` is the source of truth for user policy: it manages
-`config.yaml` and is the only place deciding whether a tool's global data is
-redirected. Manifests describe how to install and wire a package; they never
-express user isolation policy. `runtime.Launcher` layers environment variables
-in a fixed precedence order (host, dependency env, manifest env, config env) so
-user overrides cannot be silently outranked by catalog changes.
+`internal/config` is the source of truth for activation and user policy: it
+decides whether tool data is redirected and which exact package IDs run in the
+optional sandbox. Manifests may recommend a sandbox policy, but cannot activate
+it.
+
+## Runtime execution
+
+`runtime.Launcher` layers environment variables in a fixed precedence order
+(host, dependency env, manifest env, config env). Normal execution ends in a
+direct `execve` unless the exact package has always-on activation or the user
+invoked `bunny sandbox`.
+
+The sandbox resolver layers built-in defaults, manifest recommendations, the
+selected built-in or user profile, and the package override. Sandbox launches
+also export private anchors for the already-resolved Bunny layout. A shim
+re-entering Bunny from an isolated HOME therefore reads the same config and
+state. The inherited sandbox context makes disabled integrations and hidden
+paths monotonic; environment-only child isolation is applied at exec, while new
+mount or network restrictions add a nested bubblewrap layer. Declared SDK
+dependencies are launched directly inside the application's existing sandbox,
+so enabling a JDK's own package sandbox does not wrap it again when an IDE uses
+that JDK through `requires`.
 
 `internal/state` is the source of truth for installed packages, active capability
 providers, command ownership, and runtime-installed global commands. State is

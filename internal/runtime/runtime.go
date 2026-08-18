@@ -1,14 +1,15 @@
 // Package runtime owns two distinct execution paths:
 //
-//  1. Run-time launch (Prepare → Exec). Resolves a manifest's binary,
-//     applies its env + bin.args, and direct-execs the binary. No bwrap
-//     is involved.
+//  1. Run-time launch (Prepare → ExecPackage). Resolves a manifest's binary,
+//     applies its env + bin.args, then direct-execs it unless the package is
+//     explicitly enabled under sandbox.packages.
 //  2. Install-time isolation (PrepareStepsContext). Runs a manifest's `prepare:`
 //     shell commands inside an `--unshare-all` bwrap with writable views
 //     only of the source dir and the package staging dir.
 //
-// The two paths share the placeholder expander (Expand) but are otherwise
-// independent — only install-time isolation uses bwrap/FindBwrap.
+// Both paths use bwrap when isolation is selected, but with different trust
+// models: install-time isolation is strict, while the opt-in run-time model
+// trusts the installed package and scopes its persistent state.
 package runtime
 
 import (

@@ -156,7 +156,7 @@ func (c *CompletionCmd) Run(_ *App) error {
 // complete-ids command is intentionally excluded.
 var completionSubcommands = []string{
 	"install", "uninstall", "list", "info", "search", "use", "pin", "unpin", "run",
-	"update", "doctor", "init", "setup", "clean", "reshim",
+	"sandbox", "update", "doctor", "init", "setup", "clean", "reshim",
 	"toolchains", "dev", "completion",
 }
 
@@ -219,7 +219,7 @@ const bashCompletion = `_bunny() {
             install)      flags="$flags --force" ;;
             uninstall)    flags="$flags --purge --yes" ;;
             list)         flags="$flags --tag --capability --active --remote" ;;
-            run)          flags="$flags --command" ;;
+            run|sandbox)  flags="$flags --command" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
@@ -258,7 +258,7 @@ const bashCompletion = `_bunny() {
         info|search)              COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
         use)                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
         pin|unpin)                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
-        update|clean|run)         COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
+        update|clean|run|sandbox) COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
         reshim)                   COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null) $(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
         init|completion)          COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     esac
@@ -300,7 +300,7 @@ if [[ $cur == -* ]]; then
         install) flags+=(--force) ;;
         uninstall) flags+=(--purge --yes) ;;
         list) flags+=(--tag --capability --active --remote) ;;
-        run) flags+=(--command) ;;
+        run|sandbox) flags+=(--command) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
@@ -335,7 +335,7 @@ case $sub in
     info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
     use) compadd -- ${(f)"$(bunny complete-ids --providers 2>/dev/null)"} ;;
     pin|unpin) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
-    update|clean|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
+    update|clean|run|sandbox) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
     reshim) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
     init|completion) compadd -- bash zsh fish ;;
 esac
@@ -364,7 +364,7 @@ complete -c bunny -l no-progress -d 'Disable interactive progress output'
 complete -c bunny -l version -d 'Print version'
 # positional operands per subcommand
 complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(__bunny_ids)'
-complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim run; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
+complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim run sandbox; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from use; and not __fish_seen_subcommand_from dev' -a '(__bunny_provider_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from pin unpin' -a '(__bunny_capabilities)'
 complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash zsh fish'
@@ -379,6 +379,7 @@ complete -c bunny -n '__fish_seen_subcommand_from list' -l capability -r -f -a '
 complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only active providers'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l remote -d 'List all packages in the catalog'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
+complete -c bunny -n '__fish_seen_subcommand_from sandbox' -s c -l command -r -d 'Specific command to run'
 complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'

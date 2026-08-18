@@ -1,6 +1,6 @@
 // Package manifest defines the YAML schema bunny consumes for each package
-// in the catalog: identity, sources, install steps, and the two flavors
-// of run-time portability injection (env vars and CLI args).
+// in the catalog: identity, sources, install steps, run-time portability
+// injection, and optional sandbox recommendations.
 //
 // The schema is intentionally concrete — env and args are separate
 // blocks rather than wrappers around a generic "redirect" type, so the
@@ -59,11 +59,26 @@ type Manifest struct {
 	Bin []Binary `yaml:"bin"`
 	// Env is set in the binary's environment on launch.
 	Env map[string]string `yaml:"env,omitempty"`
+	// Sandbox recommends a run-time sandbox policy for this package. It never
+	// enables sandboxing: only a matching sandbox.packages entry in the user's
+	// config does that. User profiles and package overrides layer on top.
+	Sandbox *SandboxPolicy `yaml:"sandbox,omitempty"`
 
 	// --- Desktop integration ---
 	Desktop     []DesktopEntry `yaml:"desktop,omitempty"`
 	Icons       []Icon         `yaml:"icons,omitempty"`
 	Completions *Completions   `yaml:"completions,omitempty"`
+}
+
+// SandboxPolicy is a package author's preferred run-time sandbox policy.
+// Profile names a reusable user-config profile; Hide paths are masked and
+// Features toggle optional host integration. Home defaults to "isolated"
+// when the package is enabled, redirecting HOME and XDG state into {data}.
+type SandboxPolicy struct {
+	Profile  string          `yaml:"profile,omitempty"`
+	Home     string          `yaml:"home,omitempty"`
+	Hide     []string        `yaml:"hide,omitempty"`
+	Features map[string]bool `yaml:"features,omitempty"`
 }
 
 // Source describes one downloadable archive or file. Each Source may carry

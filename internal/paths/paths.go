@@ -22,6 +22,21 @@ import (
 // Its value must be an absolute path.
 const EnvHome = "BUNNY_HOME"
 
+// Private launch variables preserve Bunny's resolved layout when a sandbox
+// redirects HOME and the XDG variables. They are deliberately separate from
+// BUNNY_HOME: an XDG installation has several roots and cannot be represented
+// by one prefix without changing its layout.
+const (
+	envRuntimeLayout = "BUNNY_INTERNAL_LAYOUT"
+	envRuntimeRoot   = "BUNNY_INTERNAL_ROOT"
+	envRuntimeData   = "BUNNY_INTERNAL_DATA"
+	envRuntimeConfig = "BUNNY_INTERNAL_CONFIG"
+	envRuntimeCache  = "BUNNY_INTERNAL_CACHE"
+	envRuntimeBin    = "BUNNY_INTERNAL_BIN"
+	envRuntimeShare  = "BUNNY_INTERNAL_SHARE"
+	envRuntimeFish   = "BUNNY_INTERNAL_FISH"
+)
+
 // Paths centralizes every directory bunny reads or writes. The roots are
 // resolved once at construction, so accessors are plain joins with no
 // branching on which layout is active.
@@ -66,6 +81,9 @@ func (p *Paths) WithLayout(roots map[string]string, locate func(id string) (kind
 // here: this is the variable that selects the layout, so ignoring it hands back
 // the XDG layout with none of the packages the caller meant to reach.
 func Resolve() (*Paths, error) {
+	if os.Getenv(envRuntimeLayout) == "1" {
+		return resolveRuntimeLayout()
+	}
 	if root := os.Getenv(EnvHome); root != "" {
 		if !filepath.IsAbs(root) {
 			return nil, fmt.Errorf("%s must be an absolute path, got %q", EnvHome, root)
@@ -89,6 +107,47 @@ func Resolve() (*Paths, error) {
 		bin:   filepath.Join(home, ".local", "bin"),
 		share: dataHome,
 		fish:  filepath.Join(configHome, "fish", "completions"),
+	}, nil
+}
+
+// RuntimeEnv returns the private anchors a child Bunny process needs to find
+// the same config, state, shims, and package data after HOME/XDG isolation.
+// Callers should pass these only to package processes, never persist them.
+func (p *Paths) RuntimeEnv() []string {
+	return []string{
+		envRuntimeLayout + "=1",
+		envRuntimeRoot + "=" + p.Root,
+		envRuntimeData + "=" + p.data,
+		envRuntimeConfig + "=" + p.config,
+		envRuntimeCache + "=" + p.cache,
+		envRuntimeBin + "=" + p.bin,
+		envRuntimeShare + "=" + p.share,
+		envRuntimeFish + "=" + p.fish,
+	}
+}
+
+func resolveRuntimeLayout() (*Paths, error) {
+	values := map[string]string{
+		"data":   os.Getenv(envRuntimeData),
+		"config": os.Getenv(envRuntimeConfig),
+		"cache":  os.Getenv(envRuntimeCache),
+		"bin":    os.Getenv(envRuntimeBin),
+		"share":  os.Getenv(envRuntimeShare),
+		"fish":   os.Getenv(envRuntimeFish),
+	}
+	for name, value := range values {
+		if !filepath.IsAbs(value) {
+			return nil, fmt.Errorf("invalid internal Bunny %s path %q", name, value)
+		}
+	}
+	root := os.Getenv(envRuntimeRoot)
+	if root != "" && !filepath.IsAbs(root) {
+		return nil, fmt.Errorf("invalid internal Bunny root path %q", root)
+	}
+	return &Paths{
+		Root: root, data: values["data"], config: values["config"],
+		cache: values["cache"], bin: values["bin"], share: values["share"],
+		fish: values["fish"],
 	}, nil
 }
 

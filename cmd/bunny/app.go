@@ -245,6 +245,16 @@ func (a *App) installedCatalog() catalog.Loader {
 // run executes a package's binary. command="" runs the first one. Used by
 // both `bunny run` and the shim dispatch path.
 func (a *App) run(id, command string, args []string) error {
+	return a.runPackage(id, command, args, false)
+}
+
+// runSandboxed performs a package-aware forced sandbox launch. Unlike normal
+// run/shim dispatch, on-demand and unconfigured packages are sandboxed too.
+func (a *App) runSandboxed(id, command string, args []string) error {
+	return a.runPackage(id, command, args, true)
+}
+
+func (a *App) runPackage(id, command string, args []string, forceSandbox bool) error {
 	if !a.State.IsInstalled(id) {
 		return fmt.Errorf("package %q is not installed", id)
 	}
@@ -256,7 +266,10 @@ func (a *App) run(id, command string, args []string) error {
 	if err != nil {
 		return err
 	}
-	return runtime.Exec(prep)
+	if forceSandbox {
+		return runtime.ExecPackageSandboxed(prep, a.Config)
+	}
+	return runtime.ExecPackage(prep, a.Config)
 }
 
 // RunShim dispatches a shim invocation (argv[0] = "node", "code", ...) to
@@ -344,7 +357,7 @@ func (a *App) runGlobal(name string, args []string) error {
 	if err != nil {
 		return err
 	}
-	return runtime.Exec(prep)
+	return runtime.ExecPackage(prep, a.Config)
 }
 
 // refreshRemote tries to update the on-disk index. Failures are debug-logged

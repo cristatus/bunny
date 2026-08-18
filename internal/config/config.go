@@ -1,9 +1,9 @@
 // Package config is the user's settings file, at ~/.config/bunny/config.yaml
 // or $BUNNY_HOME/config.yaml under a single-root install.
 //
-// It is the only place isolation policy lives. Manifests describe how to
-// install and wire a package, never whether a tool's global data is
-// redirected: bunny redirects nothing by default, and users opt in here.
+// It is the only place that can activate optional behavior. Manifests may
+// recommend a sandbox policy, but data redirection and run-time sandboxing
+// remain inert until the user opts in here.
 package config
 
 import (
@@ -33,7 +33,7 @@ type Config struct {
 	// Env adds environment variables at launch, keyed by package id
 	// ("node-22"), capability ("node"), or "*". Values expand the same
 	// placeholders manifests use, so "{data}/gradle" resolves per version.
-	// This is how isolation is expressed; bunny ships none of it.
+	// This is how tool-specific data redirection is expressed.
 	Env map[string]map[string]string `yaml:"env,omitempty"`
 
 	// Dirs are created before launch, keyed like Env. Most tools create their
@@ -46,6 +46,93 @@ type Config struct {
 	// build tool where an IDE's file picker can reach it. A leading ~/ is
 	// expanded; anything else must be absolute.
 	Install map[string]string `yaml:"install,omitempty"`
+
+	// Sandbox holds reusable profiles and the package IDs the user explicitly
+	// opts into run-time sandboxing. A manifest may recommend policy, but only
+	// presence in Sandbox.Packages activates it.
+	Sandbox Sandbox `yaml:"sandbox,omitempty"`
+}
+
+// Sandbox is the user-owned activation and policy layer. There is deliberately
+// no global enabled flag: each package must be named explicitly.
+type Sandbox struct {
+	Profiles map[string]SandboxPolicy  `yaml:"profiles,omitempty"`
+	Packages map[string]SandboxPackage `yaml:"packages,omitempty"`
+}
+
+// SandboxPolicy is a reusable user policy. Feature maps merge by key and Hide
+// is additive; Home, when set, replaces the inherited value.
+type SandboxPolicy struct {
+	Home     string          `yaml:"home,omitempty"`
+	Hide     []string        `yaml:"hide,omitempty"`
+	Features map[string]bool `yaml:"features,omitempty"`
+}
+
+// SandboxPackage stores activation plus a package-specific policy. Presence
+// defaults activation to always; on-demand keeps normal launches direct while
+// retaining policy for `bunny sandbox <id>`. Profile selects a reusable policy;
+// the inline policy overrides it without replacing unspecified settings.
+type SandboxPackage struct {
+	Activation    string `yaml:"activation,omitempty"`
+	Profile       string `yaml:"profile,omitempty"`
+	SandboxPolicy `yaml:",inline"`
+}
+
+const (
+	SandboxActivationAlways   = "always"
+	SandboxActivationOnDemand = "on-demand"
+
+	SandboxProfileDesktop    = "desktop"
+	SandboxProfileOnlineCLI  = "online-cli"
+	SandboxProfileOfflineCLI = "offline-cli"
+)
+
+// builtinSandboxProfiles provide stable policy vocabulary without putting
+// generic feature boilerplate in manifests or every user's config. Activation
+// remains package-specific and user-owned; selecting one of these names only
+// chooses policy.
+var builtinSandboxProfiles = map[string]SandboxPolicy{
+	SandboxProfileDesktop: {
+		Home: "isolated",
+		Features: map[string]bool{
+			"network": true, "x11": true, "wayland": true, "dbus": true, "audio": true,
+		},
+	},
+	SandboxProfileOnlineCLI: {
+		Home: "isolated",
+		Features: map[string]bool{
+			"network": true, "x11": false, "wayland": false, "dbus": false, "audio": false,
+		},
+	},
+	SandboxProfileOfflineCLI: {
+		Home: "isolated",
+		Features: map[string]bool{
+			"network": false, "x11": false, "wayland": false, "dbus": false, "audio": false,
+		},
+	},
+}
+
+// SandboxProfile resolves a built-in or user-defined profile. Built-in names
+// are reserved so their behavior remains stable across machines and configs.
+// The returned policy is a copy and may be safely merged by the caller.
+func (c *Config) SandboxProfile(name string) (SandboxPolicy, bool) {
+	if policy, ok := builtinSandboxProfiles[name]; ok {
+		return cloneSandboxPolicy(policy), true
+	}
+	if c == nil {
+		return SandboxPolicy{}, false
+	}
+	policy, ok := c.Sandbox.Profiles[name]
+	if !ok {
+		return SandboxPolicy{}, false
+	}
+	return cloneSandboxPolicy(policy), true
+}
+
+func cloneSandboxPolicy(policy SandboxPolicy) SandboxPolicy {
+	policy.Hide = slices.Clone(policy.Hide)
+	policy.Features = maps.Clone(policy.Features)
+	return policy
 }
 
 // Catalog selects where bunny reads package manifests from.
@@ -126,7 +213,41 @@ func (c *Config) Validate() error {
 		}
 		c.Catalog.Local = local
 	}
+	for _, name := range slices.Sorted(maps.Keys(c.Sandbox.Profiles)) {
+		if err := manifest.ValidateID(name); err != nil {
+			return fmt.Errorf("sandbox.profiles.%s: %w", name, err)
+		}
+		if _, reserved := builtinSandboxProfiles[name]; reserved {
+			return fmt.Errorf("sandbox.profiles.%s: built-in profile name is reserved", name)
+		}
+		if err := validateSandboxPolicy("sandbox.profiles."+name, c.Sandbox.Profiles[name]); err != nil {
+			return err
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(c.Sandbox.Packages)) {
+		if err := manifest.ValidateID(id); err != nil {
+			return fmt.Errorf("sandbox.packages.%s: %w", id, err)
+		}
+		pkg := c.Sandbox.Packages[id]
+		if pkg.Activation != "" && pkg.Activation != SandboxActivationAlways && pkg.Activation != SandboxActivationOnDemand {
+			return fmt.Errorf("sandbox.packages.%s.activation: must be \"always\" or \"on-demand\"", id)
+		}
+		if pkg.Profile != "" {
+			if _, ok := c.SandboxProfile(pkg.Profile); !ok {
+				return fmt.Errorf("sandbox.packages.%s.profile: unknown profile %q", id, pkg.Profile)
+			}
+		}
+		if err := validateSandboxPolicy("sandbox.packages."+id, pkg.SandboxPolicy); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func validateSandboxPolicy(field string, policy SandboxPolicy) error {
+	return manifest.ValidateSandboxPolicy(field, &manifest.SandboxPolicy{
+		Home: policy.Home, Hide: policy.Hide, Features: policy.Features,
+	})
 }
 
 // absPath expands a leading ~/ and requires the result to be absolute, so a

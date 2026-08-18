@@ -1,15 +1,21 @@
 # Corporate environments
 
-Bunny apps run as normal processes without a runtime sandbox. Host paths and
-environment variables apply directly: corporate CA bundles, SSO tokens,
-SSH agent sockets, and the rest of `$HOME` are inherited transparently. This
+Bunny apps run as normal processes unless their package ID is explicitly
+enabled under `sandbox.packages`. By default, host paths and environment
+variables apply directly: corporate CA bundles, SSO tokens, SSH agent sockets,
+and the rest of `$HOME` are inherited transparently. This
 document covers interactions that require explicit configuration.
 
 ## Network access
 
-Bunny-launched apps have full network access as ordinary host processes.
-Maven and Gradle reach your internal Nexus, npm reaches your internal registry,
-and IDEs reach your license server without extra configuration.
+Unsandboxed Bunny-launched apps have full network access as ordinary host
+processes. Maven and Gradle reach your internal Nexus, npm reaches your internal
+registry, and IDEs reach your license server without extra configuration.
+
+A sandboxed package keeps network access with the `desktop` and `online-cli`
+profiles. The `offline-cli` profile, or `features.network: false`, creates a
+private network namespace and cannot reach proxies, registries, or license
+servers.
 
 ## Custom CA bundles
 
@@ -47,7 +53,8 @@ registry=https://nexus.corp.internal/repository/npm-group/
 ## HTTP(S) proxies
 
 `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` environment variables set in the
-parent shell are inherited by every Bunny-launched process.
+parent shell are inherited by Bunny-launched processes, including sandboxed
+ones that retain network access.
 
 ```bash
 export HTTP_PROXY="http://proxy.corp.internal:8080"
@@ -88,11 +95,37 @@ To redirect Gradle to another directory, set `GRADLE_USER_HOME` in
 `~/.config/bunny/config.yaml`. The toolchain block will follow it. See
 [Configuration](config.md).
 
+## Sandboxed packages
+
+With the default sandbox setting `home: isolated`, `$HOME` and the XDG user
+directories point into the package's `{data}/home`. Tools therefore do not find
+host files such as `~/.m2/settings.xml`, `~/.npmrc`, cloud configuration, or IDE
+settings through their normal home-relative paths. Copy the required settings
+into the isolated home, redirect them with the tool's own environment variables,
+or override the package with `home: shared` when sharing the host home is the
+intended policy.
+
+System CA stores and inherited proxy variables remain available. The
+`online-cli` profile disables X11, Wayland, D-Bus, and audio environment
+integration but retains the network; `desktop` retains those integrations as
+well. Explicit `hide` entries can mask credential paths or agent sockets.
+
+This sandbox is intended for state separation, not hostile code. The rest of
+the host filesystem remains read-write unless explicitly hidden, so an isolated
+HOME alone does not make host credentials inaccessible by absolute path. See
+[Sandboxing](sandbox.md#trust-boundary-and-limitations).
+
 ## Authentication and credentials
 
-Host credentials operate transparently:
+During ordinary direct launches, host credentials operate transparently:
+
 - **SSH & Git**: `~/.ssh/`, `~/.gitconfig`, and `$SSH_AUTH_SOCK` are inherited directly.
 - **Cloud credentials**: `~/.aws/`, `~/.kube/`, `~/.gcloud/`, and `~/.azure/` remain accessible to build scripts and test suites.
+
+For sandboxed packages, home-relative credential discovery follows the isolated
+or shared HOME policy described above. Inherited variables such as
+`SSH_AUTH_SOCK` remain present, though a matching `hide` entry can make the
+socket path inaccessible.
 
 ## Air-gapped and offline installs
 

@@ -18,21 +18,29 @@ tarball**, downloaded once and run directly:
   VS Code, Cursor, Zed, and Eclipse.
 - **General-purpose CLI tools**: Ubiquitous utilities including ripgrep, fd, bat,
   fzf, jq, gh, lazygit, delta, and eza.
+- **AI coding agents**: Terminal agents (Claude Code, Codex CLI, opencode, pi)
+  and the desktop apps that drive them (Claude Desktop, ChatGPT, GitHub
+  Copilot) — tools pointed at a project, the same grounds an editor earns a
+  slot on, not general chat clients. See [Sandboxing](docs/sandbox.md) for
+  opting an installed package into isolated state and reduced integrations.
 
 ## What's out of scope
 
 - **npm-installed JS tooling**: Prettier, ESLint, TypeScript, Biome, Vite,
   webpack. These belong in `package.json` and run via `npx` or package scripts.
 - **Yarn standalone**: Corepack (shipped with Node) handles Yarn versioning.
-- **Desktop applications**: Browsers, chat apps, and media tools belong in
-  Flatpak or distribution packages.
+- **Desktop applications**: Browsers, media players, and chat apps that aren't
+  a coding assistant belong in Flatpak or distribution packages. AI coding
+  agents (terminal and desktop) are the exception — see above.
 - **Toolchains outside JVM/Node**: Polyglot ecosystems outside JVM and Node are
   already well-served by mise, asdf, and language-specific tools.
 - **Operating systems other than Linux**: Bunny is built for Linux (`x86_64`).
 - **Replacing system package managers**: `apt`, `dnf`, and `pacman` continue to
   manage system packages and libraries.
-- **Sandboxing as a security boundary**: Bunny executes directly against host
-  paths; process isolation is not an intended security model.
+- **Hardened isolation against actively malicious code**: the opt-in
+  [per-package sandbox](docs/sandbox.md) scopes a trusted package's state and
+  optional integrations, but deliberately retains a native read-write host
+  filesystem view. Packages not explicitly enabled remain direct `execve`.
 
 ## Anti-roadmap
 

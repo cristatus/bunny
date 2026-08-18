@@ -34,6 +34,7 @@
 #     LANG: C.UTF-8
 #   node:
 #     NPM_CONFIG_PREFIX: "{data}/npm-global"   # globals per Node version
+#     NPM_CONFIG_CACHE: "{data}/npm-cache"     # downloads outside an app sandbox's HOME
 #   node-22:
 #     NODE_OPTIONS: "--max-old-space-size=8192"
 #   gradle:
@@ -52,6 +53,26 @@
 # dirs:
 #   maven:
 #     - "{data}/repository"
+
+# --- Sandbox ------------------------------------------------------------
+#
+# Runtime sandboxing is opt-in per package: presence under packages activates
+# it. Manifest recommendations, a selected profile, and the package entry are
+# merged; no manifest or global setting can activate every package. See
+# docs/sandbox.md. Built-ins: desktop, online-cli, offline-cli.
+
+# sandbox:
+#   packages:
+#     code:
+#       activation: on-demand # omit for always
+#       profile: desktop
+#       features:
+#         audio: false
+#       hide:
+#         - ~/Documents/private
+#     codex:
+#       activation: on-demand
+#       profile: online-cli
 
 # --- Catalog ----------------------------------------------------------------
 #

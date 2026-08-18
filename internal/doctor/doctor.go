@@ -16,6 +16,7 @@ import (
 
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
+	"github.com/cristatus/bunny/internal/runtime"
 	"github.com/cristatus/bunny/internal/shim"
 )
 
@@ -55,6 +56,7 @@ func RunAll(p *paths.Paths, catalogDir, remote string) []Result {
 		installRootsCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
+		userNamespaceCheck(),
 		waylandCheck(),
 		x11Check(),
 		audioCheck(),
@@ -188,15 +190,38 @@ func pathOnPathCheck(binDir string) Result {
 }
 
 func bwrapCheck() Result {
-	path, err := exec.LookPath("bwrap")
+	path, err := runtime.FindBwrap()
 	if err != nil {
-		return Result{Name: "bwrap", Detail: "not found — install: sudo pacman -S bubblewrap (Arch) or sudo apt install bubblewrap (Debian/Ubuntu)", Severity: Fail}
+		return Result{Name: "bwrap", Detail: err.Error(), Severity: Fail}
 	}
-	out, err := exec.Command("bwrap", "--version").Output()
+	out, err := exec.Command(path, "--version").Output()
 	if err != nil {
 		return Result{Name: "bwrap", Detail: path + " found but --version failed: " + err.Error(), Severity: Warn}
 	}
 	return Result{Name: "bwrap", Detail: strings.TrimSpace(string(out)), Severity: OK}
+}
+
+// userNamespaceCheck confirms bwrap can actually create an unprivileged
+// sandbox: a present binary is not enough on kernels with unprivileged user
+// namespaces disabled (some hardened/CI kernels), which is exactly the
+// failure mode an enabled per-package sandbox needs surfaced, since Bunny
+// must not silently fall back to unsandboxed execution.
+func userNamespaceCheck() Result {
+	const name = "sandbox"
+	path, err := runtime.FindBwrap()
+	if err != nil {
+		return Result{Name: name, Detail: "bwrap not found", Severity: Fail}
+	}
+	cmd := exec.Command(path, "--unshare-user", "--unshare-pid", "--ro-bind", "/", "/", "true")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return Result{
+			Name:     name,
+			Detail:   "unprivileged user namespaces unavailable: " + strings.TrimSpace(string(out)),
+			Severity: Fail,
+			Fix:      "check /proc/sys/kernel/unprivileged_userns_clone or your distro's AppArmor/sysctl policy",
+		}
+	}
+	return Result{Name: name, Detail: "unprivileged user namespaces OK", Severity: OK}
 }
 
 func waylandCheck() Result {

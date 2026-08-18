@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,6 +116,65 @@ func TestPrepareGlobal(t *testing.T) {
 	wantEnv := "NPM_CONFIG_PREFIX=" + filepath.Join(root, "data", "node-24", "npm-global")
 	if !envHas(prep.Env, wantEnv) {
 		t.Errorf("env missing %q", wantEnv)
+	}
+}
+
+func TestUnsandboxedGlobalNodeToolInheritsOuterSandboxAndNodeData(t *testing.T) {
+	root := t.TempDir()
+	codeHome := filepath.Join(root, "data", "vscode", "home")
+	contextJSON, err := json.Marshal(sandboxContext{
+		Packages:         []string{"vscode"},
+		HostHome:         "/host/home",
+		DisabledFeatures: []string{"x11"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", codeHome)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(codeHome, ".cache"))
+	t.Setenv(sandboxContextEnv, string(contextJSON))
+	t.Setenv("DISPLAY", ":99") // package config below also tries to restore it
+
+	p := paths.At(root)
+	cfg := &config.Config{
+		Env: map[string]map[string]string{
+			"node": {
+				"NPM_CONFIG_PREFIX": "{data}/npm-global",
+				"NPM_CONFIG_CACHE":  "{data}/npm-cache",
+				"DISPLAY":           ":1",
+			},
+		},
+		Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+			"vscode": {}, // Node is deliberately absent.
+		}},
+	}
+	m := &manifest.Manifest{ID: "node-24", Version: "24.0.0", Provides: "node"}
+	exe := filepath.Join(p.AppData("node-24"), "npm-global", "bin", "prettier")
+	l := &Launcher{Paths: p, Catalog: stubCat{}, State: state.Empty(), Config: cfg}
+	prepared, err := l.PrepareGlobal(m, exe, []string{"--check", "."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sandboxAlways(cfg, m.ID) {
+		t.Fatal("global Node tool unexpectedly activates a child sandbox")
+	}
+	env, err := inheritSandboxEnv(prepared.Env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"HOME=" + codeHome,
+		"NPM_CONFIG_PREFIX=" + filepath.Join(p.AppData("node-24"), "npm-global"),
+		"NPM_CONFIG_CACHE=" + filepath.Join(p.AppData("node-24"), "npm-cache"),
+	} {
+		if !envHas(env, want) {
+			t.Errorf("global tool env missing %q", want)
+		}
+	}
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "DISPLAY=") {
+			t.Errorf("global tool restored outer-disabled X11 via %q", entry)
+		}
 	}
 }
 

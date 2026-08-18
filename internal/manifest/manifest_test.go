@@ -74,7 +74,30 @@ bin: [{name: foo, path: "{app}/foo"}]
 	}
 }
 
-func TestParseRejectsLegacySandboxBlock(t *testing.T) {
+func TestParseSandboxRecommendation(t *testing.T) {
+	src := `
+id: foo
+name: Foo
+version: "1.0"
+sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]
+bin: [{name: foo, path: "{app}/foo"}]
+sandbox:
+  profile: desktop
+  home: isolated
+  hide: [~/.ssh]
+  features:
+    network: false
+`
+	m, err := ParseBytes([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Sandbox == nil || m.Sandbox.Profile != "desktop" || m.Sandbox.Home != "isolated" || m.Sandbox.Features["network"] {
+		t.Fatalf("unexpected sandbox recommendation: %+v", m.Sandbox)
+	}
+}
+
+func TestParseRejectsManifestSandboxActivation(t *testing.T) {
 	src := `
 id: foo
 name: Foo
@@ -84,9 +107,8 @@ bin: [{name: foo, path: "{app}/foo"}]
 sandbox:
   enabled: true
 `
-	_, err := ParseBytes([]byte(src))
-	if err == nil {
-		t.Error("expected unknown-field error for legacy sandbox: block")
+	if _, err := ParseBytes([]byte(src)); err == nil {
+		t.Error("manifest sandbox policy must not be able to activate itself")
 	}
 }
 

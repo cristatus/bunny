@@ -9,6 +9,15 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Opt-in per-package bubblewrap execution: manifests may recommend policy,
+  built-in `desktop`, `online-cli`, and `offline-cli` profiles plus custom
+  profiles provide shared defaults, and `sandbox.packages.<id>` both
+  activates by default and overrides policy without replacing inherited
+  values; `activation: on-demand` retains that policy for
+  `bunny sandbox <id>` without changing normal launches. The
+  lightweight model isolates package HOME/XDG state and can mask paths or
+  disable host integrations; it is not a hardened security boundary. See
+  [Sandboxing](docs/sandbox.md).
 - `env:` and `dirs:` blocks in `config.yaml` (keyed by package id, capability,
   or `*`) for per-version data isolation; see [Configuration](docs/config.md).
 - `install:` in `config.yaml` to set per-kind install roots, e.g.
@@ -25,8 +34,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **Nothing is isolated by default**: `mvn`, `gradle`, npm, pnpm, Yarn, deno,
-  and bun use their native caches and install roots; per-version isolation is
-  opt-in via `env:`.
+  and bun use their native caches and install roots; data redirection is opt-in
+  via `env:`, and runtime sandboxing is opt-in per package.
 - **XDG base directory compliance**: installs/catalog/state in
   `~/.local/share/bunny`, config in `~/.config/bunny`, downloads in
   `~/.cache/bunny`, shims in `~/.local/bin`; desktop entries and icons use the
@@ -72,6 +81,12 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Bunny shims launched inside a sandboxed application's terminal now retain
+  the real XDG/BUNNY_HOME layout, give an always-sandboxed child package its
+  own isolated HOME, and inherit outer restrictions without an unnecessary
+  nested bubblewrap layer. Unsandboxed runtime-installed tools such as an npm
+  global keep their provider's configured data/cache paths while inheriting
+  the enclosing application's HOME and restrictions.
 - **Ownership checks before removing/replacing shared directories**: install
   trees require a `.bunny-package` marker, desktop entries an
   `X-Bunny-Package` key, and shims must resolve into bunny's own bin dir or

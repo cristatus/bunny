@@ -96,6 +96,11 @@ func (m *Manifest) Validate() error {
 	if err := ValidateEnv("env", m.Env); err != nil {
 		return err
 	}
+	if m.Sandbox != nil {
+		if err := ValidateSandboxPolicy("sandbox", m.Sandbox); err != nil {
+			return err
+		}
+	}
 	for i, req := range m.Requires {
 		cap, min, hasMin := ParseRequirement(req)
 		if hasMin && (cap == "" || min <= 0) {
@@ -183,6 +188,50 @@ func (m *Manifest) Validate() error {
 		seenIcons[iconKey] = true
 	}
 	return nil
+}
+
+// ValidateSandboxPolicy validates the policy shape shared by manifests and
+// user config. Paths are interpreted at launch: absolute paths stay absolute,
+// while ~ and relative paths are resolved against the real host home.
+func ValidateSandboxPolicy(field string, policy *SandboxPolicy) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.Profile != "" {
+		if err := ValidateID(policy.Profile); err != nil {
+			return vErr(field+".profile", err.Error())
+		}
+	}
+	if policy.Home != "" && policy.Home != "isolated" && policy.Home != "shared" {
+		return vErr(field+".home", `must be "isolated" or "shared"`)
+	}
+	for i, path := range policy.Hide {
+		if path == "" {
+			return vErr(fmt.Sprintf("%s.hide[%d]", field, i), "must not be empty")
+		}
+		if strings.ContainsRune(path, '\x00') {
+			return vErr(fmt.Sprintf("%s.hide[%d]", field, i), "contains NUL")
+		}
+	}
+	for name := range policy.Features {
+		if !KnownSandboxFeature(name) {
+			return vErr(field+".features."+name,
+				`must be one of "network", "audio", "wayland", "x11", or "dbus"`)
+		}
+	}
+	return nil
+}
+
+// KnownSandboxFeature reports whether the lightweight runtime implements a
+// feature toggle. Rejecting unknown keys avoids policies that appear to work
+// while silently granting access.
+func KnownSandboxFeature(name string) bool {
+	switch name {
+	case "network", "audio", "wayland", "x11", "dbus":
+		return true
+	default:
+		return false
+	}
 }
 
 // ValidateEnv checks that every name is a usable environment-variable name and

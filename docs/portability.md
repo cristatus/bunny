@@ -2,15 +2,16 @@
 
 Bunny installs each package into an install root chosen by its kind (`sdk/`,
 `cli/`, `app/`, all configurable). Whether it touches an app's persistent data
-follows a single principle:
+follows a single default:
 
 **Nothing is isolated by default.**
 
 A tool run through Bunny writes where it would have written had you installed it
 yourself. `mvn` populates `~/.m2/repository`, `gradle` uses `~/.gradle`, `npm`
 caches in `~/.npm`, VS Code reads `~/.config/Code`. Bunny installs the binary,
-resolves which version to run, and gets out of the way. Nothing is redirected
-unless you explicitly configure it in `~/.config/bunny/config.yaml`.
+resolves which version to run, and gets out of the way. Nothing is redirected,
+and no runtime sandbox is activated, unless you explicitly configure it in
+`~/.config/bunny/config.yaml`.
 
 This matches what `mise`, `sdkman`, `pyenv`, and `rustup` do, and it is the
 behavior most build caches are designed for: a Maven artifact or an npm tarball
@@ -30,6 +31,11 @@ env:
 These values point at the install tree (`{app}`) or at files Bunny generates
 (`{data}/toolchains.xml`). They do not redirect user data directories.
 
+A manifest may also recommend a `sandbox:` policy describing the environment
+in which its package normally works. That recommendation is inert unless the
+user names the package under `sandbox.packages`; manifests cannot activate
+sandboxing themselves.
+
 ## Global package installs
 
 `npm -g` installs into Node's own prefix (that version's install tree), so globals
@@ -41,17 +47,21 @@ Corepack, Yarn) remain at native host paths across versions.
 
 VS Code, Cursor, Zed, and JetBrains Toolbox namespace their configuration
 directories per application natively. Bunny runs them against their normal host
-paths without extra redirection layers.
+paths unless their exact package IDs are configured for data redirection or the
+optional runtime sandbox.
 
-## Not a sandbox
+## Default execution and optional sandbox
 
-Bunny executes processes directly via system calls (`execve`). It is not a security
-sandbox; run only trusted tools through Bunny.
+Bunny executes a package directly via `execve` unless that exact package ID is
+listed under `sandbox.packages`. The optional [per-package sandbox](sandbox.md)
+scopes a trusted package's state and integrations; it is not a hardened
+security boundary for untrusted code.
 
-## Opting into isolation
+## Opting into data redirection
 
-Isolation is configured in `~/.config/bunny/config.yaml`, keyed by package ID,
-capability, or `*` for all packages:
+Data paths can be redirected with `env` in
+`~/.config/bunny/config.yaml`, keyed by package ID, capability, or `*` for all
+packages:
 
 ```yaml
 env:
@@ -74,6 +84,11 @@ so overriding it requires restating the toolchains flag the manifest sets
 `~/.local/share/bunny/manifests/maven.yaml`.
 
 See [Configuration](config.md) for full details.
+
+This is independent of the runtime sandbox. `env` redirects the paths a tool
+uses even during direct execution; `sandbox.packages` controls whether the
+process receives an isolated HOME, path masks, or reduced integrations. They
+can be used separately or together.
 
 ## What survives uninstall
 

@@ -86,6 +86,43 @@ func TestResolveHonorsXDGOverrides(t *testing.T) {
 	}
 }
 
+func TestRuntimeEnvPreservesXDGLayoutAfterHomeChanges(t *testing.T) {
+	t.Setenv(EnvHome, "")
+	t.Setenv("HOME", "/host/home")
+	t.Setenv("XDG_DATA_HOME", "/host/data")
+	t.Setenv("XDG_CONFIG_HOME", "/host/config")
+	t.Setenv("XDG_CACHE_HOME", "/host/cache")
+	original, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, assignment := range original.RuntimeEnv() {
+		name, value, _ := strings.Cut(assignment, "=")
+		t.Setenv(name, value)
+	}
+	t.Setenv("HOME", "/sandbox/home")
+	t.Setenv("XDG_DATA_HOME", "/sandbox/data")
+	t.Setenv("XDG_CONFIG_HOME", "/sandbox/config")
+	t.Setenv("XDG_CACHE_HOME", "/sandbox/cache")
+
+	got, err := Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ got, want string }{
+		{got.Data(), original.Data()},
+		{got.Cache(), original.Cache()},
+		{got.UserConfigFile(), original.UserConfigFile()},
+		{got.Bin(), original.Bin()},
+		{got.Share(), original.Share()},
+		{got.FishCompletions(), original.FishCompletions()},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want preserved %q", c.got, c.want)
+		}
+	}
+}
+
 // The spec says a relative XDG value must be ignored in favour of the default.
 func TestResolveIgnoresRelativeXDGValues(t *testing.T) {
 	tmp := t.TempDir()

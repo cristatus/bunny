@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,15 @@ import (
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/shim"
 )
+
+// requireBwrap skips when bwrap is unavailable, as it is in minimal CI images
+// and inside containers without user namespaces.
+func requireBwrap(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("bwrap"); err != nil {
+		t.Skip("bwrap unavailable:", err)
+	}
+}
 
 type stubPinState struct{ installed map[string]bool }
 
@@ -143,6 +153,14 @@ func TestStrayBinaryCheckWarnsForAnotherLayout(t *testing.T) {
 	}
 	if !strings.Contains(r.Fix, paths.EnvHome+"="+root) {
 		t.Errorf("fix should point at the root: %q", r.Fix)
+	}
+}
+
+func TestUserNamespaceCheckOK(t *testing.T) {
+	requireBwrap(t)
+	r := userNamespaceCheck()
+	if r.Severity != OK {
+		t.Errorf("expected OK when bwrap can create an unprivileged sandbox, got %+v", r)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Bunny 🐰
 
-A toolchain manager for Java and Node developers: a single-binary alternative to SDKMAN. Bunny installs JDKs, Node, Maven, Gradle, and supporting IDEs into standard XDG directories, executing them directly against your host environment (`~/.m2`, `~/.gradle`, `~/.npm`). No sudo, no shell hooks, and identical behavior across your terminal, IDE, CI pipeline, and SSH sessions.
+A toolchain manager for Java and Node developers: a single-binary alternative to SDKMAN. Bunny installs JDKs, Node, Maven, Gradle, and supporting IDEs into standard XDG directories. Packages run directly against your host environment by default (`~/.m2`, `~/.gradle`, `~/.npm`), with an optional per-package sandbox when you want isolated application state or fewer integrations. No sudo or shell hooks.
 
 Bunny currently supports Linux on `x86_64`/`amd64`.
 
@@ -20,7 +20,7 @@ bunny run mvn -version
 
 Most developers assemble Java and Node workstations using a fragmented mix of `sdkman`, `nvm`, `mise`, `asdf`, Homebrew, Flatpak, and manual tarballs. Bunny unifies this workstation under a single, focused tool:
 
-- **Host-native by default**: No filesystem redirects unless configured. `mvn` uses `~/.m2`, `gradle` uses `~/.gradle`, and `npm` caches in `~/.npm`. Per-version data isolation is an explicit opt-in in `~/.config/bunny/config.yaml`.
+- **Host-native by default, isolated by choice**: `mvn` uses `~/.m2`, Gradle uses `~/.gradle`, and npm caches in `~/.npm` unless configured otherwise. Data paths can be redirected per package, and trusted applications can opt into an always-on or on-demand bubblewrap sandbox.
 - **Single binary & symlink shims**: `bunny init` adds a single PATH export with no shell wrapper functions. Executables dispatch directly through symlinks via `argv[0]`, ensuring consistent behavior across terminals, IDEs, and containers.
 - **Per-project version pinning**: Place a `.bunny-version` file in any project root to pin versions without shell hooks. Bunny also reads `.sdkmanrc`, `.tool-versions`, and `.java-version` files without requiring migration.
 - **First-class Java toolchains**: Multi-vendor JDK support (Temurin, Corretto, Zulu, GraalVM) powered by the [Foojay Disco API](https://api.foojay.io/). Automated Gradle and Maven toolchain configuration ensures builds compile against the target JDK regardless of the runtime Java version.
@@ -54,6 +54,32 @@ code .
 To install a specific version of Bunny, prefix the installer: `BUNNY_VERSION=v0.4.0 curl ... | sh`.
 
 To consolidate all files under a single root (useful for CI, containers, and fleet images), set `BUNNY_HOME=/opt/bunny`.
+
+### Optional per-package sandboxing
+
+Sandbox activation is explicit and scoped to exact package IDs. Add an entry to
+`~/.config/bunny/config.yaml` to sandbox every launch, or retain a policy for
+on-demand use only:
+
+```yaml
+sandbox:
+  packages:
+    code:
+      profile: desktop
+    codex:
+      activation: on-demand
+      profile: online-cli
+```
+
+```bash
+code .                    # always sandboxed
+bunny sandbox codex -- .  # sandboxed for this launch only
+```
+
+The sandbox isolates application state and can disable network or desktop
+integrations, but it is not a hardened boundary for untrusted software. See
+[Sandboxing](docs/sandbox.md) for profiles, overrides, nested shims, and the
+trust model.
 
 ## Java Workflow
 
@@ -100,7 +126,8 @@ node --version   # 22.x
 | `bunny use <id>` | Switch the active global provider for a capability (e.g. `jdk-21`) |
 | `bunny pin <capability> <version>` | Pin a capability to a version in `./.bunny-version` |
 | `bunny unpin <capability>` | Remove a capability pin from `./.bunny-version` |
-| `bunny run <id> [-- args]` | Execute a specific package binary directly |
+| `bunny run <id> [-- args]` | Execute a specific package binary using its normal activation policy |
+| `bunny sandbox <id> [-- args]` | Run an installed package once with its effective sandbox policy |
 | `bunny update` | Check for package updates (`--apply` to install updates) |
 | `bunny doctor` | Validate layout, configuration, catalog health, shims, and pins |
 | `bunny setup` | Configure user session environment, completions, and shell rc integration |
@@ -115,8 +142,9 @@ Maintainer and catalog-authoring utilities are available under `bunny dev`.
 ## Documentation
 
 - [First-class Java](docs/java.md): Multi-vendor JDK support, toolchains, and runtime `requires` constraints.
-- [Portability Model](docs/portability.md): Host-native execution model and data isolation principles.
-- [Configuration](docs/config.md): `config.yaml` reference, custom install roots, and per-version isolation.
+- [Portability Model](docs/portability.md): Default host-native execution, data redirection, and optional runtime isolation.
+- [Sandboxing](docs/sandbox.md): Always or on-demand per-package bwrap execution with isolated state, built-in/custom profiles, path masks, and feature controls.
+- [Configuration](docs/config.md): `config.yaml` reference, custom install roots, data redirection, and sandbox activation.
 - [Per-project Pinning](docs/pinning.md): `.bunny-version`, format interoperability, and IDE setup.
 - [Team Deployment](docs/teams.md): Forking catalogs, private hosting, and reproducible environments.
 - [Corporate Environments](docs/corporate.md): Proxies, custom CA roots, Maven settings, and air-gapped workflows.
@@ -163,6 +191,7 @@ make install    # Install binary to ~/.local/bin/bunny
 | **Primary Scope** | Java + Node workstation | JVM only | Polyglot runtime | General packages | System / package manager |
 | **GUI Editors & IDEs** | Yes | No | No | Partial | Yes |
 | **Per-Version Isolation** | Opt-in via config | No | Per-project `[env]` | No | Partial |
+| **Per-Package Runtime Sandbox** | Opt-in (bubblewrap) | No | No | No | Yes |
 | **Project Pinning** | `.bunny-version`, `.sdkmanrc`, `.tool-versions` | `.sdkmanrc` | `mise.toml`, `.tool-versions` | No | `flake.nix` |
 | **Shell Overhead** | None (symlinks) | Shell functions | Shim binary | None | None |
 | **Container Friendly** | Yes | Shell-dependent | Yes | Yes | Yes |

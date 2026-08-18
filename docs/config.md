@@ -3,7 +3,7 @@
 Bunny reads one optional file, `~/.config/bunny/config.yaml` (or
 `$BUNNY_HOME/config.yaml` when Bunny is collapsed under a single root). A
 missing file is not an error: it defaults to the stock catalog, the standard
-install locations, and native `$HOME` storage without isolation.
+install locations, native `$HOME` storage, and direct package execution.
 
 Bunny never creates this file automatically.
 [`config.example.yaml`](../config.example.yaml) in the repository is a commented
@@ -98,8 +98,10 @@ replace or remove a directory without one.
 ## `env`
 
 Extra environment variables applied when Bunny launches a package. This is
-where per-version data isolation is configured; manifests describe build and
-wiring requirements, never user isolation policy.
+where per-version data redirection is configured. Manifest `env` values describe
+runtime wiring; user config controls optional cache and data relocation.
+Manifest sandbox recommendations are separate and remain inactive until the
+user opts in under `sandbox.packages`.
 
 Keys match from least to most specific (most specific wins):
 
@@ -175,6 +177,72 @@ dirs:
     - "{data}/repository"
 ```
 
+## `sandbox`
+
+Per-package runtime sandboxing has no global enable switch. A package entry
+activates normal launches and can select a built-in profile without defining
+it locally:
+
+```yaml
+sandbox:
+  packages:
+    code:
+      profile: desktop
+```
+
+Built-in profiles provide reusable policy without repeating feature maps:
+
+| Profile | Home | Network | X11, Wayland, D-Bus, audio |
+| --- | --- | --- | --- |
+| `desktop` | Isolated | Enabled | Enabled |
+| `online-cli` | Isolated | Enabled | Disabled |
+| `offline-cli` | Isolated | Disabled | Disabled |
+
+The names are reserved. A package entry selects one profile and may override
+individual values without replacing the rest:
+
+```yaml
+sandbox:
+  packages:
+    code:
+      activation: on-demand
+      profile: desktop
+      features:
+        audio: false
+      hide:
+        - ~/Documents/private
+    codex:
+      activation: on-demand
+      profile: online-cli
+```
+
+User-defined profiles use other names and are useful for complete reusable
+personal policies, including path masks. A package selects either one built-in
+or one custom profile, followed by its inline overrides.
+
+`activation` accepts `always` or `on-demand` and defaults to `always` when
+omitted. Defining a profile alone activates nothing: an exact package entry is
+required, and that entry activates normal launches unless it sets
+`activation: on-demand`. On-demand entries retain their policy for
+`bunny sandbox <id>` without changing normal runs or shims. The command can also
+sandbox an installed package with no package entry, using its manifest and
+built-in defaults.
+
+Effective precedence is built-in defaults, manifest recommendations, selected
+built-in or user-defined profile, then the package override.
+
+| Field | Meaning |
+| --- | --- |
+| `activation` | `always` (default for an entry) or `on-demand` |
+| `profile` | One built-in or user-defined profile to layer into the policy |
+| `home` | `isolated` (default) or `shared` |
+| `features` | Per-key booleans for `network`, `audio`, `wayland`, `x11`, and `dbus` |
+| `hide` | Additive list of host paths to mask |
+
+Feature maps merge by key and `hide` lists are additive. See
+[Sandboxing](sandbox.md) for the complete runtime model, nesting behavior, and
+trust boundary.
+
 ## Recipes
 
 Per-version isolation recipes:
@@ -208,6 +276,14 @@ dirs:
   maven:
     - "{data}/repository"
 ```
+
+With this Node recipe, `npm install -g prettier` writes the executable under
+the active Node package's `{data}/npm-global`. Run `bunny reshim node` (or
+`bunny reshim`) after adding or removing global packages; Bunny then exposes
+`prettier` through its normal shim directory. If the shim is invoked from a
+sandboxed editor while Node itself is not sandbox-enabled, it runs directly
+inside the editor's existing sandbox: npm's prefix/cache remain in Node's
+`{data}`, while the tool inherits the editor's HOME and restrictions.
 
 Important considerations:
 
