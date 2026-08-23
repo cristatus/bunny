@@ -43,11 +43,10 @@ func (h *HTML) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 	if err != nil {
 		return nil, fmt.Errorf("invalid version-pattern: %w", err)
 	}
-	m := re.FindStringSubmatch(body)
-	if len(m) < 2 {
+	version := newestMatch(re, body)
+	if version == "" {
 		return nil, fmt.Errorf("version-pattern did not match")
 	}
-	version := m[1]
 	log.Debug("HTML version", "version", version)
 
 	r := &Result{
@@ -74,4 +73,23 @@ func (h *HTML) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 		}
 	}
 	return r, nil
+}
+
+// newestMatch returns the newest version among every capture of re in body. A
+// listing page orders its entries however it likes — oldest first, newest
+// first, or by whatever a directory index sorts on — and the entry a vendor
+// labels "latest" may be a milestone build, so the newest match the pattern
+// admits is the only dependable pick. Excluding pre-releases is the pattern's
+// job: verparse.Compare ranks "1.0.0-rc" above "1.0.0".
+func newestMatch(re *regexp.Regexp, body string) string {
+	var newest string
+	for _, m := range re.FindAllStringSubmatch(body, -1) {
+		if len(m) < 2 || m[1] == "" {
+			continue
+		}
+		if newest == "" || verparse.Compare(m[1], newest) > 0 {
+			newest = m[1]
+		}
+	}
+	return newest
 }

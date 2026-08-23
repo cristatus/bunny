@@ -81,6 +81,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The `html` update checker now picks the newest version among every match of
+  `version-pattern`, not the first one, so listing pages that order entries
+  oldest-first (Apache directory indexes, Maven `maven-metadata.xml`) no
+  longer report a stale version.
 - Bunny shims launched inside a sandboxed application's terminal now retain
   the real XDG/BUNNY_HOME layout, give an always-sandboxed child package its
   own isolated HOME, and inherit outer restrictions without an unnecessary
