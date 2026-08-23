@@ -52,6 +52,12 @@ func cliSurface(t *testing.T) []command {
 				if _, isArg := sub.Tag.Lookup("arg"); isArg {
 					continue // positional, not a flag
 				}
+				// Kong flattens an embedded struct's flags into the command,
+				// so a shared filter set has to be walked as if declared here.
+				if sub.Anonymous && sub.Type.Kind() == reflect.Struct {
+					cmd.flags = append(cmd.flags, embeddedFlags(sub.Type)...)
+					continue
+				}
 				if _, hasHelp := sub.Tag.Lookup("help"); !hasHelp {
 					continue
 				}
@@ -65,6 +71,24 @@ func cliSurface(t *testing.T) []command {
 		}
 	}
 	walk(reflect.TypeOf(CLI{}), "")
+	return out
+}
+
+// embeddedFlags returns the flag names an embedded struct contributes, walking
+// further embedding the way kong does.
+func embeddedFlags(typ reflect.Type) []string {
+	var out []string
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if f.Anonymous && f.Type.Kind() == reflect.Struct {
+			out = append(out, embeddedFlags(f.Type)...)
+			continue
+		}
+		if _, hasHelp := f.Tag.Lookup("help"); !hasHelp {
+			continue
+		}
+		out = append(out, kongName(f.Name))
+	}
 	return out
 }
 

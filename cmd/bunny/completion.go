@@ -11,6 +11,7 @@ import (
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/fsutil"
+	"github.com/cristatus/bunny/internal/manifest"
 
 	"github.com/cristatus/bunny/internal/paths"
 )
@@ -185,6 +186,11 @@ var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "
 // CLI.LogLevel in main.go); scripts embed them via __LOGLEVELS__.
 var completionLogLevels = []string{"debug", "info", "warn", "error"}
 
+// completionFilters are the flags catalogFilter contributes to `list` and
+// `search` — one list, because the two commands take one filter set; scripts
+// embed them via __FILTERS__.
+var completionFilters = []string{"--tag", "--capability", "--kind"}
+
 // completionScript returns the completion script for shell. Subcommands and
 // flags are static; package-ID arguments call `bunny complete-ids` (catalog)
 // or `bunny complete-ids --installed`, so IDs stay current without regenerating.
@@ -200,6 +206,9 @@ func completionScript(shell string) string {
 	}
 	raw = strings.ReplaceAll(raw, "__SUBCMDS__", strings.Join(completionSubcommands, " "))
 	raw = strings.ReplaceAll(raw, "__GLOBALS__", strings.Join(completionGlobalFlags, " "))
+	raw = strings.ReplaceAll(raw, "__FILTERS__", strings.Join(completionFilters, " "))
+	// --kind's values are the install kinds themselves, not a list repeated here.
+	raw = strings.ReplaceAll(raw, "__KINDS__", strings.Join(manifest.Kinds, " "))
 	return strings.ReplaceAll(raw, "__LOGLEVELS__", strings.Join(completionLogLevels, " "))
 }
 
@@ -214,7 +223,7 @@ const bashCompletion = `_bunny() {
     for (( i=1; i < COMP_CWORD; i++ )); do
         w="${COMP_WORDS[i]}"
         case "$w" in
-            --log-level|-l|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
+            --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--shell) (( i++ )); continue ;;
             -*) continue ;;
         esac
         if [[ -z "$sub" ]]; then sub="$w"; else operand="$w"; break; fi
@@ -226,7 +235,8 @@ const bashCompletion = `_bunny() {
         --tag)     COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return ;;
         --capability)   COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ); return ;;
         --catalog) COMPREPLY=( $(compgen -W "$(bunny complete-catalogs 2>/dev/null)" -- "$cur") ); return ;;
-        -t) [[ "$sub" == list ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
+        --kind)    COMPREPLY=( $(compgen -W "__KINDS__" -- "$cur") ); return ;;
+        -t) [[ "$sub" == list || "$sub" == search ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
         --shell)        COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return ;;
     esac
 
@@ -236,7 +246,8 @@ const bashCompletion = `_bunny() {
         case "$sub" in
             install)      flags="$flags --force" ;;
             uninstall)    flags="$flags --purge --yes" ;;
-            list)         flags="$flags --tag --capability --active --remote" ;;
+            list)         flags="$flags __FILTERS__ --active" ;;
+            search)       flags="$flags __FILTERS__ --installed --available" ;;
             run|sandbox)  flags="$flags --command" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
@@ -296,7 +307,7 @@ local sub="" operand="" w i
 for (( i = 2; i < CURRENT; i++ )); do
     w=${words[i]}
     case $w in
-        --log-level|-l|--tag|-t|-c|--capability|--command|--shell) (( i++ )); continue ;;
+        --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--shell) (( i++ )); continue ;;
         -*) continue ;;
     esac
     if [[ -z $sub ]]; then sub=$w; else operand=$w; break; fi
@@ -308,7 +319,8 @@ case $prev in
     --tag) compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return ;;
     --capability) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"}; return ;;
     --catalog) compadd -- ${(f)"$(bunny complete-catalogs 2>/dev/null)"}; return ;;
-    -t) [[ $sub == list ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
+    --kind) compadd -- __KINDS__; return ;;
+    -t) [[ $sub == list || $sub == search ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
     --shell) compadd -- bash zsh fish; return ;;
 esac
 
@@ -319,7 +331,8 @@ if [[ $cur == -* ]]; then
     case $sub in
         install) flags+=(--force) ;;
         uninstall) flags+=(--purge --yes) ;;
-        list) flags+=(--tag --capability --active --remote) ;;
+        list) flags+=(__FILTERS__ --active) ;;
+        search) flags+=(__FILTERS__ --installed --available) ;;
         run|sandbox) flags+=(--command) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
@@ -399,10 +412,12 @@ complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcom
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d "Also remove the package's data dir"
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -s y -l yes -d 'Skip the --purge confirmation prompt'
-complete -c bunny -n '__fish_seen_subcommand_from list' -s t -l tag -r -f -a '(__bunny_tags)' -d 'Filter by tag'
-complete -c bunny -n '__fish_seen_subcommand_from list' -l capability -r -f -a '(__bunny_capabilities)' -d 'Filter by provided capability'
+complete -c bunny -n '__fish_seen_subcommand_from list search' -s t -l tag -r -f -a '(__bunny_tags)' -d 'Filter by tag'
+complete -c bunny -n '__fish_seen_subcommand_from list search' -l capability -r -f -a '(__bunny_capabilities)' -d 'Filter by provided capability'
+complete -c bunny -n '__fish_seen_subcommand_from list search' -l kind -r -f -a '__KINDS__' -d 'Filter by install kind'
 complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only active providers'
-complete -c bunny -n '__fish_seen_subcommand_from list' -l remote -d 'List all packages in the catalog'
+complete -c bunny -n '__fish_seen_subcommand_from search' -l installed -d 'Show only installed packages'
+complete -c bunny -n '__fish_seen_subcommand_from search' -l available -d 'Show only packages that are not installed'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
 complete -c bunny -n '__fish_seen_subcommand_from sandbox' -s c -l command -r -d 'Specific command to run'
 complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'

@@ -29,8 +29,8 @@ type CLI struct {
 	// groups. Maintainer/completion commands are hidden from the top-level help.
 	Install    InstallCmd    `cmd:"" help:"Install a package"`
 	Uninstall  UninstallCmd  `cmd:"" help:"Uninstall a package"`
-	List       ListCmd       `cmd:"" help:"List installed packages; use --remote for the full catalog"`
-	Search     SearchCmd     `cmd:"" help:"Search packages"`
+	List       ListCmd       `cmd:"" help:"List installed packages"`
+	Search     SearchCmd     `cmd:"" help:"Search the catalog"`
 	Info       InfoCmd       `cmd:"" help:"Show package details"`
 	Update     UpdateCmd     `cmd:"" help:"Check for updates; use --apply to install them"`
 	Use        UseCmd        `cmd:"" help:"Switch active provider for a capability"`

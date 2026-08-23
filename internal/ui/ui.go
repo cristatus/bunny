@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"golang.org/x/sys/unix"
 )
 
 // Style selects one of bunny's few color roles.
@@ -92,3 +94,17 @@ func (p *Printer) Fatal(err error) {
 
 // Fatal is the package-level convenience: report err on stderr and exit 1.
 func Fatal(err error) { New(os.Stderr).Fatal(err) }
+
+// TermWidth returns w's terminal column count, or 0 when w is not a terminal
+// or cannot report a width. Callers treat 0 as "lay out unbounded".
+func TermWidth(w io.Writer) int {
+	f, ok := w.(*os.File)
+	if !ok {
+		return 0
+	}
+	ws, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
+	if err != nil || ws.Col == 0 {
+		return 0
+	}
+	return int(ws.Col)
+}

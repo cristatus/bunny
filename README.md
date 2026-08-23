@@ -120,8 +120,8 @@ node --version   # 22.x
 | :--- | :--- |
 | `bunny install <id...>` | Install one or more packages (`-f/--force` to reinstall) |
 | `bunny uninstall <id...>` | Remove packages (`--purge` to also delete associated data) |
-| `bunny list` | List installed packages (`--remote` for full catalog, `-t/--tag`, `--capability`, `--active`) |
-| `bunny search <query>` | Search packages by name, description, tags, capabilities, and requirements |
+| `bunny list` | List installed packages (`-t/--tag`, `--capability`, `--kind`, `--active`) |
+| `bunny search [query...]` | Search the catalog, ranked by match strength (`-t/--tag`, `--capability`, `--kind`, `--installed`, `--available`) |
 | `bunny info <id>` | Display package details, active provider state, pins, and dependents |
 | `bunny use <id>` | Switch the active global provider for a capability (e.g. `jdk-21`) |
 | `bunny pin <capability> <version>` | Pin a capability to a version in `./.bunny-version` |

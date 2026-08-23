@@ -1,11 +1,11 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/cristatus/bunny/internal/catalog"
@@ -14,31 +14,51 @@ import (
 	"github.com/cristatus/bunny/internal/ui"
 )
 
-// ListCmd prints installed packages by default. Pass --remote to see the full
-// catalog with install status.
-type ListCmd struct {
+// catalogFilter is the filter set every listing shares, so `bunny list` and
+// `bunny search` cannot diverge on what a filter selects.
+type catalogFilter struct {
 	Tag        string `short:"t" help:"Filter by tag"`
 	Capability string `help:"Filter by provided capability"`
-	Active     bool   `help:"Show only active capability providers"`
-	Remote     bool   `help:"List all packages in the catalog, not just installed"`
+	Kind       string `enum:"app,cli,sdk," default:"" placeholder:"kind" help:"Filter by install kind: app, cli, or sdk"`
+}
+
+// filterable is everything the filters read from one row.
+type filterable struct {
+	tags       []string
+	kind       string
+	capability string
+}
+
+// matches reports whether a row passes every filter; an unset filter passes
+// everything.
+func (f *catalogFilter) matches(r filterable) bool {
+	switch {
+	case f.Tag != "" && !slices.Contains(r.tags, f.Tag):
+		return false
+	case f.Capability != "" && r.capability != f.Capability:
+		return false
+	case f.Kind != "" && r.kind != f.Kind:
+		return false
+	}
+	return true
+}
+
+// unset reports whether no filter is set at all: how search tells a
+// filter-only browse from a bare invocation with nothing to look for.
+func (f *catalogFilter) unset() bool {
+	return f.Tag == "" && f.Capability == "" && f.Kind == ""
+}
+
+// ListCmd prints installed packages; `bunny search` answers the catalog side of
+// the same question with the same filters. --active stays here: which package
+// answers for a capability is a property of what is installed.
+type ListCmd struct {
+	catalogFilter
+	Active bool `help:"Show only active capability providers"`
 }
 
 func (c *ListCmd) Run(a *App) error {
-	if c.Remote {
-		return c.listRemote(a)
-	}
 	return c.listInstalled(a)
-}
-
-// matchesTag reports whether a package carrying the given tags passes the
-// --tag filter (no filter set → always true). Kept in one place so the
-// installed and remote listings can never diverge on how they filter.
-func (c *ListCmd) matchesTag(tags []string) bool {
-	return c.Tag == "" || slices.Contains(tags, c.Tag)
-}
-
-func (c *ListCmd) matchesCapability(capability string) bool {
-	return c.Capability == "" || capability == c.Capability
 }
 
 func (c *ListCmd) listInstalled(a *App) error {
@@ -57,26 +77,26 @@ func (c *ListCmd) listInstalled(a *App) error {
 	}
 	var rows []installedRow
 	for id, pkg := range a.State.Packages {
-		var tags []string
+		// Zero value when the catalog cannot say: state still carries enough
+		// to list the package, just not its tags.
+		info := catalogInfo[id]
 		provides, kind := pkg.Provides, pkg.Kind
-		if p, ok := catalogInfo[id]; ok {
-			tags = p.Tags
-			if provides == "" {
-				provides = p.Provides
-			}
-			if kind == "" {
-				kind = p.Kind
-			}
+		if provides == "" {
+			provides = info.Provides
+		}
+		if kind == "" {
+			kind = info.Kind
 		}
 		active := provides != "" && a.State.Providers[provides] == id
-		if !c.matchesTag(tags) || !c.matchesCapability(provides) || (c.Active && !active) {
+		if !c.matches(filterable{tags: info.Tags, kind: kind, capability: provides}) ||
+			(c.Active && !active) {
 			continue
 		}
 		rows = append(rows, installedRow{
 			id: id, kind: kind, version: pkg.Version, provides: provides, active: active,
 		})
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].id < rows[j].id })
+	slices.SortFunc(rows, func(a, b installedRow) int { return strings.Compare(a.id, b.id) })
 	p := ui.New(os.Stdout)
 	p.Print("\n" + renderInstalled(p, rows))
 	return nil
@@ -105,67 +125,6 @@ func renderInstalled(p *ui.Printer, rows []installedRow) string {
 		})
 	}
 	out := p.Table([]string{"Package", "Kind", "Provides", "Version", "Active"}, cells)
-	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
-}
-
-func (c *ListCmd) listRemote(a *App) error {
-	pkgs, err := a.Catalog.List()
-	if err != nil {
-		return err
-	}
-	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].ID < pkgs[j].ID })
-	var rows []remoteRow
-	for _, pkg := range pkgs {
-		active := pkg.Provides != "" && a.State.Providers[pkg.Provides] == pkg.ID
-		if !c.matchesTag(pkg.Tags) || !c.matchesCapability(pkg.Provides) || (c.Active && !active) {
-			continue
-		}
-		status, style := "", ui.Plain
-		if info, ok := a.State.Packages[pkg.ID]; ok {
-			status, style = "installed", ui.Good
-			if info.Version != pkg.Version {
-				status = fmt.Sprintf("installed (%s)", info.Version)
-			}
-		}
-		rows = append(rows, remoteRow{pkg: pkg, active: active, status: status, statusStyle: style})
-	}
-	p := ui.New(os.Stdout)
-	p.Print("\n" + renderRemote(p, rows, a.multiCatalog()))
-	return nil
-}
-
-type remoteRow struct {
-	pkg         catalog.PackageInfo
-	active      bool
-	status      string
-	statusStyle ui.Style
-}
-
-func renderRemote(p *ui.Printer, rows []remoteRow, showSource bool) string {
-	cells := make([][]ui.Cell, 0, len(rows))
-	for _, r := range rows {
-		active, activeStyle := "", ui.Plain
-		if r.active {
-			active, activeStyle = "yes", ui.Good
-		}
-		row := []ui.Cell{
-			{Text: r.pkg.ID}, {Text: r.pkg.Kind}, {Text: r.pkg.Provides},
-			{Text: r.pkg.Version},
-		}
-		if showSource {
-			row = append(row, ui.Cell{Text: r.pkg.Source})
-		}
-		cells = append(cells, append(row,
-			ui.Cell{Text: active, Style: activeStyle},
-			ui.Cell{Text: r.status, Style: r.statusStyle},
-		))
-	}
-	headers := []string{"Package", "Kind", "Provides", "Version"}
-	if showSource {
-		headers = append(headers, "Catalog")
-	}
-	headers = append(headers, "Active", "Status")
-	out := p.Table(headers, cells)
 	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
@@ -212,7 +171,7 @@ func (c *InfoCmd) Run(a *App) error {
 				}
 			}
 		}
-		sort.Strings(detail.dependents)
+		slices.Sort(detail.dependents)
 	}
 	p := ui.New(os.Stdout)
 	p.Println()
@@ -301,46 +260,152 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, detail infoDetail) string {
 	return out
 }
 
-// SearchCmd does a substring match on catalog summary metadata, including
-// tags, provided capabilities, and runtime requirements. Tags are not a
-// column in any listing, so search is where they earn their keep.
+// SearchCmd queries the catalog. Terms match as substrings against ids, names,
+// descriptions, tags, provided capabilities, and runtime requirements, ranked by
+// which field matched. Filters alone are a valid query, so `bunny search
+// --tag ai` browses that slice of the catalog.
 type SearchCmd struct {
-	Query string `arg:"" help:"Search query"`
+	catalogFilter
+	Installed bool     `xor:"status" help:"Show only packages that are installed"`
+	Available bool     `xor:"status" help:"Show only packages that are not installed"`
+	Query     []string `arg:"" optional:"" help:"Search terms; a package must match every one"`
 }
 
-// searchMatches reports whether a package matches an already-lowercased query.
-func searchMatches(pkg catalog.PackageInfo, q string) bool {
-	return strings.Contains(strings.ToLower(pkg.ID), q) ||
-		strings.Contains(strings.ToLower(pkg.Name), q) ||
-		strings.Contains(strings.ToLower(pkg.Description), q) ||
-		strings.Contains(strings.ToLower(pkg.Provides), q) ||
-		containsFold(pkg.Requires, q) || containsFold(pkg.Tags, q)
+// Match ranks, weakest first. Requirements rank last because every Java app
+// requires jdk, so matching there says almost nothing about the package.
+const (
+	scoreNone = iota
+	scoreRequires
+	scoreDescription
+	scoreName
+	scoreFacet // a tag, or part of the provided capability
+	scoreIDPart
+	scoreIDPrefix
+	scoreExact // the id itself, or the capability it provides
+)
+
+// searchScore ranks one already-lowercased term against a package, returning
+// scoreNone when it does not match. An empty term matches nothing: as a
+// substring it would match everything.
+func searchScore(pkg catalog.PackageInfo, q string) int {
+	if q == "" {
+		return scoreNone
+	}
+	id, provides := strings.ToLower(pkg.ID), strings.ToLower(pkg.Provides)
+	switch {
+	case id == q, provides == q:
+		return scoreExact
+	case strings.HasPrefix(id, q):
+		return scoreIDPrefix
+	case strings.Contains(id, q):
+		return scoreIDPart
+	case containsFold(pkg.Tags, q), strings.Contains(provides, q):
+		return scoreFacet
+	case strings.Contains(strings.ToLower(pkg.Name), q):
+		return scoreName
+	case strings.Contains(strings.ToLower(pkg.Description), q):
+		return scoreDescription
+	case containsFold(pkg.Requires, q):
+		return scoreRequires
+	}
+	return scoreNone
+}
+
+// scoreQuery ranks a package against every term, reporting false as soon as one
+// misses: terms narrow, they do not accumulate. The weakest term sets the rank,
+// so a package matching both terms in its id beats one matching a term only in
+// its description. No terms is a filter-only browse: everything ties at
+// scoreNone and the listing falls back to id order.
+func scoreQuery(pkg catalog.PackageInfo, terms []string) (int, bool) {
+	if len(terms) == 0 {
+		return scoreNone, true
+	}
+	score := scoreExact
+	for _, t := range terms {
+		s := searchScore(pkg, t)
+		if s == scoreNone {
+			return scoreNone, false
+		}
+		score = min(score, s)
+	}
+	return score, true
+}
+
+// terms lowercases the query, dropping blanks so a quoted empty argument
+// cannot turn into a match-everything substring.
+func (c *SearchCmd) terms() []string {
+	out := make([]string, 0, len(c.Query))
+	for _, q := range c.Query {
+		if q = strings.ToLower(strings.TrimSpace(q)); q != "" {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// collect returns the rows to print, ranked. Filters run before scoring: they
+// are a field compare, ranking walks every searchable field.
+func (c *SearchCmd) collect(a *App, pkgs []catalog.PackageInfo, terms []string) []catalogRow {
+	var rows []catalogRow
+	for _, pkg := range pkgs {
+		if !c.matches(filterable{tags: pkg.Tags, kind: pkg.Kind, capability: pkg.Provides}) {
+			continue
+		}
+		info, installed := a.State.Packages[pkg.ID]
+		if (c.Installed && !installed) || (c.Available && installed) {
+			continue
+		}
+		score, ok := scoreQuery(pkg, terms)
+		if !ok {
+			continue
+		}
+		active := pkg.Provides != "" && a.State.Providers[pkg.Provides] == pkg.ID
+		status, style := catalogStatus(info.Version, pkg.Version, installed, active)
+		rows = append(rows, catalogRow{pkg: pkg, score: score, status: status, statusStyle: style})
+	}
+	// Rank first, then id: within one rank the catalog's own order is priority
+	// order, which says nothing to someone scanning the column.
+	slices.SortFunc(rows, func(x, y catalogRow) int {
+		if x.score != y.score {
+			return y.score - x.score // best match first
+		}
+		return strings.Compare(x.pkg.ID, y.pkg.ID)
+	})
+	return rows
 }
 
 func (c *SearchCmd) Run(a *App) error {
+	terms := c.terms()
+	if len(terms) == 0 && c.unset() && !c.Installed && !c.Available {
+		return errors.New("nothing to search for: pass a query, or a filter such as --tag, --kind, or --capability")
+	}
 	pkgs, err := a.Catalog.List()
 	if err != nil {
 		return err
 	}
-	q := strings.ToLower(c.Query)
-	var matches []catalog.PackageInfo
-	for _, pkg := range pkgs {
-		if searchMatches(pkg, q) {
-			matches = append(matches, pkg)
-		}
-	}
-	sort.Slice(matches, func(i, j int) bool { return matches[i].ID < matches[j].ID })
-	installed := map[string]bool{}
-	for id := range a.State.Packages {
-		installed[id] = true
-	}
+	rows := c.collect(a, pkgs, terms)
+
 	p := ui.New(os.Stdout)
-	p.Print("\n" + renderSearch(p, c.Query, matches, installed))
+	p.Println()
+	if len(rows) == 0 {
+		if len(terms) == 0 {
+			p.Println("no packages match these filters")
+			return nil
+		}
+		p.Printf("no matches for %q\n", strings.Join(terms, " "))
+		return nil
+	}
+	// A query counts matches; filters alone are a listing of packages.
+	noun := "packages"
+	if len(terms) > 0 {
+		noun = "matches"
+	}
+	p.Print(renderCatalog(p, rows, a.multiCatalog(), noun))
 	return nil
 }
 
+// containsFold reports whether any value contains the already-lowercased query.
 func containsFold(values []string, query string) bool {
-	query = strings.ToLower(query)
 	for _, value := range values {
 		if strings.Contains(strings.ToLower(value), query) {
 			return true
@@ -349,25 +414,54 @@ func containsFold(values []string, query string) bool {
 	return false
 }
 
-// renderSearch prints a match table (Package / Version / Status / Description),
-// green "installed" on installed rows, then a count. Zero matches print a plain
-// message instead of an empty table.
-func renderSearch(p *ui.Printer, query string, pkgs []catalog.PackageInfo, installed map[string]bool) string {
-	if len(pkgs) == 0 {
-		return fmt.Sprintf("no matches for %q\n", query)
+// catalogRow is one line of a catalog listing.
+type catalogRow struct {
+	pkg         catalog.PackageInfo
+	score       int
+	status      string
+	statusStyle ui.Style
+}
+
+// catalogStatus describes a row's relation to what is on disk. "active" implies
+// installed, so it replaces rather than joins it; a parenthesized version is
+// the differing one on disk.
+func catalogStatus(installedVersion, catalogVersion string, installed, active bool) (string, ui.Style) {
+	if !installed {
+		return "", ui.Plain
 	}
-	var cells [][]ui.Cell
-	for _, pkg := range pkgs {
-		status, style := "", ui.Plain
-		if installed[pkg.ID] {
-			status, style = "installed", ui.Good
+	status := "installed"
+	if active {
+		status = "active"
+	}
+	if installedVersion != catalogVersion {
+		status += " (" + installedVersion + ")"
+	}
+	return status, ui.Good
+}
+
+// renderCatalog formats catalog results in rank order, carrying the Catalog
+// column only when more than one catalog could have answered. Tags are a filter
+// dimension, not a column: `bunny info` prints them in full.
+func renderCatalog(p *ui.Printer, rows []catalogRow, showSource bool, noun string) string {
+	cells := make([][]ui.Cell, 0, len(rows))
+	for _, r := range rows {
+		row := []ui.Cell{
+			{Text: r.pkg.ID}, {Text: r.pkg.Kind}, {Text: r.pkg.Provides},
+			{Text: r.pkg.Version},
 		}
-		cells = append(cells, []ui.Cell{
-			{Text: pkg.ID}, {Text: pkg.Provides}, {Text: pkg.Version},
-			{Text: status, Style: style},
-			{Text: pkg.Description},
-		})
+		if showSource {
+			row = append(row, ui.Cell{Text: r.pkg.Source})
+		}
+		cells = append(cells, append(row,
+			ui.Cell{Text: r.status, Style: r.statusStyle},
+			ui.Cell{Text: r.pkg.Description},
+		))
 	}
-	out := p.Table([]string{"Package", "Provides", "Version", "Status", "Description"}, cells)
-	return out + "\n" + fmt.Sprintf("%d matches\n", len(pkgs))
+	headers := []string{"Package", "Kind", "Provides", "Version"}
+	if showSource {
+		headers = append(headers, "Catalog")
+	}
+	headers = append(headers, "Status", "Description")
+	out := p.Table(headers, cells)
+	return out + "\n" + fmt.Sprintf("%d %s\n", len(rows), noun)
 }

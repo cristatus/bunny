@@ -104,7 +104,7 @@ says which are usable.
 
 ### Seeing which catalog answered
 
-`bunny list --remote` gains a `Catalog` column and `bunny info` a `Catalog` row
+`bunny search` gains a `Catalog` column and `bunny info` a `Catalog` row
 whenever more than one catalog is usable. Both stay hidden for a single one,
 where the answer carries no information — and a checkout that is not on disk
 does not count as a second catalog.

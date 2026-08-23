@@ -11,8 +11,6 @@ import (
 	"io"
 	"os"
 	"strings"
-
-	"golang.org/x/sys/unix"
 )
 
 // barWidth is the character width of the download progress bar.
@@ -51,19 +49,6 @@ func isTTY(w io.Writer) bool {
 	}
 	fi, err := f.Stat()
 	return err == nil && fi.Mode()&os.ModeCharDevice != 0
-}
-
-// termWidth returns the writer's terminal column count, or 0 when unknown.
-func termWidth(w io.Writer) int {
-	f, ok := w.(*os.File)
-	if !ok {
-		return 0
-	}
-	ws, err := unix.IoctlGetWinsize(int(f.Fd()), unix.TIOCGWINSZ)
-	if err != nil || ws.Col == 0 {
-		return 0
-	}
-	return int(ws.Col)
 }
 
 // mib formats a byte count as a MiB value (binary, matching mise).

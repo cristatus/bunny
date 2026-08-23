@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 const (
@@ -64,7 +66,7 @@ func newLive(w io.Writer) *liveReporter {
 
 func (r *liveReporter) Begin(parent context.Context, ids []string) context.Context {
 	r.idWidth = maxLen(ids)
-	r.width = termWidth(r.w)
+	r.width = ui.TermWidth(r.w)
 	r.stop = make(chan struct{})
 	fmt.Fprint(r.w, hideCursor) // stop the blinking cursor flashing/jumping over redraws
 	r.watchSignals()            // restore the cursor if the process is interrupted
@@ -98,7 +100,7 @@ func (r *liveReporter) tick() {
 			return
 		case <-t.C:
 			r.mu.Lock()
-			r.width = termWidth(r.w) // pick up resizes
+			r.width = ui.TermWidth(r.w) // pick up resizes
 			if r.active {
 				r.frame = (r.frame + 1) % len(spinnerFrames) // keep spinning, even during download
 				r.redrawLocked()

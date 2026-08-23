@@ -14,7 +14,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   maintaining a fork. The first catalog listed that carries a package serves it,
   so none can take over a package id held by one above it. An unreachable
   catalog is skipped rather than failing the lookup. `bunny doctor` reports one
-  row per catalog, `bunny info`/`list --remote` name the catalog a package came
+  row per catalog, `bunny search`/`bunny info` name the catalog a package came
   from once several are usable, `state.json` records it per install, and install
   and update report a package that changes hands. `bunny dev validate`/`dev
   update` take `--catalog <name>`, completing the checkouts that are actually
@@ -40,6 +40,16 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `bunny search` ranks results by which field matched, so an id or capability
+  hit outranks a passing mention in a description; takes several terms, all of
+  which must match; and shares one filter set with `bunny list` (`-t/--tag`,
+  `--capability`, `--kind`), adding `--installed`/`--available` of its own.
+  Filters alone are a valid query, so `bunny search --tag ai` browses that
+  slice of the catalog, while a query with nothing to narrow by is an error
+  rather than the whole catalog.
+- A table's final column of free text is clipped to the room the terminal has
+  left, so one long description no longer wraps every row. Piped output keeps
+  the whole text.
 - **Nothing is isolated by default**: `mvn`, `gradle`, npm, pnpm, Yarn, deno,
   and bun use their native caches and install roots; data redirection is opt-in
   via `env:`, and runtime sandboxing is opt-in per package.
@@ -85,6 +95,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- `bunny list --remote` — `bunny search` browses the catalog, with the same
+  filters and an optional query: `bunny search --tag ai`,
+  `bunny search --kind sdk --available`. `--active` stays on `bunny list`,
+  where an active provider is a property of what is installed.
 - Paging of `list`/`search` output (`--pager`, `--no-pager`, `BUNNY_PAGER`,
   `PAGER`) — use `| less` instead; both commands still write plain text to
   stdout.
