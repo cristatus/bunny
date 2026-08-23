@@ -74,14 +74,18 @@
 #       activation: on-demand
 #       profile: online-cli
 
-# --- Catalog ----------------------------------------------------------------
+# --- Catalogs ---------------------------------------------------------------
 #
-# Where manifests come from. "remote" is a forked or internal catalog, for
-# teams with their own packages. "local" is a checkout that takes precedence
-# over it, which is how you work on a catalog; it defaults to
-# ~/.local/share/bunny/catalog. `bunny doctor` reports which is in play.
-# See docs/teams.md.
+# Where manifests come from, highest priority first. Each entry needs a name
+# and exactly one of local, a checkout on disk, or remote, an HTTP catalog. The
+# first catalog listed that carries a package serves it. The list is exhaustive:
+# with none listed the chain is the public catalog alone, so name it too when
+# you list your own. See docs/config.md#catalogs.
+#
+# Your own packages beside the public ones, without forking:
 
-# catalog:
-#   remote: https://github.com/acme/bunny-catalog
-#   local: ~/src/bunny-catalog
+# catalogs:
+#   - name: acme
+#     local: ~/src/acme-catalog
+#   - name: bunny
+#     remote: https://raw.githubusercontent.com/cristatus/bunny-catalog/main

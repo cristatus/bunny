@@ -3,7 +3,11 @@
 // loader that layers them in priority order.
 package catalog
 
-import "github.com/cristatus/bunny/internal/manifest"
+import (
+	"slices"
+
+	"github.com/cristatus/bunny/internal/manifest"
+)
 
 // PackageInfo is a lightweight summary of a manifest, used by `bunny list`.
 type PackageInfo struct {
@@ -17,12 +21,33 @@ type PackageInfo struct {
 	Version     string
 	Provides    string
 	Requires    []string
+	// Source names the catalog the entry came from, stamped while resolving.
+	Source string
+}
+
+// InfoOf summarizes a manifest for listings.
+func InfoOf(m *manifest.Manifest) PackageInfo {
+	return PackageInfo{
+		ID:          m.ID,
+		Tags:        slices.Clone(m.Tags),
+		Kind:        m.KindOf(),
+		Name:        m.Name,
+		Description: m.Description,
+		Version:     m.Version,
+		Provides:    m.Provides,
+		Requires:    slices.Clone(m.Requires),
+	}
 }
 
 // Loader is the interface every catalog source implements.
 type Loader interface {
 	// List returns summary info for every package in the catalog.
 	List() ([]PackageInfo, error)
+
+	// Lookup returns the summary for one package. Resolution calls it on every
+	// catalog, so keep it cheap. Returns ErrNotFound when the catalog does not
+	// carry the package and ErrUnavailable when it cannot say either way.
+	Lookup(id string) (PackageInfo, error)
 
 	// Load returns a parsed and validated manifest for the package.
 	Load(id string) (*manifest.Manifest, error)

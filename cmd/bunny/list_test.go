@@ -51,7 +51,7 @@ func TestRenderRemoteShowsCapabilityAndActive(t *testing.T) {
 		pkg:    catalog.PackageInfo{ID: "zulu-21", Tags: []string{"java", "jdk"}, Kind: "sdk", Provides: "jdk", Version: "21"},
 		active: true, status: "installed", statusStyle: ui.Good,
 	}}
-	out := renderRemote(p, rows)
+	out := renderRemote(p, rows, false)
 	// Tags are a filter dimension, not a column: they belong to `bunny info`.
 	if strings.Contains(out, "Tags") || strings.Contains(out, "java") {
 		t.Errorf("listing should not print tags: %q", out)
@@ -59,6 +59,26 @@ func TestRenderRemoteShowsCapabilityAndActive(t *testing.T) {
 	for _, want := range []string{"Kind", "sdk", "Provides", "Active", "jdk", "yes", "installed", "1 packages"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("remote output missing %q: %q", want, out)
+		}
+	}
+	// One catalog cannot answer "which one?", so the column stays off.
+	if strings.Contains(out, "Catalog") {
+		t.Errorf("single-catalog listing should not carry a catalog column: %q", out)
+	}
+}
+
+// With several catalogs configured, which one a package came from is part of
+// the listing.
+func TestRenderRemoteShowsCatalogWhenSeveralConfigured(t *testing.T) {
+	var b bytes.Buffer
+	p := ui.NewWithColor(&b, false)
+	rows := []remoteRow{{
+		pkg: catalog.PackageInfo{ID: "spring-boot", Kind: "sdk", Version: "3.0.0", Source: "axelor"},
+	}}
+	out := renderRemote(p, rows, true)
+	for _, want := range []string{"Catalog", "axelor", "spring-boot"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q: %q", want, out)
 		}
 	}
 }

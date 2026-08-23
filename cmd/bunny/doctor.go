@@ -13,9 +13,18 @@ import (
 type DoctorCmd struct{}
 
 func (c *DoctorCmd) Run(a *App) error {
-	// The effective URL, not the configured one: "unset" is not an answer to
+	// Effective locations, not configured ones: "unset" is not an answer to
 	// "which catalog am I using?".
-	results := doctor.RunAll(a.Paths, a.local.Root(), a.remote.URL())
+	cats := make([]doctor.CatalogSource, 0, len(a.catalogs))
+	for _, e := range a.catalogs {
+		cats = append(cats, doctor.CatalogSource{
+			Name:     e.src.Name,
+			Location: e.location,
+			Checkout: e.local != nil,
+			Present:  e.present,
+		})
+	}
+	results := doctor.RunAll(a.Paths, cats)
 	if cwd, err := os.Getwd(); err == nil {
 		results = append(results, doctor.PinResolution(a.State, cwd)...)
 	}

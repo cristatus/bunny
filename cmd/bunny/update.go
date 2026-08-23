@@ -100,6 +100,7 @@ func (c *UpdateCmd) apply(a *App) error {
 	errs := append([]error(nil), report.Failures...)
 	start := time.Now()
 	applied, failed := 0, 0
+	var notes []string
 	mutationErr := a.withMutation(ctx, func() error {
 		if c.ID != "" && !a.State.IsInstalled(c.ID) {
 			return fmt.Errorf("package %q is not installed", c.ID)
@@ -132,12 +133,16 @@ func (c *UpdateCmd) apply(a *App) error {
 				continue
 			}
 			rep.Start(r.ID)
+			wasFrom := installed.Source
 			if err := a.Installer.Install(ctx, r.ID, true, reporterHook{rep, r.ID}); err != nil {
 				rep.Fail(r.ID, err)
 				failed++
 				continue
 			}
 			rep.Done(r.ID, "updated", fmt.Sprintf("%s → %s", r.CurrentVersion, m.Version))
+			if note := a.sourceChangeNote(r.ID, wasFrom); note != "" {
+				notes = append(notes, note)
+			}
 			applied++
 		}
 		if applied > 0 {
@@ -148,6 +153,7 @@ func (c *UpdateCmd) apply(a *App) error {
 		return nil
 	})
 	rep.Close()
+	a.printNotes(notes)
 	printSummary(a, "updated", applied, failed, time.Since(start))
 	// errs holds check-phase + post-op failures (not shown per-package); print
 	// those. Per-apply failures are already shown, so a bare failed count exits

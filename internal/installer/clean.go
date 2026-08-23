@@ -109,11 +109,19 @@ func (c *Cleaner) cleanAllCache(r *Report, all bool) {
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
-			continue // index.json etc. — left alone unless --all
-			// (handled below)
+			continue // top-level files — handled below
 		}
 		id := e.Name()
 		dir := filepath.Join(cacheRoot, id)
+		if dir == c.Paths.CatalogCacheRoot() {
+			// Catalog indexes, not package downloads: nothing here is named
+			// after a package, so the is-it-installed test below would delete
+			// the lot. Dropping them costs a re-fetch, so only --all does.
+			if all {
+				c.removeAll(r, dir)
+			}
+			continue
+		}
 		if all || !c.State.IsInstalled(id) {
 			c.removeAll(r, dir)
 			continue
@@ -122,8 +130,7 @@ func (c *Cleaner) cleanAllCache(r *Report, all bool) {
 	}
 
 	if all {
-		// Also drop top-level files like index.json so the remote catalog
-		// re-fetches on next operation.
+		// Top-level files, so a catalog re-fetches on the next operation.
 		for _, e := range entries {
 			if e.IsDir() || isDisposableMarker(e.Name()) {
 				continue // keep CACHEDIR.TAG/.nobackup so the dir stays tagged

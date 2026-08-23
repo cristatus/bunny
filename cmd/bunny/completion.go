@@ -29,13 +29,8 @@ func (a *App) catalogPackages() []catalog.PackageInfo {
 			}
 		}
 	}
-	if a.local != nil {
-		if pkgs, err := a.local.List(); err == nil {
-			add(pkgs)
-		}
-	}
-	if a.remote != nil {
-		if pkgs, err := a.remote.ListCached(); err == nil {
+	for _, e := range a.catalogs {
+		if pkgs, err := e.listCached(); err == nil {
 			add(pkgs)
 		}
 	}
@@ -101,6 +96,20 @@ func (a *App) completionTags() []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
+// completionCatalogs returns the catalog checkouts `bunny dev --catalog`
+// accepts. Remotes are left out because the dev commands rewrite a checkout,
+// and a checkout that is not on disk with it: either would complete to a name
+// the command then rejects.
+func (a *App) completionCatalogs() []string {
+	var names []string
+	for _, e := range a.catalogs {
+		if e.local != nil && e.present {
+			names = append(names, e.src.Name)
+		}
+	}
+	return names
+}
+
 // CompleteIDsCmd is the hidden helper the generated completion scripts call to
 // list package IDs. --installed restricts to installed packages; --providers to
 // installed packages that provide a capability (the valid `bunny use` targets).
@@ -131,6 +140,14 @@ type CompleteCapabilitiesCmd struct{}
 
 func (c *CompleteCapabilitiesCmd) Run(a *App) error {
 	printLines(a.completionCapabilities())
+	return nil
+}
+
+// CompleteCatalogsCmd is the hidden helper for `dev --catalog` completion.
+type CompleteCatalogsCmd struct{}
+
+func (c *CompleteCatalogsCmd) Run(a *App) error {
+	printLines(a.completionCatalogs())
 	return nil
 }
 
@@ -208,6 +225,7 @@ const bashCompletion = `_bunny() {
         --log-level|-l) COMPREPLY=( $(compgen -W "__LOGLEVELS__" -- "$cur") ); return ;;
         --tag)     COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return ;;
         --capability)   COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ); return ;;
+        --catalog) COMPREPLY=( $(compgen -W "$(bunny complete-catalogs 2>/dev/null)" -- "$cur") ); return ;;
         -t) [[ "$sub" == list ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
         --shell)        COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return ;;
     esac
@@ -223,6 +241,7 @@ const bashCompletion = `_bunny() {
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
+            dev)          flags="$flags --catalog" ;;
         esac
         COMPREPLY=( $(compgen -W "$flags" -- "$cur") )
         return
@@ -288,6 +307,7 @@ case $prev in
     --log-level|-l) compadd -- __LOGLEVELS__; return ;;
     --tag) compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return ;;
     --capability) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"}; return ;;
+    --catalog) compadd -- ${(f)"$(bunny complete-catalogs 2>/dev/null)"}; return ;;
     -t) [[ $sub == list ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
     --shell) compadd -- bash zsh fish; return ;;
 esac
@@ -304,6 +324,7 @@ if [[ $cur == -* ]]; then
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
+        dev) flags+=(--catalog) ;;
     esac
     compadd -- $flags
     return
@@ -356,6 +377,10 @@ end
 function __bunny_capabilities
     bunny complete-capabilities 2>/dev/null
 end
+
+function __bunny_catalogs
+    bunny complete-catalogs 2>/dev/null
+end
 complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 # global flags — accepted anywhere (no subcommand condition)
 complete -c bunny -l help -d 'Show help'
@@ -384,6 +409,7 @@ complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabi
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'
 complete -c bunny -n '__fish_seen_subcommand_from clean' -l all -d 'Drop all download cache'
+complete -c bunny -n '__fish_seen_subcommand_from dev' -l catalog -r -f -a '(__bunny_catalogs)' -d 'Catalog checkout to act on'
 `
 
 // completionFilePath returns where shell looks for bunny's own completion

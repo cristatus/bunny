@@ -293,7 +293,7 @@ Code sandbox ({data}/code/home)
 ```
 
 Node receives its own HOME/XDG tree. Bunny preserves private anchors to its
-real config, state, catalog, and shim directories, so shim resolution keeps
+real config, state, and shim directories, so shim resolution keeps
 working even though Code changed HOME and every XDG base directory.
 
 Bunny avoids unnecessary bubblewrap nesting. If the child only changes HOME

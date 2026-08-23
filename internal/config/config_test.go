@@ -4,7 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
+
+	"github.com/cristatus/bunny/internal/catalog"
 )
 
 func write(t *testing.T, body string) string {
@@ -22,7 +25,7 @@ func TestLoadEmptyFile(t *testing.T) {
 	}{
 		{"empty", ""},
 		{"comment-only", "# just a comment\n"},
-		{"trailing-separator", "catalog:\n  remote: https://example.com\n---\n"},
+		{"trailing-separator", "catalogs:\n  - name: org\n    remote: https://example.com\n---\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg, err := Load(write(t, tc.body))
@@ -193,29 +196,73 @@ func TestExampleConfigIsValidAndInert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%s must be valid config: %v", path, err)
 	}
-	if len(cfg.Env) != 0 || len(cfg.Dirs) != 0 || len(cfg.Install) != 0 || cfg.Catalog.Remote != "" ||
+	if len(cfg.Env) != 0 || len(cfg.Dirs) != 0 || len(cfg.Install) != 0 || len(cfg.Catalogs) != 0 ||
 		len(cfg.Sandbox.Profiles) != 0 || len(cfg.Sandbox.Packages) != 0 {
 		t.Errorf("the example must be entirely commented out, got %+v", cfg)
 	}
 }
 
-func TestLoadCatalogLocal(t *testing.T) {
+func TestLoadCatalogs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	cfg, err := Load(write(t, "catalog:\n  local: ~/src/bunny-catalog\n"))
+	cfg, err := Load(write(t, `
+catalogs:
+  - name: axelor
+    local: ~/src/axelor-catalog
+  - name: upstream
+    remote: https://example.com/catalog/main
+`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := cfg.Catalog.Local, filepath.Join(home, "src", "bunny-catalog"); got != want {
-		t.Errorf("catalog.local = %q, want %q", got, want)
+	got := cfg.ResolveCatalogs()
+	want := []Catalog{
+		{Name: "axelor", Local: filepath.Join(home, "src", "axelor-catalog")},
+		{Name: "upstream", Remote: "https://example.com/catalog/main"},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ResolveCatalogs() = %+v, want %+v", got, want)
+	}
+	if !got[0].IsLocal() || got[1].IsLocal() {
+		t.Error("IsLocal must distinguish a checkout from an HTTP catalog")
 	}
 }
 
 // A relative path would resolve against whatever directory bunny happened to
 // be run from, which is never what someone means.
 func TestLoadRejectsRelativeCatalogLocal(t *testing.T) {
-	if _, err := Load(write(t, "catalog:\n  local: ../catalog\n")); err == nil {
-		t.Fatal("expected a relative catalog.local to be rejected")
+	yaml := "catalogs:\n  - name: org\n    local: ../catalog\n"
+	if _, err := Load(write(t, yaml)); err == nil {
+		t.Fatal("expected a relative catalog path to be rejected")
+	}
+}
+
+// Nothing configured: the public catalog alone, whose URL the catalog package
+// fills in. No checkout is implied — one is a catalog like any other, so it has
+// to be listed.
+func TestResolveCatalogsDefaultChain(t *testing.T) {
+	want := []Catalog{{Name: DefaultCatalog, Remote: catalog.DefaultRemoteURL}}
+	for _, cfg := range []*Config{nil, {}} {
+		if got := cfg.ResolveCatalogs(); !slices.Equal(got, want) {
+			t.Errorf("ResolveCatalogs() = %+v, want %+v", got, want)
+		}
+	}
+}
+
+func TestLoadRejectsBadCatalogs(t *testing.T) {
+	cases := []struct{ name, yaml string }{
+		{"no name", "catalogs:\n  - local: /src/org\n"},
+		{"bad name", "catalogs:\n  - name: Org_1\n    local: /src/org\n"},
+		{"duplicate name", "catalogs:\n  - name: org\n    local: /src/a\n  - name: org\n    local: /src/b\n"},
+		{"both kinds", "catalogs:\n  - name: org\n    local: /src/org\n    remote: https://example.com/c\n"},
+		{"neither kind", "catalogs:\n  - name: org\n"},
+		{"relative local", "catalogs:\n  - name: org\n    local: ../org\n"},
+		{"old catalog key", "catalog:\n  remote: https://example.com/c\n"},
+	}
+	for _, c := range cases {
+		if _, err := Load(write(t, c.yaml)); err == nil {
+			t.Errorf("%s: expected an error", c.name)
+		}
 	}
 }
 

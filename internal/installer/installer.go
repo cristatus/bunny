@@ -76,7 +76,13 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if hook == nil {
 		hook = noopHook{}
 	}
-	m, err := i.Catalog.Load(id)
+	// One handle, so the manifest, its files and the recorded source share a
+	// catalog.
+	pkg, err := catalog.ResolvePackage(i.Catalog, id)
+	if err != nil {
+		return fmt.Errorf("resolve package: %w", err)
+	}
+	m, err := pkg.LoadManifest()
 	if err != nil {
 		return fmt.Errorf("load manifest: %w", err)
 	}
@@ -247,6 +253,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	// Always record where the tree went. Anything conditional here is a bet
 	// that the roots will not move, and losing that bet strands the install.
 	i.State.SetInstalled(id, m.Version, m.Provides, kind, placed.finalDir)
+	i.State.SetSource(id, pkg.Source.Name)
 	switch {
 	case m.Provides != "" && becomeActive:
 		if err := i.State.SetProviderCommands(m.Provides, id, newCommands); err != nil {
@@ -363,7 +370,7 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 	// to the catalog only if the cache is missing — and if both are gone,
 	// proceed with whatever state has.
 	installedManifest, manifestErr := i.loadInstalledManifest(id)
-	if manifestErr != nil && !errors.Is(manifestErr, catalog.ErrNotFound) {
+	if manifestErr != nil && !catalog.Unresolved(manifestErr) {
 		return fmt.Errorf("load installed manifest: %w", manifestErr)
 	}
 	manifest := installedManifest

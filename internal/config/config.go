@@ -20,6 +20,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/manifest"
 )
 
@@ -28,7 +29,10 @@ const Wildcard = "*"
 
 // Config is the on-disk shape of config.yaml.
 type Config struct {
-	Catalog Catalog `yaml:"catalog,omitempty"`
+	// Catalogs lists the catalogs manifests come from, highest priority first.
+	// Exhaustive: writing it replaces the default chain rather than extending
+	// it, so no catalog bunny was not asked for joins the list.
+	Catalogs []Catalog `yaml:"catalogs,omitempty"`
 
 	// Env adds environment variables at launch, keyed by package id
 	// ("node-22"), capability ("node"), or "*". Values expand the same
@@ -135,15 +139,30 @@ func cloneSandboxPolicy(policy SandboxPolicy) SandboxPolicy {
 	return policy
 }
 
-// Catalog selects where bunny reads package manifests from.
+// Catalog is one catalog bunny reads manifests from: a name plus exactly one of
+// Local, a checkout, or Remote, an HTTP catalog. The name identifies it in
+// state, in `bunny doctor`, in `--catalog`, and names its cache directory.
 type Catalog struct {
-	// Remote is the HTTP catalog bunny falls back to.
+	Name   string `yaml:"name"`
+	Local  string `yaml:"local,omitempty"`
 	Remote string `yaml:"remote,omitempty"`
+}
 
-	// Local is a catalog checkout that takes precedence over Remote, for
-	// working on a catalog or shipping a vendored one. Defaults to
-	// <data>/catalog. A leading ~/ is expanded.
-	Local string `yaml:"local,omitempty"`
+// DefaultCatalog names the public catalog, the one entry in the chain when the
+// config lists none.
+const DefaultCatalog = "bunny"
+
+// IsLocal reports whether the catalog is a checkout rather than an HTTP catalog.
+func (c Catalog) IsLocal() bool { return c.Local != "" }
+
+// ResolveCatalogs returns the catalogs to consult, highest priority first. With
+// none configured the chain is the public catalog alone: every catalog bunny
+// reads is one the config named, and a checkout is a catalog like any other.
+func (c *Config) ResolveCatalogs() []Catalog {
+	if c != nil && len(c.Catalogs) > 0 {
+		return slices.Clone(c.Catalogs)
+	}
+	return []Catalog{{Name: DefaultCatalog, Remote: catalog.DefaultRemoteURL}}
 }
 
 // Load reads path. A missing file is not an error: it yields an empty config,
@@ -206,12 +225,8 @@ func (c *Config) Validate() error {
 		}
 		c.Install[kind] = root
 	}
-	if c.Catalog.Local != "" {
-		local, err := absPath("catalog.local", c.Catalog.Local)
-		if err != nil {
-			return err
-		}
-		c.Catalog.Local = local
+	if err := c.validateCatalogs(); err != nil {
+		return err
 	}
 	for _, name := range slices.Sorted(maps.Keys(c.Sandbox.Profiles)) {
 		if err := manifest.ValidateID(name); err != nil {
@@ -239,6 +254,41 @@ func (c *Config) Validate() error {
 		}
 		if err := validateSandboxPolicy("sandbox.packages."+id, pkg.SandboxPolicy); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// validateCatalogs holds every catalog to a name and exactly one location, and
+// resolves checkout paths.
+func (c *Config) validateCatalogs() error {
+	seen := make(map[string]bool, len(c.Catalogs))
+	for i := range c.Catalogs {
+		cat := &c.Catalogs[i]
+		if cat.Name == "" {
+			return fmt.Errorf("catalogs[%d].name: required", i)
+		}
+		// The name identifies the catalog in state, and becomes a directory name
+		// under the cache, so it is held to the same shape as a package id.
+		if err := manifest.ValidateID(cat.Name); err != nil {
+			return fmt.Errorf("catalogs[%d].name: %w", i, err)
+		}
+		if seen[cat.Name] {
+			return fmt.Errorf("catalogs[%d].name: duplicate catalog %q", i, cat.Name)
+		}
+		seen[cat.Name] = true
+		switch {
+		case cat.Local != "" && cat.Remote != "":
+			return fmt.Errorf("catalogs.%s: set local or remote, not both", cat.Name)
+		case cat.Local == "" && cat.Remote == "":
+			return fmt.Errorf("catalogs.%s: needs local or remote", cat.Name)
+		}
+		if cat.Local != "" {
+			local, err := absPath("catalogs."+cat.Name+".local", cat.Local)
+			if err != nil {
+				return err
+			}
+			cat.Local = local
 		}
 	}
 	return nil

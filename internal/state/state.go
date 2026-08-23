@@ -61,6 +61,10 @@ type Package struct {
 	// install root, or the catalog change a package's kind, without stranding
 	// an already-installed tree. Absolute paths in state are the price.
 	Path string `json:"path,omitempty"`
+	// Source names the catalog the package was installed from, so a package
+	// changing hands between catalogs is something bunny can notice. Empty for
+	// an install predating it, and for a catalog that cannot name itself.
+	Source string `json:"source,omitempty"`
 }
 
 // Empty returns a fresh State with all maps initialized.
@@ -277,6 +281,20 @@ func (s *State) SetInstalled(id, version, provides, kind, path string) {
 			s.Providers[provides] = id
 		}
 	}
+}
+
+// SetSource records which catalog a package resolved from. An empty source
+// leaves a known one alone, or a package would look like it changed hands.
+func (s *State) SetSource(id, source string) {
+	if source == "" {
+		return
+	}
+	pkg, ok := s.Packages[id]
+	if !ok {
+		return
+	}
+	pkg.Source = source
+	s.Packages[id] = pkg
 }
 
 // Location returns a package's install kind and, when it lives outside the

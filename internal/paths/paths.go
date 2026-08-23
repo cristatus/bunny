@@ -45,7 +45,7 @@ type Paths struct {
 	// Only diagnostics should need to ask.
 	Root string
 
-	data   string // installs, catalog, state, per-package data
+	data   string // installs, state, per-package data
 	config string // config.yaml
 	cache  string // downloads and the catalog index
 	bin    string // shims
@@ -181,11 +181,10 @@ func xdgDir(name, home string, fallback ...string) string {
 
 // --- Top-level dirs ---
 
-func (p *Paths) Bin() string     { return p.bin }
-func (p *Paths) Data() string    { return p.data }
-func (p *Paths) Cache() string   { return p.cache }
-func (p *Paths) Share() string   { return p.share }
-func (p *Paths) Catalog() string { return filepath.Join(p.data, "catalog") }
+func (p *Paths) Bin() string   { return p.bin }
+func (p *Paths) Data() string  { return p.data }
+func (p *Paths) Cache() string { return p.cache }
+func (p *Paths) Share() string { return p.share }
 
 // --- Install roots ---
 
@@ -247,8 +246,17 @@ func (p *Paths) Shim(name string) string { return filepath.Join(p.Bin(), name) }
 func (p *Paths) AppData(id string) string { return filepath.Join(p.data, "data", id) }
 
 func (p *Paths) AppDownloadCache(id string) string { return filepath.Join(p.Cache(), id) }
-func (p *Paths) StateFile() string                 { return filepath.Join(p.data, "state.json") }
-func (p *Paths) MutationLock() string              { return filepath.Join(p.data, "mutation.lock") }
+
+// CatalogCacheRoot holds one directory per catalog. It shares the cache root
+// with the per-package download directories, so its name is not a package id.
+func (p *Paths) CatalogCacheRoot() string { return filepath.Join(p.Cache(), "catalogs") }
+
+// CatalogCache is where one named catalog caches what it reads.
+func (p *Paths) CatalogCache(name string) string {
+	return filepath.Join(p.CatalogCacheRoot(), name)
+}
+func (p *Paths) StateFile() string    { return filepath.Join(p.data, "state.json") }
+func (p *Paths) MutationLock() string { return filepath.Join(p.data, "mutation.lock") }
 
 // --- staging ---
 

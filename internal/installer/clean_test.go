@@ -1,28 +1,14 @@
 package installer
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/state"
 )
-
-type cleanFakeCatalog struct{ manifests map[string]*manifest.Manifest }
-
-func (c *cleanFakeCatalog) List() ([]catalog.PackageInfo, error) { return nil, nil }
-func (c *cleanFakeCatalog) Load(id string) (*manifest.Manifest, error) {
-	m, ok := c.manifests[id]
-	if !ok {
-		return nil, errors.New("not found")
-	}
-	return m, nil
-}
-func (c *cleanFakeCatalog) LoadFile(string, string) ([]byte, error) { return nil, nil }
 
 // setup builds a Cleaner over a temp $BUNNY_HOME with:
 //   - app `keep` installed at v1.0, expects cache file "keep-1.0.tar.gz"
@@ -37,7 +23,7 @@ func setup(t *testing.T) (*Cleaner, *paths.Paths) {
 	st := state.Empty()
 	st.SetInstalled("keep", "1.0", "", "", "")
 
-	cat := &cleanFakeCatalog{
+	cat := &fakeCatalog{
 		manifests: map[string]*manifest.Manifest{
 			"keep": {
 				ID:      "keep",
@@ -55,7 +41,12 @@ func setup(t *testing.T) (*Cleaner, *paths.Paths) {
 	must(t, os.MkdirAll(p.AppDownloadCache("gone"), 0755))
 	must(t, os.WriteFile(filepath.Join(p.AppDownloadCache("gone"), "gone-1.0.tar.gz"), []byte("orphan"), 0644))
 
-	// Top-level index.json — left alone unless --all.
+	// A catalog's own cache — kept unless --all, and not a package download dir
+	// despite sharing the cache root.
+	must(t, os.MkdirAll(p.CatalogCache("upstream"), 0755))
+	must(t, os.WriteFile(filepath.Join(p.CatalogCache("upstream"), "index.json"), []byte("{}"), 0644))
+
+	// A top-level cache file — left alone unless --all.
 	must(t, os.WriteFile(filepath.Join(p.Cache(), "index.json"), []byte("{}"), 0644))
 
 	// Tmp dir with leftover.
@@ -99,9 +90,12 @@ func TestCleanDefaultPrunesStaleAndOrphans(t *testing.T) {
 	if exists(filepath.Join(p.Staging(manifest.KindCLI), "abandoned")) {
 		t.Error("expected tmp leftover to be removed")
 	}
-	// index.json preserved (no --all).
+	// A live catalog cache is preserved (no --all): not a package to prune.
+	if !exists(filepath.Join(p.CatalogCache("upstream"), "index.json")) {
+		t.Error("expected the catalog index cache to be preserved without --all")
+	}
 	if !exists(filepath.Join(p.Cache(), "index.json")) {
-		t.Error("expected index.json to be preserved without --all")
+		t.Error("expected a top-level cache file to be preserved without --all")
 	}
 
 	if r.Bytes <= 0 {
@@ -123,6 +117,9 @@ func TestCleanAllWipesEverything(t *testing.T) {
 	}
 	if exists(filepath.Join(p.Cache(), "index.json")) {
 		t.Error("expected index.json to be removed under --all")
+	}
+	if exists(p.CatalogCache("upstream")) {
+		t.Error("expected the catalog index cache to be removed under --all")
 	}
 }
 

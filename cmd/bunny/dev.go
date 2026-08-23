@@ -34,23 +34,33 @@ type DevCmd struct {
 
 // DevValidateCmd validates every local manifest and its index without using
 // the network. It is intended for catalog CI before publishing changes.
-type DevValidateCmd struct{}
+type DevValidateCmd struct {
+	Catalog string `help:"Catalog checkout to act on, by catalog name (default: the only one)"`
+}
 
 func (c *DevValidateCmd) Run(a *App) error {
-	return validateCatalog(a.local.Root())
+	local, err := a.localCatalog(c.Catalog)
+	if err != nil {
+		return err
+	}
+	return validateCatalog(local.Root())
 }
 
 // DevUpdateCmd rewrites local manifests with newer upstream versions and
 // updates index.json. Intended for catalog maintainers and CI; requires a
-// local catalog at $BUNNY_HOME/catalog (or wherever the catalog repo is
-// checked out).
+// catalog checkout listed under catalogs: in config.yaml.
 type DevUpdateCmd struct {
-	ID string `arg:"" optional:"" help:"Package ID (default: every package with an update)"`
+	ID      string `arg:"" optional:"" help:"Package ID (default: every package with an update)"`
+	Catalog string `help:"Catalog checkout to act on, by catalog name (default: the only one)"`
 }
 
 func (c *DevUpdateCmd) Run(a *App) error {
+	local, err := a.localCatalog(c.Catalog)
+	if err != nil {
+		return err
+	}
 	return a.withMutation(a.context(), func() error {
-		return writeUpdates(a.context(), a, c.ID)
+		return writeUpdates(a.context(), a, local, c.ID)
 	})
 }
 
@@ -159,12 +169,8 @@ type devJob struct {
 // version and index entry; secondary sources rewrite in place. Checks run in
 // parallel within each phase; writes run sequentially and output reports only
 // primary package updates.
-func writeUpdates(ctx context.Context, a *App, id string) error {
-	if !a.local.Exists() {
-		return fmt.Errorf("no local catalog at %s; 'bunny dev update' requires a local catalog to rewrite", a.Paths.Catalog())
-	}
-
-	pkgs, err := a.local.List()
+func writeUpdates(ctx context.Context, a *App, local *catalog.Local, id string) error {
+	pkgs, err := local.List()
 	if err != nil {
 		return err
 	}
@@ -177,7 +183,7 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 		if id != "" && p.ID != id {
 			continue
 		}
-		m, err := a.local.Load(p.ID)
+		m, err := local.Load(p.ID)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: load manifest: %w", p.ID, err))
 			failed++
@@ -186,8 +192,8 @@ func writeUpdates(ctx context.Context, a *App, id string) error {
 		if len(m.Sources) == 0 {
 			continue
 		}
-		manifestPath := filepath.Join(a.local.Root(), catalog.PackagesDir, p.ID, "manifest.yaml")
-		indexPath := filepath.Join(a.local.Root(), "index.json")
+		manifestPath := filepath.Join(local.Root(), catalog.PackagesDir, p.ID, "manifest.yaml")
+		indexPath := filepath.Join(local.Root(), "index.json")
 		for i, s := range m.Sources {
 			if s.Update == nil {
 				continue

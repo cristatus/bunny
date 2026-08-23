@@ -268,3 +268,51 @@ func TestGlobalCommandsSurviveSaveLoad(t *testing.T) {
 		t.Errorf("after reload: %q,%v", cap, ok)
 	}
 }
+
+func TestSetSource(t *testing.T) {
+	s := Empty()
+	s.SetInstalled("rg", "14.1.0", "", "cli", "")
+	s.SetSource("rg", "axelor")
+	if got := s.Packages["rg"].Source; got != "axelor" {
+		t.Errorf("source = %q, want axelor", got)
+	}
+
+	// A catalog that cannot name itself must not erase a source already known:
+	// the alternative is a package that looks like it changed hands.
+	s.SetSource("rg", "")
+	if got := s.Packages["rg"].Source; got != "axelor" {
+		t.Errorf("empty source overwrote a known one: %q", got)
+	}
+
+	// Reinstalling from elsewhere records the new catalog.
+	s.SetSource("rg", "upstream")
+	if got := s.Packages["rg"].Source; got != "upstream" {
+		t.Errorf("source = %q, want upstream", got)
+	}
+
+	// Nothing to attach a source to is not an error, and must not invent an entry.
+	s.SetSource("absent", "axelor")
+	if _, ok := s.Packages["absent"]; ok {
+		t.Error("SetSource must not create a package entry")
+	}
+}
+
+// A source survives the round trip, so bunny can still tell where an install
+// came from after a restart.
+func TestSourcePersists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	s := Empty()
+	s.SetInstalled("rg", "14.1.0", "", "cli", "")
+	s.SetSource("rg", "axelor")
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Packages["rg"].Source; got != "axelor" {
+		t.Errorf("source after reload = %q, want axelor", got)
+	}
+}

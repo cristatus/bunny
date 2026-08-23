@@ -16,7 +16,8 @@ func TestCompletionIDs(t *testing.T) {
 	a := &App{Paths: paths.At(root), State: state.Empty()}
 
 	// A local catalog dir with one manifest → a local-only catalog source.
-	mdir := filepath.Join(a.Paths.Catalog(), catalog.PackagesDir, "jdk-21")
+	checkout := filepath.Join(root, "catalog")
+	mdir := filepath.Join(checkout, catalog.PackagesDir, "jdk-21")
 	if err := os.MkdirAll(mdir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +33,8 @@ bin:
 	if err := os.WriteFile(filepath.Join(mdir, "manifest.yaml"), []byte(man), 0644); err != nil {
 		t.Fatal(err)
 	}
-	a.local = catalog.NewLocal(a.Paths.Catalog())
+	local := catalog.NewLocal(checkout)
+	a.catalogs = []catalogEntry{{src: catalog.Source{Name: "local", Loader: local}, local: local}}
 
 	// Two installed packages: node-22 provides a capability, bat provides nothing.
 	a.State.SetInstalled("node-22", "22.0.0", "node", "", "")
@@ -65,7 +67,8 @@ func TestCompletionIDsOfflineFallback(t *testing.T) {
 func TestCompletionCapabilities(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	mdir := filepath.Join(a.Paths.Catalog(), catalog.PackagesDir, "jdk-21")
+	checkout := filepath.Join(root, "catalog")
+	mdir := filepath.Join(checkout, catalog.PackagesDir, "jdk-21")
 	if err := os.MkdirAll(mdir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +85,8 @@ bin:
 	if err := os.WriteFile(filepath.Join(mdir, "manifest.yaml"), []byte(man), 0644); err != nil {
 		t.Fatal(err)
 	}
-	a.local = catalog.NewLocal(a.Paths.Catalog())
+	local := catalog.NewLocal(checkout)
+	a.catalogs = []catalogEntry{{src: catalog.Source{Name: "local", Loader: local}, local: local}}
 	a.State.SetInstalled("node-22", "22", "node", "", "")
 	got := a.completionCapabilities()
 	if strings.Join(got, ",") != "jdk,node" {

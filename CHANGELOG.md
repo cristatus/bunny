@@ -9,6 +9,16 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `catalogs:` in `config.yaml`: named catalogs in priority order, so an
+  organization can add its own packages beside the public ones without
+  maintaining a fork. The first catalog listed that carries a package serves it,
+  so none can take over a package id held by one above it. An unreachable
+  catalog is skipped rather than failing the lookup. `bunny doctor` reports one
+  row per catalog, `bunny info`/`list --remote` name the catalog a package came
+  from once several are usable, `state.json` records it per install, and install
+  and update report a package that changes hands. `bunny dev validate`/`dev
+  update` take `--catalog <name>`, completing the checkouts that are actually
+  there. See [Configuration](docs/config.md#catalogs).
 - Opt-in per-package bubblewrap execution: manifests may recommend policy,
   built-in `desktop`, `online-cli`, and `offline-cli` profiles plus custom
   profiles provide shared defaults, and `sandbox.packages.<id>` both
@@ -22,9 +32,6 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `*`) for per-version data isolation; see [Configuration](docs/config.md).
 - `install:` in `config.yaml` to set per-kind install roots, e.g.
   `install.sdk: ~/opt` for IDE-visible JDK/build-tool paths.
-- `catalog.local` in `config.yaml` to point at a catalog checkout that takes
-  precedence over the remote (previously fixed at
-  `~/.local/share/bunny/catalog`).
 - `config.example.yaml` reference template and [Configuration](docs/config.md)
   docs; `bunny doctor` reports the config path read, whether or not it exists.
 - `{data}` placeholder in `prepare:` steps, expanding to the real data path;
@@ -36,10 +43,13 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Nothing is isolated by default**: `mvn`, `gradle`, npm, pnpm, Yarn, deno,
   and bun use their native caches and install roots; data redirection is opt-in
   via `env:`, and runtime sandboxing is opt-in per package.
-- **XDG base directory compliance**: installs/catalog/state in
+- **XDG base directory compliance**: installs and state in
   `~/.local/share/bunny`, config in `~/.config/bunny`, downloads in
   `~/.cache/bunny`, shims in `~/.local/bin`; desktop entries and icons use the
   real XDG dirs, so `bunny init` no longer sets `XDG_DATA_DIRS`.
+- A catalog checkout is no longer read from a built-in path: list it under
+  `catalogs:` like any other catalog, and `bunny dev` says so rather than
+  guessing one.
 - `BUNNY_HOME` now collapses the whole layout under one root (containers, CI,
   fleet images) instead of just naming the default.
 - Packages install into one of three configurable roots by kind: `sdk/`,
@@ -81,6 +91,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- An unreachable catalog no longer reports packages as absent: an index or
+  fetch failure now says the catalog is unavailable, and only a status that
+  means the catalog looked and has nothing there is treated as absence.
 - The `html` update checker now picks the newest version among every match of
   `version-pattern`, not the first one, so listing pages that order entries
   oldest-first (Apache directory indexes, Maven `maven-metadata.xml`) no

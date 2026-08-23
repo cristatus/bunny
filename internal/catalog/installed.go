@@ -39,6 +39,22 @@ func (i *Installed) Load(id string) (*manifest.Manifest, error) {
 	return i.inner.Load(id)
 }
 
+// Resolve forwards to the live catalog, so a package resolved through an
+// Installed still carries the provenance and fallbacks the catalog decided.
+func (i *Installed) Resolve(id string) (*ResolvedPackage, error) {
+	if r, ok := i.inner.(Resolver); ok {
+		return r.Resolve(id)
+	}
+	return ResolvePackage(i.inner, id)
+}
+
+func (i *Installed) Lookup(id string) (PackageInfo, error) {
+	if i.inner == nil {
+		return PackageInfo{}, fmt.Errorf("%w: no live catalog configured", ErrNotFound)
+	}
+	return i.inner.Lookup(id)
+}
+
 func (i *Installed) List() ([]PackageInfo, error) {
 	if i.inner == nil {
 		return nil, fmt.Errorf("%w: no live catalog configured", ErrNotFound)

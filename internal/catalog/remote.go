@@ -78,29 +78,49 @@ func (e IndexEntry) info(id string) PackageInfo {
 type HTTPGet func(url string) (*http.Response, error)
 
 // Remote serves manifests from an HTTP catalog with a local index cache.
+//
+// Safe for concurrent use: several catalogs refresh at once, and a refresh that
+// outlives its deadline keeps running while the command reads on.
 type Remote struct {
 	baseURL           string
-	cacheDir          string
+	indexPath         string
 	get               HTTPGet
 	retries           int
-	index             *Index
 	revalidateTimeout time.Duration
 	wg                sync.WaitGroup
+
+	mu    sync.RWMutex
+	index *Index
 }
 
-// NewRemote constructs a Remote with the default HTTP client.
+// cached returns the in-memory index, nil until something loads one.
+func (r *Remote) cached() *Index {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.index
+}
+
+func (r *Remote) setCached(idx *Index) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.index = idx
+}
+
+// NewRemote constructs a Remote with the default HTTP client. cacheDir is this
+// catalog's own directory, so several remotes never overwrite one another's
+// index.
 func NewRemote(baseURL, cacheDir string) *Remote {
-	if baseURL == "" {
-		baseURL = DefaultRemoteURL
-	}
 	return &Remote{
 		baseURL:           baseURL,
-		cacheDir:          cacheDir,
+		indexPath:         filepath.Join(cacheDir, "index.json"),
 		get:               httpClient.Get,
 		retries:           2,
 		revalidateTimeout: defaultRevalidateTimeout,
 	}
 }
+
+// IndexPath is where this remote caches the catalog index.
+func (r *Remote) IndexPath() string { return r.indexPath }
 
 // URL is the catalog root actually in use, which is the built-in default when
 // config names none. Reporting the configured value instead would show an
@@ -130,7 +150,7 @@ func (r *Remote) Refresh() error {
 	if err := r.cacheIndex(idx); err != nil {
 		return err
 	}
-	r.index = idx
+	r.setCached(idx)
 	return nil
 }
 
@@ -138,7 +158,7 @@ func (r *Remote) Refresh() error {
 func (r *Remote) List() ([]PackageInfo, error) {
 	idx, err := r.loadIndex()
 	if err != nil {
-		return nil, err
+		return nil, r.unavailable(err)
 	}
 	out := make([]PackageInfo, 0, len(idx.Packages))
 	for id, e := range idx.Packages {
@@ -150,7 +170,7 @@ func (r *Remote) List() ([]PackageInfo, error) {
 // ListCached returns index packages from the on-disk cache only, never
 // fetching. Used by shell completion, which must not touch the network.
 func (r *Remote) ListCached() ([]PackageInfo, error) {
-	idx := r.index
+	idx := r.cached()
 	if idx == nil {
 		var err error
 		idx, err = r.loadCachedIndex()
@@ -163,6 +183,22 @@ func (r *Remote) ListCached() ([]PackageInfo, error) {
 		out = append(out, e.info(id))
 	}
 	return out, nil
+}
+
+// Lookup answers from the index, which every other read already needs.
+func (r *Remote) Lookup(id string) (PackageInfo, error) {
+	if err := manifest.ValidateID(id); err != nil {
+		return PackageInfo{}, fmt.Errorf("invalid package id %q: %w", id, err)
+	}
+	idx, err := r.loadIndex()
+	if err != nil {
+		return PackageInfo{}, r.unavailable(err)
+	}
+	entry, ok := idx.Packages[id]
+	if !ok {
+		return PackageInfo{}, fmt.Errorf("%w: package %q not in %s", ErrNotFound, id, r.baseURL)
+	}
+	return entry.info(id), nil
 }
 
 // Load fetches and parses a manifest.
@@ -189,7 +225,7 @@ func (r *Remote) LoadFile(id, relPath string) ([]byte, error) {
 	}
 	idx, err := r.loadIndex()
 	if err != nil {
-		return nil, err
+		return nil, r.unavailable(err)
 	}
 	entry, ok := idx.Packages[id]
 	if !ok {
@@ -200,13 +236,21 @@ func (r *Remote) LoadFile(id, relPath string) ([]byte, error) {
 
 // --- internal ---
 
+// unavailable marks an index failure as "this catalog cannot answer". The cause
+// is folded in as text rather than wrapped: a 404 on the index means the catalog
+// root is wrong, and letting its ErrNotFound through would have the error claim
+// the package does not exist.
+func (r *Remote) unavailable(err error) error {
+	return fmt.Errorf("%w: %s: %v", ErrUnavailable, r.baseURL, err)
+}
+
 func (r *Remote) manifestURL(id string) (string, error) {
 	if err := manifest.ValidateID(id); err != nil {
 		return "", fmt.Errorf("invalid package id %q: %w", id, err)
 	}
 	idx, err := r.loadIndex()
 	if err != nil {
-		return "", err
+		return "", r.unavailable(err)
 	}
 	entry, ok := idx.Packages[id]
 	if !ok {
@@ -216,13 +260,13 @@ func (r *Remote) manifestURL(id string) (string, error) {
 }
 
 func (r *Remote) loadIndex() (*Index, error) {
-	if r.index != nil {
-		return r.index, nil
+	if idx := r.cached(); idx != nil {
+		return idx, nil
 	}
 	if idx, err := r.loadCachedIndex(); err == nil {
 		if r.cacheFresh() {
 			log.Debug("Index cache hit", "packages", len(idx.Packages), "updated", idx.Updated)
-			r.index = idx
+			r.setCached(idx)
 			return idx, nil
 		}
 		log.Debug("Index cache stale, revalidating", "updated", idx.Updated,
@@ -249,14 +293,14 @@ func (r *Remote) loadIndex() (*Index, error) {
 		select {
 		case res := <-done:
 			if res.err == nil {
-				r.index = res.idx
+				r.setCached(res.idx)
 				return res.idx, nil
 			}
 			log.Debug("Index refresh failed, serving cache", "error", res.err)
 		case <-time.After(r.revalidateTimeout):
 			log.Debug("Index refresh too slow, serving cache", "timeout", r.revalidateTimeout)
 		}
-		r.index = idx
+		r.setCached(idx)
 		return idx, nil
 	}
 	idx, err := r.fetchIndex()
@@ -264,12 +308,12 @@ func (r *Remote) loadIndex() (*Index, error) {
 		return nil, err
 	}
 	_ = r.cacheIndex(idx)
-	r.index = idx
+	r.setCached(idx)
 	return idx, nil
 }
 
 func (r *Remote) loadCachedIndex() (*Index, error) {
-	data, err := os.ReadFile(filepath.Join(r.cacheDir, "index.json"))
+	data, err := os.ReadFile(r.indexPath)
 	if err != nil {
 		return nil, err
 	}
@@ -299,18 +343,15 @@ func (r *Remote) fetchIndex() (*Index, error) {
 }
 
 func (r *Remote) cacheIndex(idx *Index) error {
-	if err := os.MkdirAll(r.cacheDir, 0755); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(idx, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFile(filepath.Join(r.cacheDir, "index.json"), data, 0644)
+	return fsutil.WriteFile(r.indexPath, data, 0644)
 }
 
 func (r *Remote) cacheFresh() bool {
-	info, err := os.Stat(filepath.Join(r.cacheDir, "index.json"))
+	info, err := os.Stat(r.indexPath)
 	return err == nil && time.Since(info.ModTime()) <= indexTTL
 }
 
@@ -332,22 +373,24 @@ func validateIndex(idx *Index) error {
 	return nil
 }
 
-// fetch issues an HTTP GET. Network errors and non-200 responses are wrapped
-// as ErrNotFound so Composite falls through to the next loader; only success
-// (or a parse error in the caller) breaks out of the chain.
+// fetch retrieves url, retrying what is worth retrying. ErrNotFound is only for
+// a status that says the catalog looked and has nothing there; a link that is
+// down, slow, or erroring carries ErrUnavailable.
 func (r *Remote) fetch(url string) ([]byte, error) {
 	var lastErr error
+	absent := false
 	for attempt := 0; attempt <= r.retries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(httpx.Backoff(attempt, 100*time.Millisecond))
 		}
 		resp, err := r.get(url)
 		if err != nil {
-			lastErr = err
+			lastErr, absent = err, false
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+			absent = resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone
 			retry := httpx.ShouldRetryStatus(resp.StatusCode)
 			resp.Body.Close()
 			if retry {
@@ -358,7 +401,7 @@ func (r *Remote) fetch(url string) ([]byte, error) {
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxCatalogBody+1))
 		resp.Body.Close()
 		if readErr != nil {
-			lastErr = readErr
+			lastErr, absent = readErr, false
 			continue
 		}
 		if len(body) > maxCatalogBody {
@@ -366,7 +409,11 @@ func (r *Remote) fetch(url string) ([]byte, error) {
 		}
 		return body, nil
 	}
-	return nil, fmt.Errorf("fetch %s: %v (%w)", url, lastErr, ErrNotFound)
+	sentinel := ErrUnavailable
+	if absent {
+		sentinel = ErrNotFound
+	}
+	return nil, fmt.Errorf("fetch %s: %v (%w)", url, lastErr, sentinel)
 }
 
 // safeIndexPath rejects a package path that is absolute or escapes the catalog

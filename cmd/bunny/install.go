@@ -26,6 +26,7 @@ func (c *InstallCmd) Run(a *App) error {
 	ctx := rep.Begin(a.context(), c.IDs)
 	start := time.Now()
 	done, failed := 0, 0
+	var notes []string
 	err := a.withMutation(ctx, func() error {
 		regenToolchains := false
 		var errs []error
@@ -55,6 +56,7 @@ func (c *InstallCmd) Run(a *App) error {
 				continue
 			}
 			rep.Start(id)
+			wasFrom := a.State.Packages[id].Source
 			if err := a.Installer.Install(ctx, id, c.Force, reporterHook{rep, id}); err != nil {
 				rep.Fail(id, err)
 				failed++
@@ -67,6 +69,9 @@ func (c *InstallCmd) Run(a *App) error {
 				continue
 			}
 			rep.Done(id, "installed", m.Version)
+			if note := a.sourceChangeNote(id, wasFrom); note != "" {
+				notes = append(notes, note)
+			}
 			done++
 			if m.Provides == "jdk" || m.Toolchains != "" {
 				regenToolchains = true
@@ -85,6 +90,7 @@ func (c *InstallCmd) Run(a *App) error {
 		return errors.Join(errs...) // post-op errors only (not per-package)
 	})
 	rep.Close() // tear down the live view before printing the stdout summary
+	a.printNotes(notes)
 	printSummary(a, "installed", done, failed, time.Since(start))
 	return finishErr(err, failed)
 }

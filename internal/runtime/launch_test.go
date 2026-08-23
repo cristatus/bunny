@@ -19,6 +19,9 @@ type stubCat struct{}
 func (stubCat) List() ([]catalog.PackageInfo, error)    { return nil, nil }
 func (stubCat) Load(string) (*manifest.Manifest, error) { return nil, nil }
 func (stubCat) LoadFile(string, string) ([]byte, error) { return nil, nil }
+func (stubCat) Lookup(string) (catalog.PackageInfo, error) {
+	return catalog.PackageInfo{}, catalog.ErrNotFound
+}
 
 func TestPrepareDirectExec(t *testing.T) {
 	root := t.TempDir()
@@ -201,6 +204,10 @@ func (reqCat) List() ([]catalog.PackageInfo, error)    { return nil, nil }
 func (reqCat) LoadFile(string, string) ([]byte, error) { return nil, nil }
 func (c reqCat) Load(id string) (*manifest.Manifest, error) {
 	return &manifest.Manifest{ID: id, Version: "0", Env: c.envs[id]}, nil
+}
+func (c reqCat) Lookup(id string) (catalog.PackageInfo, error) {
+	m, _ := c.Load(id)
+	return catalog.InfoOf(m), nil
 }
 
 func TestMergeDepEnvVersionConstraint(t *testing.T) {

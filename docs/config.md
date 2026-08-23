@@ -25,9 +25,11 @@ the active configuration path and resolved install roots:
 Unknown top-level keys are rejected during validation so typos fail immediately.
 
 ```yaml
-catalog:
-  remote: https://github.com/acme/bunny-catalog
-  local: ~/src/bunny-catalog
+catalogs:
+  - name: acme
+    local: ~/src/acme-catalog
+  - name: bunny
+    remote: https://raw.githubusercontent.com/cristatus/bunny-catalog/main
 
 install:
   sdk: ~/opt
@@ -41,23 +43,88 @@ dirs:
     - "{data}/npm-global"
 ```
 
-## `catalog`
+## `catalogs`
 
-Configures where package manifests come from. A local checkout takes precedence
-over the remote on a per-package basis, allowing you to shadow individual
-packages without forking the entire catalog.
+Lists the catalogs package manifests come from, highest priority first. Each
+entry needs a `name` and exactly one of `local`, a checkout on disk, or
+`remote`, an HTTP catalog:
 
 ```yaml
-catalog:
-  remote: https://github.com/acme/bunny-catalog
-  local: ~/src/bunny-catalog
+catalogs:
+  - name: company
+    local: ~/src/company-catalog
+  - name: company-remote
+    remote: https://raw.githubusercontent.com/company/bunny-catalog/main
+  - name: bunny
+    remote: https://raw.githubusercontent.com/cristatus/bunny-catalog/main
 ```
 
-`remote` defaults to the public [bunny-catalog](https://github.com/cristatus/bunny-catalog).
-`local` defaults to `~/.local/share/bunny/catalog`. Pointing `local` at a git
-checkout is the standard way to develop catalog manifests: `bunny dev validate`
-and `bunny dev update` operate on it directly. If the path does not exist, Bunny
-falls back to `remote`, and `bunny doctor` reports which source is active.
+The name identifies the catalog in `bunny doctor`, in `state.json`, and in
+`--catalog`, so it is held to the same shape as a package id: lowercase
+`[a-z0-9-]`.
+
+With nothing configured, the chain is the public
+[bunny-catalog](https://github.com/cristatus/bunny-catalog) alone:
+
+```yaml
+catalogs:
+  - name: bunny
+    remote: https://raw.githubusercontent.com/cristatus/bunny-catalog/main
+```
+
+The list is exhaustive, and there is nothing implicit in it. Writing it replaces
+that default rather than adding to it, so every catalog Bunny reads is one you
+named — including a checkout, which is a catalog like any other and has no
+special path Bunny looks in. Pointing an entry at a git checkout is how catalog
+manifests are developed: `bunny dev validate` and `bunny dev update` operate on
+it directly, and refuse to guess when no checkout is listed.
+
+Listing your own catalog above the public one adds packages beside it without a
+fork; see [Team deployment](teams.md#adding-a-catalog-instead-of-forking).
+
+### Which catalog serves a package
+
+The order is the answer. When several catalogs carry the same package id, the
+first one listed serves it, whatever versions the others publish. That makes the
+list genuinely priority-ordered, and means no catalog can take over a package id
+held by one above it — pinning a version in your own catalog holds, and a
+checkout listed first is an override with nothing special about it beyond its
+position.
+
+A catalog that cannot be reached is skipped, and the next one serves the package
+rather than the whole lookup failing. A catalog that carries the package and then
+cannot produce its manifest hands off to the next catalog too, rather than
+failing an install over a transient error — but that is a substitution the
+ordering did not ask for, so `state.json` records which catalog actually served
+and `bunny info` reports it.
+
+A checkout that is not on disk is skipped rather than answering emptily, which
+would mask a remote below it. `bunny doctor` lists every configured catalog and
+says which are usable.
+
+### Seeing which catalog answered
+
+`bunny list --remote` gains a `Catalog` column and `bunny info` a `Catalog` row
+whenever more than one catalog is usable. Both stay hidden for a single one,
+where the answer carries no information — and a checkout that is not on disk
+does not count as a second catalog.
+
+Bunny records the catalog each package was installed from in `state.json`, and
+reports a package that changes hands:
+
+```
+yq now comes from catalog "company" (was "upstream")
+```
+
+Removing or renaming a catalog is reported in its own words — `"company" is no
+longer configured` — since dropping the catalog that owned a package moves it to
+whoever is left. Renaming also orphans that catalog's index cache, which costs
+one re-fetch.
+
+`bunny dev validate` and `bunny dev update` rewrite a checkout, and take
+`--catalog <name>` to say which. With one checkout configured the flag is
+optional; with several it is required, since rewriting the wrong catalog is not
+something a default should decide.
 
 See [Team deployment](teams.md).
 

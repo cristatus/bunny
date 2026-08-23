@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -64,18 +63,20 @@ func (l *Local) List() ([]PackageInfo, error) {
 			log.Warn("Skipping catalog entry: invalid manifest", "path", path, "error", err)
 			continue
 		}
-		pkgs = append(pkgs, PackageInfo{
-			ID:          m.ID,
-			Tags:        slices.Clone(m.Tags),
-			Kind:        m.KindOf(),
-			Name:        m.Name,
-			Description: m.Description,
-			Version:     m.Version,
-			Provides:    m.Provides,
-			Requires:    slices.Clone(m.Requires),
-		})
+		pkgs = append(pkgs, InfoOf(m))
 	}
 	return pkgs, nil
+}
+
+// Lookup summarizes one package, reading only its manifest. Returns
+// ErrNotFound (wrapped) when this catalog does not carry it; a checkout is
+// either present or not, so it never reports ErrUnavailable.
+func (l *Local) Lookup(id string) (PackageInfo, error) {
+	m, err := l.Load(id)
+	if err != nil {
+		return PackageInfo{}, err
+	}
+	return InfoOf(m), nil
 }
 
 // Load returns a parsed manifest for the given ID. Returns ErrNotFound

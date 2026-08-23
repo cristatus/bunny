@@ -130,7 +130,7 @@ func (c *ListCmd) listRemote(a *App) error {
 		rows = append(rows, remoteRow{pkg: pkg, active: active, status: status, statusStyle: style})
 	}
 	p := ui.New(os.Stdout)
-	p.Print("\n" + renderRemote(p, rows))
+	p.Print("\n" + renderRemote(p, rows, a.multiCatalog()))
 	return nil
 }
 
@@ -141,20 +141,31 @@ type remoteRow struct {
 	statusStyle ui.Style
 }
 
-func renderRemote(p *ui.Printer, rows []remoteRow) string {
+func renderRemote(p *ui.Printer, rows []remoteRow, showSource bool) string {
 	cells := make([][]ui.Cell, 0, len(rows))
 	for _, r := range rows {
 		active, activeStyle := "", ui.Plain
 		if r.active {
 			active, activeStyle = "yes", ui.Good
 		}
-		cells = append(cells, []ui.Cell{
+		row := []ui.Cell{
 			{Text: r.pkg.ID}, {Text: r.pkg.Kind}, {Text: r.pkg.Provides},
-			{Text: r.pkg.Version}, {Text: active, Style: activeStyle},
-			{Text: r.status, Style: r.statusStyle},
-		})
+			{Text: r.pkg.Version},
+		}
+		if showSource {
+			row = append(row, ui.Cell{Text: r.pkg.Source})
+		}
+		cells = append(cells, append(row,
+			ui.Cell{Text: active, Style: activeStyle},
+			ui.Cell{Text: r.status, Style: r.statusStyle},
+		))
 	}
-	out := p.Table([]string{"Package", "Kind", "Provides", "Version", "Active", "Status"}, cells)
+	headers := []string{"Package", "Kind", "Provides", "Version"}
+	if showSource {
+		headers = append(headers, "Catalog")
+	}
+	headers = append(headers, "Active", "Status")
+	out := p.Table(headers, cells)
 	return out + "\n" + fmt.Sprintf("%d packages\n", len(rows))
 }
 
@@ -164,15 +175,25 @@ type InfoCmd struct {
 }
 
 func (c *InfoCmd) Run(a *App) error {
-	m, err := a.Catalog.Load(c.ID)
+	pkg, err := catalog.ResolvePackage(a.Catalog, c.ID)
 	if err != nil {
 		return err
+	}
+	m, err := pkg.LoadManifest()
+	if err != nil {
+		return err
+	}
+	// Which catalog answered only tells the reader something when there is
+	// more than one that could have.
+	source := ""
+	if a.multiCatalog() {
+		source = a.packageSource(c.ID, pkg.Source.Name)
 	}
 	installedVersion, installed := "", false
 	if info, ok := a.State.Packages[m.ID]; ok {
 		installedVersion, installed = info.Version, true
 	}
-	detail := infoDetail{installedVersion: installedVersion, installed: installed}
+	detail := infoDetail{installedVersion: installedVersion, installed: installed, source: source}
 	if m.Provides != "" {
 		detail.activeProvider = a.State.Providers[m.Provides]
 		if cwd, err := os.Getwd(); err == nil {
@@ -205,6 +226,9 @@ type infoDetail struct {
 	activeProvider   string
 	projectPin       string
 	dependents       []string
+	// source names the catalog the package came from, set only when several
+	// are configured.
+	source string
 }
 
 // renderInfo prints a single aligned key/value block for a package. Version
@@ -234,6 +258,9 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, detail infoDetail) string {
 		rows = append(rows, ui.KVRow{Key: "Tags", Value: strings.Join(m.Tags, ", ")})
 	}
 	rows = append(rows, ui.KVRow{Key: "Version", Value: version + "  " + status})
+	if detail.source != "" {
+		rows = append(rows, ui.KVRow{Key: "Catalog", Value: detail.source})
+	}
 	if m.Provides != "" {
 		rows = append(rows, ui.KVRow{Key: "Provides", Value: m.Provides})
 		active := "no"

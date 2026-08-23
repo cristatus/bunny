@@ -7,7 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/charmbracelet/log"
 
@@ -39,8 +43,55 @@ type App struct {
 	Installer  *installer.Installer
 	NoProgress bool // force plain (final-line-only) progress output
 
-	local  *catalog.Local
-	remote *catalog.Remote
+	catalogs []catalogEntry
+}
+
+// catalogEntry is one configured catalog: the Source the Composite resolves
+// through, plus the concrete loader, so doctor can report where it points and
+// the dev commands can rewrite a checkout without re-deriving either.
+type catalogEntry struct {
+	src    catalog.Source
+	local  *catalog.Local  // nil for a remote
+	remote *catalog.Remote // nil for a checkout
+	// present is resolved once, at wiring time: five callers ask, and two
+	// answers would let New wire one thing while the rest report another.
+	present bool
+	// location is where the catalog reads from, for diagnostics.
+	location string
+}
+
+// listCached lists without touching the network, for shell completion.
+func (e catalogEntry) listCached() ([]catalog.PackageInfo, error) {
+	if e.local != nil {
+		return e.local.List()
+	}
+	return e.remote.ListCached()
+}
+
+// catalogEntries wires every configured catalog, in priority order.
+func catalogEntries(cfg *config.Config, p *paths.Paths) []catalogEntry {
+	cats := cfg.ResolveCatalogs()
+	entries := make([]catalogEntry, 0, len(cats))
+	for _, cat := range cats {
+		if cat.IsLocal() {
+			l := catalog.NewLocal(cat.Local)
+			entries = append(entries, catalogEntry{
+				src:      catalog.Source{Name: cat.Name, Loader: l},
+				local:    l,
+				present:  l.Exists(),
+				location: l.Root(),
+			})
+			continue
+		}
+		r := catalog.NewRemote(cat.Remote, p.CatalogCache(cat.Name))
+		entries = append(entries, catalogEntry{
+			src:      catalog.Source{Name: cat.Name, Loader: r},
+			remote:   r,
+			present:  true,
+			location: r.URL(),
+		})
+	}
+	return entries
 }
 
 // reporter returns the progress Reporter for install/uninstall/update: a plain
@@ -121,8 +172,8 @@ type reporterHook struct {
 func (h reporterHook) Phase(name string)          { h.rep.Phase(h.pkg, name) }
 func (h reporterHook) Download(done, total int64) { h.rep.Download(h.pkg, done, total) }
 
-// New constructs an App from $BUNNY_HOME, with the catalog wired
-// local→remote and state loaded from disk.
+// New constructs an App from $BUNNY_HOME, with the configured catalogs wired in
+// priority order and state loaded from disk.
 func New() (*App, error) {
 	p, err := paths.Resolve()
 	if err != nil {
@@ -146,19 +197,16 @@ func New() (*App, error) {
 	p = p.WithLayout(cfg.InstallRoots(), func(id string) (string, string) { return app.State.Location(id) })
 	app.Paths = p
 
-	catalogDir := cfg.Catalog.Local
-	if catalogDir == "" {
-		catalogDir = p.Catalog()
+	app.catalogs = catalogEntries(cfg, p)
+	// A checkout that is not on disk is dropped: an empty answer from it would
+	// mask a remote that is down.
+	var wired []catalog.Source
+	for _, e := range app.catalogs {
+		if e.present {
+			wired = append(wired, e.src)
+		}
 	}
-	local := catalog.NewLocal(catalogDir)
-	remote := catalog.NewRemote(cfg.Catalog.Remote, p.Cache())
-
-	var cat catalog.Loader
-	if local.Exists() {
-		cat = catalog.NewComposite(local, remote)
-	} else {
-		cat = remote
-	}
+	cat := catalog.NewComposite(wired...)
 
 	// The first thing worth knowing when an install lands somewhere unexpected:
 	// which config was read, which layout resolved, which catalog won. Guarded
@@ -176,16 +224,21 @@ func New() (*App, error) {
 			roots = append(roots, kind, p.InstallRoot(kind))
 		}
 		log.Debug("Install roots", roots...)
-		log.Debug("Catalog", "local", catalogDir, "localExists", local.Exists(),
-			"remote", remote.URL())
+		cats := make([]any, 0, len(app.catalogs)*2)
+		for _, e := range app.catalogs {
+			detail := e.location
+			if !e.present {
+				detail += " (absent)"
+			}
+			cats = append(cats, e.src.Name, detail)
+		}
+		log.Debug("Catalogs", cats...)
 	}
 
 	app.Catalog = cat
 	app.Installed = catalog.NewInstalled(cat, p.ManifestFile)
 	app.Installer = installer.New(p, cat, st)
 	app.Installer.Version = version
-	app.local = local
-	app.remote = remote
 	return app, nil
 }
 
@@ -360,16 +413,128 @@ func (a *App) runGlobal(name string, args []string) error {
 	return runtime.ExecPackage(prep, a.Config)
 }
 
-// refreshRemote tries to update the on-disk index. Failures are debug-logged
-// and ignored — falling back to whatever's cached is preferable to bubbling
-// network errors out of routine read paths.
+// refreshDeadline caps the wait on catalog refreshes; a fetch that outlives it
+// keeps running and warms its own cache for next time.
+const refreshDeadline = 5 * time.Second
+
+// refreshRemote updates the on-disk index of every remote catalog at once, since
+// sequential refreshes add up one round trip at a time. Failures are
+// debug-logged and ignored — falling back to whatever's cached is preferable to
+// bubbling network errors out of routine read paths.
 func (a *App) refreshRemote() {
-	if a.remote == nil {
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	for _, e := range a.catalogs {
+		if e.remote == nil {
+			continue
+		}
+		wg.Go(func() {
+			if err := e.remote.Refresh(); err != nil {
+				log.Debug("Remote catalog refresh failed; using cached index",
+					"catalog", e.src.Name, "error", err)
+			}
+		})
+	}
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(refreshDeadline):
+		log.Debug("Catalog refresh still running; serving what is cached",
+			"waited", refreshDeadline)
+	}
+}
+
+// localCatalog returns the checkout the dev commands rewrite. name selects one
+// when several are configured; empty means the only one.
+func (a *App) localCatalog(name string) (*catalog.Local, error) {
+	var found []catalogEntry
+	var names []string
+	for _, e := range a.catalogs {
+		if e.local == nil {
+			continue
+		}
+		names = append(names, e.src.Name)
+		if name == "" || e.src.Name == name {
+			found = append(found, e)
+		}
+	}
+	switch {
+	case len(found) == 0 && name != "":
+		if len(names) == 0 {
+			return nil, fmt.Errorf("no catalog checkout is configured, so there is no %q to rewrite", name)
+		}
+		return nil, fmt.Errorf("no catalog checkout named %q; configured: %s", name, strings.Join(names, ", "))
+	case len(found) == 0:
+		return nil, fmt.Errorf("no catalog checkout configured; 'bunny dev' rewrites one, so list it under catalogs: in %s", a.Paths.UserConfigFile())
+	case len(found) > 1:
+		return nil, fmt.Errorf("several catalog checkouts configured (%s); pass --catalog to choose one",
+			strings.Join(names, ", "))
+	}
+	if !found[0].present {
+		return nil, fmt.Errorf("no catalog checkout at %s", found[0].location)
+	}
+	return found[0].local, nil
+}
+
+// sourceChangeNote reports a package that arrived from a different catalog than
+// it was installed from. A note, not a refusal: layering catalogs is the point.
+// A previous catalog no longer configured gets its own wording, since dropping
+// the catalog that owned a package is the same handover by another route.
+func (a *App) sourceChangeNote(id, before string) string {
+	after := a.State.Packages[id].Source
+	if before == "" || after == "" || before == after {
+		return ""
+	}
+	if !slices.Contains(a.catalogNames(), before) {
+		return fmt.Sprintf("%s now comes from catalog %q; %q is no longer configured", id, after, before)
+	}
+	return fmt.Sprintf("%s now comes from catalog %q (was %q)", id, after, before)
+}
+
+func (a *App) catalogNames() []string {
+	names := make([]string, 0, len(a.catalogs))
+	for _, e := range a.catalogs {
+		names = append(names, e.src.Name)
+	}
+	return names
+}
+
+// printNotes writes post-operation notes, after the live reporter is torn down
+// so they land on a clean stdout.
+func (a *App) printNotes(notes []string) {
+	if len(notes) == 0 {
 		return
 	}
-	if err := a.remote.Refresh(); err != nil {
-		log.Debug("Remote catalog refresh failed; using cached index", "error", err)
+	p := a.status()
+	p.Println()
+	for _, note := range notes {
+		p.Println(note)
 	}
+}
+
+// multiCatalog reports whether more than one catalog can actually serve a
+// package — naming one only informs then. Usable, not configured: a checkout
+// listed in config but never cloned answers nothing.
+func (a *App) multiCatalog() bool {
+	usable := 0
+	for _, e := range a.catalogs {
+		if e.present {
+			usable++
+		}
+	}
+	return usable > 1
+}
+
+// packageSource names the catalog a package came from: the one recorded at
+// install time, else the one it resolves to now.
+func (a *App) packageSource(id string, resolved string) string {
+	if pkg, ok := a.State.Packages[id]; ok && pkg.Source != "" {
+		return pkg.Source
+	}
+	return resolved
 }
 
 // UpdateReport distinguishes "no updates" from "updates could not be checked".

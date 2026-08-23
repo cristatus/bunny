@@ -25,7 +25,7 @@ Most developers assemble Java and Node workstations using a fragmented mix of `s
 - **Per-project version pinning**: Place a `.bunny-version` file in any project root to pin versions without shell hooks. Bunny also reads `.sdkmanrc`, `.tool-versions`, and `.java-version` files without requiring migration.
 - **First-class Java toolchains**: Multi-vendor JDK support (Temurin, Corretto, Zulu, GraalVM) powered by the [Foojay Disco API](https://api.foojay.io/). Automated Gradle and Maven toolchain configuration ensures builds compile against the target JDK regardless of the runtime Java version.
 - **Curated catalog**: Tailored specifically for Java/Node ecosystems, IDEs, and essential developer CLI utilities. See [bunny-catalog](https://github.com/cristatus/bunny-catalog).
-- **Forkable for teams**: Point `catalog.remote` to an internal Git repository or HTTP endpoint to distribute customized JDKs, corporate certificates, and shared tooling.
+- **Forkable for teams**: List an internal Git repository or HTTP endpoint under `catalogs:` to distribute customized JDKs, corporate certificates, and shared tooling, or list several catalogs to add your own packages beside the public ones without forking.
 
 See the [Portability Model](docs/portability.md) and [Configuration](docs/config.md) for architectural details.
 
@@ -163,7 +163,6 @@ Bunny adheres strictly to the XDG Base Directory Specification:
 ├── app/{id}/               GUI applications (code, zed, jetbrains-toolbox)
 ├── data/{id}/              Per-package data directories ({data} placeholder)
 ├── manifests/{id}.yaml     Install-time manifest snapshots
-├── catalog/                Local catalog repository / overrides
 ├── state.json              State database (installed packages, providers, roots)
 └── mutation.lock           Lockfile serializing mutating operations
 

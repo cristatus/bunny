@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,5 +137,24 @@ func TestLocalMissingExists(t *testing.T) {
 	}
 	if len(pkgs) != 0 {
 		t.Errorf("expected empty list, got %v", pkgs)
+	}
+}
+
+// Lookup must summarize a package from its own manifest, and report a package
+// the checkout does not carry as ErrNotFound so resolution moves on.
+func TestLocalLookup(t *testing.T) {
+	root := t.TempDir()
+	writeTestManifest(t, filepath.Join(root, PackagesDir, "rg"), "rg", "ripgrep")
+	l := NewLocal(root)
+
+	info, err := l.Lookup("rg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ID != "rg" || info.Name != "ripgrep" || info.Version == "" {
+		t.Errorf("Lookup = %+v", info)
+	}
+	if _, err := l.Lookup("code"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("absent package: got %v, want ErrNotFound", err)
 	}
 }

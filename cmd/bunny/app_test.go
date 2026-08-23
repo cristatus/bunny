@@ -35,6 +35,13 @@ func (c reportCatalog) Load(id string) (*manifest.Manifest, error) {
 	return m, nil
 }
 func (c reportCatalog) LoadFile(string, string) ([]byte, error) { return nil, errors.New("missing") }
+func (c reportCatalog) Lookup(id string) (catalog.PackageInfo, error) {
+	m, err := c.Load(id)
+	if err != nil {
+		return catalog.PackageInfo{}, err
+	}
+	return catalog.InfoOf(m), nil
+}
 
 // The live reporter and the log channel share stderr, so progress has to know
 // whether logging is on. main disables the channel by parking the level above

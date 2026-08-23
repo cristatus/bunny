@@ -165,7 +165,10 @@ func TestUserNamespaceCheckOK(t *testing.T) {
 }
 
 func TestRunAllProducesAllChecks(t *testing.T) {
-	results := RunAll(paths.At(t.TempDir()), t.TempDir(), "")
+	results := RunAll(paths.At(t.TempDir()), []CatalogSource{
+		{Name: "local", Location: t.TempDir(), Checkout: true, Present: true},
+		{Name: "remote", Location: "https://example.com/cat"},
+	})
 	if len(results) < 5 {
 		t.Errorf("expected several checks, got %d", len(results))
 	}
@@ -235,18 +238,38 @@ func TestInstallRootsCheckReportsConfiguredRoots(t *testing.T) {
 	}
 }
 
-// A catalog.local pointing somewhere absent falls through to the remote
-// silently, so doctor states which one is actually in play.
-func TestCatalogCheckReportsSource(t *testing.T) {
+// Every catalog gets its own row, in resolution order.
+func TestCatalogChecksReportEverySource(t *testing.T) {
 	present := t.TempDir()
-	if got := catalogCheck(present, "https://example.com/cat").Detail; !strings.HasPrefix(got, "local:") {
-		t.Errorf("an existing local catalog wins: %q", got)
-	}
 	absent := filepath.Join(t.TempDir(), "nope")
-	if got := catalogCheck(absent, "https://example.com/cat").Detail; got != "remote: https://example.com/cat" {
-		t.Errorf("missing local catalog should report the remote: %q", got)
+	results := catalogChecks([]CatalogSource{
+		{Name: "axelor", Location: absent, Checkout: true},
+		{Name: "vendored", Location: present, Checkout: true, Present: true},
+		{Name: "upstream", Location: "https://example.com/cat"},
+	})
+	if len(results) != 3 {
+		t.Fatalf("expected one row per source, got %+v", results)
 	}
-	if got := catalogCheck(absent, "").Detail; got != "remote: default" {
-		t.Errorf("unset remote should be named: %q", got)
+	want := []struct{ name, detail string }{
+		{"catalog:axelor", "(absent)"},
+		{"catalog:vendored", "local:"},
+		{"catalog:upstream", "remote: https://example.com/cat"},
+	}
+	for i, w := range want {
+		if results[i].Name != w.name || !strings.Contains(results[i].Detail, w.detail) {
+			t.Errorf("row %d = %+v, want %s containing %q", i, results[i], w.name, w.detail)
+		}
+		if results[i].Severity != OK {
+			t.Errorf("row %d: a missing checkout is normal while another catalog serves: %+v", i, results[i])
+		}
+	}
+}
+
+// A missing checkout with nothing to fall back on leaves no catalog at all.
+func TestCatalogChecksWarnWhenNothingCanServe(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "nope")
+	results := catalogChecks([]CatalogSource{{Name: "axelor", Location: absent, Checkout: true}})
+	if len(results) != 1 || results[0].Severity != Warn {
+		t.Errorf("expected a warning, got %+v", results)
 	}
 }

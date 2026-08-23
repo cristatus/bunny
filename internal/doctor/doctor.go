@@ -46,13 +46,23 @@ type Result struct {
 	Fix      string // suggested command to remedy a Warn/Fail, if any
 }
 
+// CatalogSource is one configured catalog for catalogChecks to report on.
+type CatalogSource struct {
+	Name string
+	// Location is the checkout path or the catalog URL, already resolved.
+	Location string
+	Checkout bool
+	Present  bool
+}
+
 // RunAll runs the standard set of checks and returns one Result per check.
-func RunAll(p *paths.Paths, catalogDir, remote string) []Result {
-	return []Result{
+// cats are the configured catalogs, in the order they resolve.
+func RunAll(p *paths.Paths, cats []CatalogSource) []Result {
+	return slices.Concat([]Result{
 		layoutCheck(p),
 		strayBinaryCheck(p),
 		configCheck(p),
-		catalogCheck(catalogDir, remote),
+	}, catalogChecks(cats), []Result{
 		installRootsCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
@@ -62,7 +72,7 @@ func RunAll(p *paths.Paths, catalogDir, remote string) []Result {
 		audioCheck(),
 		gpuCheck(),
 		shimsCheck(p),
-	}
+	})
 }
 
 // layoutCheck reports which layout is active and verifies the roots bunny
@@ -135,17 +145,26 @@ func configCheck(p *paths.Paths) Result {
 	return Result{Name: "config", Detail: path, Severity: OK}
 }
 
-// catalogCheck reports which catalog is in play. A local checkout takes
-// precedence when it exists, and a path pointing somewhere absent falls
-// through to the remote silently, so it is worth stating which happened.
-func catalogCheck(dir, remote string) Result {
-	if _, err := os.Stat(dir); err == nil {
-		return Result{Name: "catalog", Detail: "local: " + tilde(dir), Severity: OK}
+// catalogChecks reports one row per catalog, in resolution order. An absent
+// checkout is normal, so it warns only when nothing is left to serve a package.
+func catalogChecks(cats []CatalogSource) []Result {
+	usable := slices.ContainsFunc(cats, func(c CatalogSource) bool { return c.Present })
+	results := make([]Result, 0, len(cats))
+	for _, c := range cats {
+		r := Result{Name: "catalog:" + c.Name, Detail: "remote: " + c.Location}
+		switch {
+		case !c.Checkout:
+		case c.Present:
+			r.Detail = "local: " + tilde(c.Location)
+		default:
+			r.Detail = "local: " + tilde(c.Location) + " (absent)"
+			if !usable {
+				r.Severity = Warn
+			}
+		}
+		results = append(results, r)
 	}
-	if remote == "" {
-		remote = "default"
-	}
-	return Result{Name: "catalog", Detail: "remote: " + remote, Severity: OK}
+	return results
 }
 
 // installRootsCheck reports where each kind of package actually installs.

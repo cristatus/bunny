@@ -50,6 +50,13 @@ type fakeCatalog struct {
 }
 
 func (c *fakeCatalog) List() ([]catalog.PackageInfo, error) { return nil, nil }
+func (c *fakeCatalog) Lookup(id string) (catalog.PackageInfo, error) {
+	m, err := c.Load(id)
+	if err != nil {
+		return catalog.PackageInfo{}, err
+	}
+	return catalog.InfoOf(m), nil
+}
 func (c *fakeCatalog) Load(id string) (*manifest.Manifest, error) {
 	m, ok := c.manifests[id]
 	if !ok {
@@ -152,6 +159,121 @@ func TestInstallEndToEnd(t *testing.T) {
 	// by hand, and that must not take bunny's record of the install with it.
 	if entries, err := os.ReadDir(i.Paths.AppData("rg")); err == nil && len(entries) > 0 {
 		t.Errorf("nothing unrecoverable belongs in {data}, found %d entries", len(entries))
+	}
+}
+
+// With several catalogs in play, an install records which one it came from.
+func TestInstallRecordsTheCatalogItCameFrom(t *testing.T) {
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "rg.tar.gz")
+	if err := os.WriteFile(srcFile, []byte("payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	build := func(version string) *manifest.Manifest {
+		return &manifest.Manifest{
+			ID:      "rg",
+			Name:    "ripgrep",
+			Version: version,
+			Sources: []manifest.Source{
+				{URL: "file://" + srcFile, File: "rg.tar.gz", SHA256: sha256Of("payload")},
+			},
+			Bin: []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
+		}
+	}
+	older, newer := build("14.1.0"), build("14.2.0")
+
+	i := installerWith(t, map[string]*manifest.Manifest{"rg": older}, nil)
+	i.Catalog = catalog.NewComposite(
+		catalog.Source{Name: "axelor", Loader: &fakeCatalog{manifests: map[string]*manifest.Manifest{"rg": newer}}},
+		catalog.Source{Name: "upstream", Loader: &fakeCatalog{manifests: map[string]*manifest.Manifest{"rg": older}}},
+	)
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	pkg := i.State.Packages["rg"]
+	if pkg.Version != "14.2.0" {
+		t.Errorf("installed %s, want axelor's 14.2.0", pkg.Version)
+	}
+	if pkg.Source != "axelor" {
+		t.Errorf("source = %q, want axelor", pkg.Source)
+	}
+}
+
+// A catalog that cannot serve is dropped, so the recorded source has to be the
+// catalog that actually served: otherwise the handover notice and `bunny info`
+// describe an install that never happened.
+func TestInstallRecordsTheCatalogThatServed(t *testing.T) {
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "rg.tar.gz")
+	if err := os.WriteFile(srcFile, []byte("payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	build := func(version string) *manifest.Manifest {
+		return &manifest.Manifest{
+			ID:      "rg",
+			Version: version,
+			Sources: []manifest.Source{
+				{URL: "file://" + srcFile, File: "rg.tar.gz", SHA256: sha256Of("payload")},
+			},
+			Bin: []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
+		}
+	}
+	served := build("14.1.0")
+	i := installerWith(t, map[string]*manifest.Manifest{"rg": served}, nil)
+	i.Catalog = catalog.NewComposite(
+		// Wins resolution at 14.2.0, then cannot produce the manifest.
+		catalog.Source{Name: "flaky", Loader: lookupOnlyCatalog{&fakeCatalog{
+			manifests: map[string]*manifest.Manifest{"rg": build("14.2.0")},
+		}}},
+		catalog.Source{Name: "steady", Loader: &fakeCatalog{
+			manifests: map[string]*manifest.Manifest{"rg": served},
+		}},
+	)
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	pkg := i.State.Packages["rg"]
+	if pkg.Version != "14.1.0" {
+		t.Errorf("installed %s, want steady's 14.1.0", pkg.Version)
+	}
+	if pkg.Source != "steady" {
+		t.Errorf("source = %q, want steady: that is the catalog the manifest came from", pkg.Source)
+	}
+}
+
+// lookupOnlyCatalog answers Lookup but fails every fetch, standing in for a
+// catalog that drops out after resolution has already picked it.
+type lookupOnlyCatalog struct{ *fakeCatalog }
+
+func (lookupOnlyCatalog) Load(string) (*manifest.Manifest, error) {
+	return nil, fmt.Errorf("%w: https://flaky: dial tcp", catalog.ErrUnavailable)
+}
+func (lookupOnlyCatalog) LoadFile(string, string) ([]byte, error) {
+	return nil, fmt.Errorf("%w: https://flaky: dial tcp", catalog.ErrUnavailable)
+}
+
+// A catalog that cannot name itself installs exactly as before, leaving the
+// source blank rather than inventing one.
+func TestInstallWithoutAResolverRecordsNoSource(t *testing.T) {
+	srcDir := t.TempDir()
+	srcFile := filepath.Join(srcDir, "rg.tar.gz")
+	if err := os.WriteFile(srcFile, []byte("payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{
+		ID:      "rg",
+		Version: "14.1.0",
+		Sources: []manifest.Source{
+			{URL: "file://" + srcFile, File: "rg.tar.gz", SHA256: sha256Of("payload")},
+		},
+		Bin: []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"rg": m}, nil)
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := i.State.Packages["rg"].Source; got != "" {
+		t.Errorf("source = %q, want empty", got)
 	}
 }
 

@@ -17,7 +17,7 @@ your-org/
 │       ├── maven/manifest.yaml         # pre-configured to internal Nexus
 │       └── gradle/manifest.yaml
 └── dotfiles/
-    └── bunny/config.yaml               # points catalog.remote at your fork
+    └── bunny/config.yaml               # lists your fork under catalogs:
 ```
 
 Team onboarding:
@@ -37,8 +37,9 @@ minutes.
 `~/.config/bunny/config.yaml`:
 
 ```yaml
-catalog:
-  remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
+catalogs:
+  - name: your-org
+    remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
 ```
 
 The URL needs to serve `index.json` at its root and the manifest path recorded
@@ -50,14 +51,51 @@ For a private repository, typical setups include:
 
 - a public-readable mirror bucket populated by internal CI
 - a lightweight reverse proxy injecting auth headers
-- a distributed catalog checkout placed at `~/.local/share/bunny/catalog/` or
-  configured via `catalog.local` (local manifests always override remote entries)
+- a distributed catalog checkout, listed under `catalogs:` above your remote so
+  its manifests win
+
+## Adding a catalog instead of forking
+
+A fork means carrying every upstream package in your own repository and
+rebasing to stay current. If your additions are yours alone — internal tools, a
+vendored build, a package upstream has no interest in — list your catalog beside
+the public one instead:
+
+```yaml
+catalogs:
+  - name: acme
+    remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
+  - name: bunny
+    remote: https://raw.githubusercontent.com/cristatus/bunny-catalog/main
+```
+
+Your catalog then holds only the packages you actually maintain, with its own
+CI and its own `bunny dev update` schedule. Upstream packages keep coming from
+upstream.
+
+Where both carry a package id, the first one listed serves it. That is what
+makes the layering safe to adopt: a package your catalog owns cannot be taken
+over by upstream publishing a higher version, and pinning a version in your own
+catalog holds.
+
+`bunny doctor` prints the catalogs in the order they resolve, and `bunny info`
+names the one a package came from. See [Configuration](config.md#catalogs) for
+the full resolution rules.
 
 ## Local catalog override
 
-Per-package overrides live in
-`~/.local/share/bunny/catalog/packages/<id>/manifest.yaml`. If a package ID
-exists in both local and remote catalogs, the local manifest takes precedence.
+A checkout listed above your remote overrides it per package. Point one at a
+directory of your own and put the override in
+`<checkout>/packages/<id>/manifest.yaml`:
+
+```yaml
+catalogs:
+  - name: overrides
+    local: ~/src/bunny-overrides
+  - name: your-org
+    remote: https://raw.githubusercontent.com/your-org/bunny-catalog/main
+```
+
 Use this to:
 
 - pin a specific package version locally while the team catalog evolves
@@ -115,7 +153,8 @@ CI job runs `bunny dev update` and opens pull requests for version bumps.
 Team members receive the new versions on their next `bunny update --apply`.
 
 Run `bunny dev validate` in CI to ensure manifests match `index.json` before
-merging.
+merging. Both commands take `--catalog <name>` to name the checkout they act
+on, which is required when more than one is configured.
 
 For tighter control, run `bunny dev update <id>` manually for the packages you
 trust to auto-bump and skip the cron entirely on internal manifests.
@@ -129,10 +168,11 @@ see [ROADMAP](../ROADMAP.md).
 
 ## Lockfiles and reproducibility
 
-The catalog repository functions as a lockfile. Pinning `catalog.remote` to a
+The catalog repository functions as a lockfile. Pinning a catalog's `remote` to a
 specific Git commit SHA guarantees reproducible toolchains across the entire team:
 
 ```yaml
-catalog:
-  remote: https://raw.githubusercontent.com/your-org/bunny-catalog/<sha>
+catalogs:
+  - name: your-org
+    remote: https://raw.githubusercontent.com/your-org/bunny-catalog/<sha>
 ```
