@@ -5,7 +5,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
 #
 # Environment:
-#   BUNNY_VERSION   Specific version to install (e.g. v0.4.0). Defaults to latest.
+#   BUNNY_VERSION   Specific version to install (e.g. v0.5.0). Defaults to latest.
 #   BUNNY_HOME      Collapse bunny under a single root instead of the XDG
 #                   directories, as an absolute path. The binary lands at
 #                   $BUNNY_HOME/bin/bunny.

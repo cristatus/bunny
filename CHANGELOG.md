@@ -7,6 +7,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-24
+
 ### Added
 
 - `catalogs:` in `config.yaml`: named catalogs in priority order, so an
@@ -73,8 +75,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `bunny search`, vocabulary enforced by `dev validate` against `tags.yaml`);
   packages now live in a flat `packages/<id>/` layout.
 - `bunny list` shows each package's `kind` instead of tags (`bunny info` still
-  prints tags in full); `--remote` reports kind from the index without
-  fetching every manifest.
+  prints tags in full).
 - `-l/--log-level` now replaces progress output (no spinner, status line, or
   summary) instead of competing with it; `debug` logs the resolved layout,
   config path, install roots, catalog source, staging/install/cache paths, and
@@ -261,7 +262,8 @@ Initial public release.
   validation.
 - Install-time `prepare:` steps isolated via Bubblewrap where required.
 
-[Unreleased]: https://github.com/cristatus/bunny/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/cristatus/bunny/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/cristatus/bunny/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cristatus/bunny/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cristatus/bunny/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/cristatus/bunny/compare/v0.1.0...v0.2.0

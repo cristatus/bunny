@@ -51,7 +51,7 @@ java -version
 code .
 ```
 
-To install a specific version of Bunny, prefix the installer: `BUNNY_VERSION=v0.4.0 curl ... | sh`.
+To install a specific version of Bunny, prefix the installer: `BUNNY_VERSION=v0.5.0 curl ... | sh`.
 
 To consolidate all files under a single root (useful for CI, containers, and fleet images), set `BUNNY_HOME=/opt/bunny`.
 
