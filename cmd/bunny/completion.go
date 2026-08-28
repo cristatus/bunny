@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/cristatus/bunny/internal/catalog"
+	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/manifest"
 
@@ -111,6 +112,35 @@ func (a *App) completionCatalogs() []string {
 	return names
 }
 
+// completionProfiles returns every sandbox profile name valid for
+// `run --sandbox-profile`: the reserved built-ins plus whatever the user has
+// defined under sandbox.profiles. a.Config is nil when no config file
+// exists, in which case only the built-ins are offered.
+func (a *App) completionProfiles() []string {
+	names := config.BuiltinSandboxProfileNames()
+	if a.Config != nil {
+		names = append(names, slices.Sorted(maps.Keys(a.Config.Sandbox.Profiles))...)
+	}
+	return names
+}
+
+// completionBinaries returns the binary names an installed package declares,
+// for `run --command`. id is whatever the user has already typed as the
+// package id; an unresolvable one (not installed, or not yet fully typed)
+// yields no completions rather than an error, same as the other completion
+// helpers.
+func (a *App) completionBinaries(id string) []string {
+	m, err := a.loadInstalledManifest(id)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(m.Bin))
+	for _, b := range m.Bin {
+		names = append(names, b.Name)
+	}
+	return names
+}
+
 // CompleteIDsCmd is the hidden helper the generated completion scripts call to
 // list package IDs. --installed restricts to installed packages; --providers to
 // installed packages that provide a capability (the valid `bunny use` targets).
@@ -152,6 +182,24 @@ func (c *CompleteCatalogsCmd) Run(a *App) error {
 	return nil
 }
 
+// CompleteProfilesCmd is the hidden helper for `run --sandbox-profile` completion.
+type CompleteProfilesCmd struct{}
+
+func (c *CompleteProfilesCmd) Run(a *App) error {
+	printLines(a.completionProfiles())
+	return nil
+}
+
+// CompleteBinariesCmd is the hidden helper for `run --command` completion.
+type CompleteBinariesCmd struct {
+	ID string `arg:"" help:"Package ID"`
+}
+
+func (c *CompleteBinariesCmd) Run(a *App) error {
+	printLines(a.completionBinaries(c.ID))
+	return nil
+}
+
 func printLines(lines []string) {
 	for _, l := range lines {
 		fmt.Println(l)
@@ -180,7 +228,7 @@ var completionSubcommands = []string{
 
 // completionGlobalFlags are the top-level flags accepted before any subcommand
 // (from the CLI struct in main.go); bash/zsh embed them via __GLOBALS__.
-var completionGlobalFlags = []string{"--help", "--log-level", "--no-progress", "--version"}
+var completionGlobalFlags = []string{"--help", "-h", "--log-level", "-l", "--no-progress", "--version", "-v"}
 
 // completionLogLevels are the values --log-level accepts (mirrors the enum on
 // CLI.LogLevel in main.go); scripts embed them via __LOGLEVELS__.
@@ -189,7 +237,18 @@ var completionLogLevels = []string{"debug", "info", "warn", "error"}
 // completionFilters are the flags catalogFilter contributes to `list` and
 // `search` — one list, because the two commands take one filter set; scripts
 // embed them via __FILTERS__.
-var completionFilters = []string{"--tag", "--capability", "--kind"}
+var completionFilters = []string{"--tag", "-t", "--capability", "--kind"}
+
+// completionMultiOperandSubcommands lists top-level commands whose leading
+// positional accepts several values from the same completion source
+// (install/uninstall's ids, search's terms) rather than exactly one. Each of
+// the three script blobs below hand-codes this same set in its own case
+// pattern to decide whether to keep completing after the first operand;
+// TestCompletionMultiOperandCommandsMatchCLI derives it independently from
+// the CLI struct's actual field types and fails if the two disagree, so a
+// future command with a similar []string arg can't silently regress the way
+// `search` once did.
+var completionMultiOperandSubcommands = []string{"install", "search", "uninstall"}
 
 // completionScript returns the completion script for shell. Subcommands and
 // flags are static; package-ID arguments call `bunny complete-ids` (catalog)
@@ -238,17 +297,21 @@ const bashCompletion = `_bunny() {
         --kind)    COMPREPLY=( $(compgen -W "__KINDS__" -- "$cur") ); return ;;
         -t) [[ "$sub" == list || "$sub" == search ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
         --shell)        COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return ;;
+        --sandbox-profile) COMPREPLY=( $(compgen -W "$(bunny complete-profiles 2>/dev/null)" -- "$cur") ); return ;;
+        --command|-c)
+            [[ "$sub" == run && -n "$operand" ]] && COMPREPLY=( $(compgen -W "$(bunny complete-binaries "$operand" 2>/dev/null)" -- "$cur") )
+            return ;;
     esac
 
     # Completing a flag: global flags (accepted anywhere) plus the subcommand's own.
     if [[ "$cur" == -* ]]; then
         local flags="__GLOBALS__"
         case "$sub" in
-            install)      flags="$flags --force" ;;
-            uninstall)    flags="$flags --purge --yes" ;;
+            install)      flags="$flags --force -f" ;;
+            uninstall)    flags="$flags --purge --yes -y" ;;
             list)         flags="$flags __FILTERS__ --active" ;;
             search)       flags="$flags __FILTERS__ --installed --available" ;;
-            run)          flags="$flags --command --sandbox --sandbox-profile --explain" ;;
+            run)          flags="$flags --command -c --sandbox --sandbox-profile --explain" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
@@ -274,18 +337,19 @@ const bashCompletion = `_bunny() {
         return
     fi
 
-    # install/uninstall take multiple ids → keep completing regardless of how
-    # many operands are already present (don't stop after the first).
+    # install/uninstall/search take multiple ids/terms → keep completing
+    # regardless of how many operands are already present (don't stop after
+    # the first).
     case "$sub" in
-        install)   COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ); return ;;
-        uninstall) COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ); return ;;
+        install|search) COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ); return ;;
+        uninstall)      COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ); return ;;
     esac
 
     # Single-operand commands: once an operand is present, nothing more.
     [[ -n "$operand" ]] && return
 
     case "$sub" in
-        info|search)              COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
+        info)                     COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
         use)                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
         pin|unpin)                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
         update|clean|run)         COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
@@ -322,6 +386,10 @@ case $prev in
     --kind) compadd -- __KINDS__; return ;;
     -t) [[ $sub == list || $sub == search ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
     --shell) compadd -- bash zsh fish; return ;;
+    --sandbox-profile) compadd -- ${(f)"$(bunny complete-profiles 2>/dev/null)"}; return ;;
+    --command|-c)
+        [[ $sub == run && -n $operand ]] && compadd -- ${(f)"$(bunny complete-binaries "$operand" 2>/dev/null)"}
+        return ;;
 esac
 
 # Completing a flag: globals (anywhere) plus the subcommand's own.
@@ -329,11 +397,11 @@ if [[ $cur == -* ]]; then
     local -a flags
     flags=(__GLOBALS__)
     case $sub in
-        install) flags+=(--force) ;;
-        uninstall) flags+=(--purge --yes) ;;
+        install) flags+=(--force -f) ;;
+        uninstall) flags+=(--purge --yes -y) ;;
         list) flags+=(__FILTERS__ --active) ;;
         search) flags+=(__FILTERS__ --installed --available) ;;
-        run) flags+=(--command --sandbox --sandbox-profile --explain) ;;
+        run) flags+=(--command -c --sandbox --sandbox-profile --explain) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
@@ -357,16 +425,17 @@ if [[ $sub == dev ]]; then
     return
 fi
 
-# install/uninstall take multiple ids → keep completing regardless of operands.
+# install/uninstall/search take multiple ids/terms → keep completing
+# regardless of operands.
 case $sub in
-    install) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"}; return ;;
+    install|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"}; return ;;
     uninstall) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"}; return ;;
 esac
 
 [[ -n $operand ]] && return
 
 case $sub in
-    info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
+    info) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
     use) compadd -- ${(f)"$(bunny complete-ids --providers 2>/dev/null)"} ;;
     pin|unpin) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
     update|clean|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
@@ -394,9 +463,31 @@ end
 function __bunny_catalogs
     bunny complete-catalogs 2>/dev/null
 end
+function __bunny_profiles
+    bunny complete-profiles 2>/dev/null
+end
+# Finds the package id already typed after "run" (the first non-flag token
+# following it), then lists that package's declared binaries for --command.
+# Unlike __bunny_ids and friends this needs the command line itself, since
+# --command's candidates depend on which package was already named.
+function __bunny_run_binaries
+    set -l after 0
+    for t in (commandline -opc)
+        if test $after -eq 1
+            switch $t
+                case '-*'
+                case '*'
+                    bunny complete-binaries $t 2>/dev/null
+                    return
+            end
+        else if test "$t" = run
+            set after 1
+        end
+    end
+end
 complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 # global flags — accepted anywhere (no subcommand condition)
-complete -c bunny -l help -d 'Show help'
+complete -c bunny -s h -l help -d 'Show help'
 complete -c bunny -s l -l log-level -r -f -a '__LOGLEVELS__' -d 'Log level'
 complete -c bunny -l no-progress -d 'Disable interactive progress output'
 complete -c bunny -l version -d 'Print version'
@@ -418,9 +509,9 @@ complete -c bunny -n '__fish_seen_subcommand_from list search' -l kind -r -f -a 
 complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only active providers'
 complete -c bunny -n '__fish_seen_subcommand_from search' -l installed -d 'Show only installed packages'
 complete -c bunny -n '__fish_seen_subcommand_from search' -l available -d 'Show only packages that are not installed'
-complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
+complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -f -a '(__bunny_run_binaries)' -d 'Specific command to run'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox -d 'Force the sandbox policy for this launch even if not configured'
-complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox-profile -r -d 'Override the configured sandbox profile for this launch'
+complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox-profile -r -f -a '(__bunny_profiles)' -d 'Override the configured sandbox profile for this launch'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l explain -d 'Print what this launch would do without launching'
 complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'

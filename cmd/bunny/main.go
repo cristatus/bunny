@@ -51,6 +51,8 @@ type CLI struct {
 	CompleteTags         CompleteTagsCmd         `cmd:"" hidden:"" help:"List catalog tags for shell completion"`
 	CompleteCapabilities CompleteCapabilitiesCmd `cmd:"" hidden:"" help:"List installed-provider capabilities for completion"`
 	CompleteCatalogs     CompleteCatalogsCmd     `cmd:"" hidden:"" help:"List catalog checkouts for shell completion"`
+	CompleteProfiles     CompleteProfilesCmd     `cmd:"" hidden:"" help:"List sandbox profile names for shell completion"`
+	CompleteBinaries     CompleteBinariesCmd     `cmd:"" hidden:"" help:"List a package's binary names for shell completion"`
 
 	Dev DevCmd `cmd:"" hidden:"" help:"Catalog maintainer commands (rewrite manifests, etc.)"`
 }

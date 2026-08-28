@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cristatus/bunny/internal/catalog"
+	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/state"
 )
@@ -94,6 +95,68 @@ bin:
 	}
 }
 
+func TestCompletionProfiles(t *testing.T) {
+	root := t.TempDir()
+	a := &App{Paths: paths.At(root), State: state.Empty()}
+
+	// No config file at all: only the built-ins.
+	builtinOnly := a.completionProfiles()
+	if strings.Join(builtinOnly, ",") != "clean,desktop,ephemeral,offline-cli,online-cli" {
+		t.Fatalf("builtin-only profiles = %v", builtinOnly)
+	}
+
+	// A configured custom profile is appended; built-in names stay reserved
+	// so there is no collision to dedupe.
+	a.Config = &config.Config{Sandbox: config.Sandbox{
+		Profiles: map[string]config.SandboxPolicy{"claude-scratch": {Home: "ephemeral"}},
+	}}
+	got := a.completionProfiles()
+	found := false
+	for _, name := range got {
+		if name == "claude-scratch" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected custom profile %q in %v", "claude-scratch", got)
+	}
+}
+
+func TestCompletionBinaries(t *testing.T) {
+	root := t.TempDir()
+	a := &App{Paths: paths.At(root), State: state.Empty()}
+	// completionBinaries reads the install-time manifest snapshot (what
+	// `bunny run` itself resolves against), not the live catalog.
+	if err := os.MkdirAll(a.Paths.Manifests(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	man := `id: jdk-21
+name: JDK 21
+version: "21"
+tags: [java, jdk]
+provides: jdk
+sources:
+  - {url: "https://x/y.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+bin:
+  - {name: java, path: "{app}/bin/java"}
+  - {name: javac, path: "{app}/bin/javac"}
+`
+	if err := os.WriteFile(a.Paths.ManifestFile("jdk-21"), []byte(man), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a.State.SetInstalled("jdk-21", "21", "jdk", "", "")
+
+	got := a.completionBinaries("jdk-21")
+	if strings.Join(got, ",") != "java,javac" {
+		t.Errorf("binaries = %v, want [java javac]", got)
+	}
+	// An id that isn't installed (or isn't yet fully typed) yields no
+	// completions rather than an error — same contract as the other helpers.
+	if got := a.completionBinaries("does-not-exist"); got != nil {
+		t.Errorf("expected nil for an unresolvable id, got %v", got)
+	}
+}
+
 func TestCompletionScript(t *testing.T) {
 	for _, shell := range []string{"bash", "zsh", "fish"} {
 		s := completionScript(shell)
@@ -123,8 +186,11 @@ func TestCompletionScript(t *testing.T) {
 				t.Errorf("%s script missing log-level value %q", shell, v)
 			}
 		}
-		// Per-subcommand flags + the --tag value helper.
-		for _, f := range []string{"force", "purge", "tag", "capability", "active", "command", "complete-tags", "complete-capabilities"} {
+		// Per-subcommand flags + the value-completion helpers.
+		for _, f := range []string{
+			"force", "purge", "tag", "capability", "active", "command", "sandbox-profile",
+			"complete-tags", "complete-capabilities", "complete-profiles", "complete-binaries",
+		} {
 			if !strings.Contains(s, f) {
 				t.Errorf("%s script missing %q", shell, f)
 			}

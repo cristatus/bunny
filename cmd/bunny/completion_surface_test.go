@@ -2,6 +2,8 @@ package main
 
 import (
 	"reflect"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"unicode"
@@ -96,7 +98,8 @@ func embeddedFlags(typ reflect.Type) []string {
 // do invoke them, so the check is against the offered list, not the script text.
 var hiddenCommands = map[string]bool{
 	"complete-ids": true, "complete-tags": true, "complete-capabilities": true,
-	"complete-catalogs": true, "netsetup": true,
+	"complete-catalogs": true, "complete-profiles": true, "complete-binaries": true,
+	"netsetup": true,
 }
 
 // flagText is how a shell's script spells a long flag: bash and zsh complete
@@ -165,5 +168,58 @@ func TestCompletionCoversGlobalFlags(t *testing.T) {
 				t.Errorf("%s script missing global flag --%s", shell, flag)
 			}
 		}
+	}
+}
+
+// multiOperandCommandsFromCLI derives, from the CLI struct itself, which
+// top-level commands accept more than one operand from the same completion
+// source: a leading []string arg field without passthrough (passthrough
+// means opaque trailing args like `run`'s, not more of the same thing to
+// complete against — e.g. RunCmd.Args and NetsetupCmd.Argv are excluded).
+func multiOperandCommandsFromCLI(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	typ := reflect.TypeOf(CLI{})
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if _, isCmd := f.Tag.Lookup("cmd"); !isCmd {
+			continue
+		}
+		if _, hidden := f.Tag.Lookup("hidden"); hidden {
+			continue
+		}
+		cmdType := f.Type
+		for j := range cmdType.NumField() {
+			sub := cmdType.Field(j)
+			if _, isArg := sub.Tag.Lookup("arg"); !isArg {
+				continue
+			}
+			if _, passthrough := sub.Tag.Lookup("passthrough"); passthrough {
+				continue
+			}
+			if sub.Type.Kind() == reflect.Slice {
+				out = append(out, kongName(f.Name))
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// completion.go's three script blobs hand-code which subcommands keep
+// offering completions past the first operand (install/uninstall/search take
+// several ids or terms against the same source; info/use/pin/etc. take
+// exactly one). This test derives the same set from the CLI struct's actual
+// types and fails if it drifts from completionMultiOperandSubcommands —
+// which is the tripwire: `search`'s Query field is a []string exactly like
+// install's IDs, but the scripts once treated it as single-operand and
+// silently stopped completing after the first search term.
+func TestCompletionMultiOperandCommandsMatchCLI(t *testing.T) {
+	got := multiOperandCommandsFromCLI(t)
+	want := slices.Clone(completionMultiOperandSubcommands)
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("multi-operand commands drifted: CLI struct has %v, completionMultiOperandSubcommands has %v — update the constant AND the case patterns in all three script blobs", got, want)
 	}
 }
