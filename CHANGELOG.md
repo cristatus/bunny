@@ -24,6 +24,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `persist:`. `home: clean` gives a blank HOME every run with no seed at all.
 - Built-in `ephemeral` and `clean` profiles, so `bunny run --sandbox-profile
   ephemeral <id>` makes any installed package throwaway with no config.
+- Built-in `agent` profile, the only hardened built-in: writable working
+  directory, read-only host, hidden home, network up, credential agents off.
+  An agent's own config persists in the isolated home, so nothing needs
+  bind-mounting by hand.
+- A sandboxed launch whose HOME is redirected now receives the host's Git
+  identity as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, resolved by asking Git in the
+  working directory so `include`/`includeIf` chains and per-repository
+  identities come out right. Only name and email cross; `credential.helper`,
+  `core.sshCommand`, `url.*.insteadOf`, `http.extraHeader`, and
+  `commit.gpgSign` deliberately do not. An identity already in the
+  environment wins.
 - `bunny run --explain <id>`: print what the launch would do, without
   launching.
 - Monotonic nested inheritance for boundary and network, with allowlist
@@ -65,6 +76,13 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
   inherited restrictions.
 - A `hide` path that does not exist is now a launch error rather than being
   silently skipped.
+- **Breaking:** the `online-cli` profile is gone and `offline-cli` is now
+  `offline`. The built-ins each cover one axis — `desktop` for device
+  integration, `offline` for the network, `ephemeral`/`clean` for the home,
+  `agent` for the boundary — where `online-cli` was `desktop` minus
+  integrations a CLI never opens, and `offline-cli` named a program shape for
+  a policy that has nothing to do with one. Rename `offline-cli` to `offline`;
+  replace `online-cli` with `desktop`, or with `agent` for a coding agent.
 
 ### Removed
 

@@ -101,7 +101,7 @@ func TestCompletionProfiles(t *testing.T) {
 
 	// No config file at all: only the built-ins.
 	builtinOnly := a.completionProfiles()
-	if strings.Join(builtinOnly, ",") != "clean,desktop,ephemeral,offline-cli,online-cli" {
+	if strings.Join(builtinOnly, ",") != "agent,clean,desktop,ephemeral,offline" {
 		t.Fatalf("builtin-only profiles = %v", builtinOnly)
 	}
 

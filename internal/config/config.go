@@ -87,17 +87,19 @@ type SandboxPackage struct {
 }
 
 const (
-	SandboxProfileDesktop    = "desktop"
-	SandboxProfileOnlineCLI  = "online-cli"
-	SandboxProfileOfflineCLI = "offline-cli"
-	SandboxProfileEphemeral  = "ephemeral"
-	SandboxProfileClean      = "clean"
+	SandboxProfileDesktop   = "desktop"
+	SandboxProfileAgent     = "agent"
+	SandboxProfileOffline   = "offline"
+	SandboxProfileEphemeral = "ephemeral"
+	SandboxProfileClean     = "clean"
 )
 
-// builtinSandboxProfiles are the reserved policy presets. Each states its
-// net mode explicitly so it means the same thing under either boundary. All
-// keep tty enabled, since interactive programs need a controlling terminal;
-// only offline-cli cuts credential agents off.
+// builtinSandboxProfiles are the reserved policy presets, one per axis:
+// desktop for device integration, offline for the network, ephemeral and
+// clean for the home, agent for the boundary. Each states its net mode
+// explicitly so it means the same thing under either boundary. The scoped
+// profiles keep tty enabled, since interactive programs want a controlling
+// terminal; agent cannot, because its boundary mandates a new session.
 var builtinSandboxProfiles = map[string]SandboxPolicy{
 	SandboxProfileDesktop: {
 		Home: "isolated",
@@ -107,15 +109,24 @@ var builtinSandboxProfiles = map[string]SandboxPolicy{
 			"agents": true, "tty": true,
 		},
 	},
-	SandboxProfileOnlineCLI: {
-		Home: "isolated",
-		Net:  &manifest.SandboxNet{Mode: "host"},
+	// The only hardened built-in, and the shape every agent vendor converges
+	// on: the working directory is writable, the rest of the host is
+	// read-only, the host home is hidden, and the network is up because the
+	// model lives behind it. Credential agents stay off — an agent acting on
+	// a prompt should not be able to push, publish, or sign as you. tty is
+	// off because the hardened boundary mandates the new session and PID
+	// namespace; a full-screen TUI still renders over inherited stdio.
+	SandboxProfileAgent: {
+		Boundary: "hardened",
+		Home:     "isolated",
+		Net:      &manifest.SandboxNet{Mode: "host"},
+		FS:       &manifest.SandboxFS{Cwd: "write"},
 		Features: map[string]bool{
 			"x11": false, "wayland": false, "dbus": false, "audio": false,
-			"agents": true, "tty": true,
+			"agents": false, "tty": false,
 		},
 	},
-	SandboxProfileOfflineCLI: {
+	SandboxProfileOffline: {
 		Home: "isolated",
 		Net:  &manifest.SandboxNet{Mode: "none"},
 		Features: map[string]bool{

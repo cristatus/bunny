@@ -130,24 +130,54 @@ persist: []
 `persist` are additive and deduplicated. `persist` is meaningful only under
 `home: ephemeral`, and an entry cannot be in both `hide` and `persist`.
 
-Five reserved built-in profiles are always available:
+Five reserved built-in profiles are always available, one per axis: `desktop`
+for device integration, `offline` for the network, `ephemeral` and `clean` for
+the home, and `agent` for the boundary.
 
-| Profile | Home | Network | Agents | Desktop integrations |
-| --- | --- | --- | --- | --- |
-| `desktop` | Isolated | Enabled | Enabled | enabled |
-| `online-cli` | Isolated | Enabled | Enabled | disabled |
-| `offline-cli` | Isolated | Disabled | Disabled | disabled |
-| `ephemeral` | Ephemeral | Enabled | Enabled | enabled |
-| `clean` | Clean | Enabled | Enabled | enabled |
+| Profile | Boundary | Home | Network | Agents | Desktop integrations |
+| --- | --- | --- | --- | --- | --- |
+| `desktop` | Scoped | Isolated | Enabled | Enabled | enabled |
+| `agent` | **Hardened** | Isolated | Enabled | Disabled | disabled |
+| `offline` | Scoped | Isolated | Disabled | Disabled | disabled |
+| `ephemeral` | Scoped | Ephemeral | Enabled | Enabled | enabled |
+| `clean` | Scoped | Clean | Enabled | Enabled | enabled |
 
-All keep `tty` enabled, so interactive programs keep their controlling
-terminal. `ephemeral` and `clean` differ from `desktop` only in `home`, and
-work on any installed package with no config:
+The scoped profiles keep `tty` enabled, so interactive programs keep their
+controlling terminal. `agent` cannot: its boundary mandates a new session and
+PID namespace. A full-screen TUI still renders over inherited stdio.
+
+`ephemeral` and `clean` differ from `desktop` only in `home`, and work on any
+installed package with no config:
 
 ```bash
 bunny run --sandbox-profile ephemeral codex   # try it once, keep nothing
 bunny run --sandbox-profile clean codex       # same, but always from blank
 ```
+
+`agent` is the only built-in that uses the hardened boundary, and the only one
+that grants `fs.cwd: write`. It is the shape agent vendors converge on: the
+working directory is writable, the rest of the host is read-only, the host home
+is hidden, and the network stays up because the model is behind it. Credential
+agents are off, so a tool acting on a prompt cannot push, publish, or sign as
+you.
+
+```bash
+cd ~/Projects/thing
+bunny run --sandbox-profile agent claude   # can edit this project, nothing else
+```
+
+Because `home` is `isolated`, the tool gets a durable private home under
+`{data}/home`, which is where its own config and credentials accumulate —
+`~/.claude`, `~/.claude.json`, `~/.codex` — persisting across runs without the
+host home being readable. See [Agent config and
+credentials](#agent-config-and-credentials) for what that means the first time
+you run one.
+
+Two limits are worth knowing before relying on it. Commits work, because Bunny
+passes your Git identity through (see [Git
+identity](#git-identity-in-a-sandbox)), but `git push` over SSH does not — see
+[Trust boundary and limitations](#trust-boundary-and-limitations). And `fs.cwd`
+is the directory you launch from, so launch from the project you mean to grant.
 
 Select a built-in and override it inline for the common case:
 
@@ -161,7 +191,7 @@ sandbox:
       hide:
         - ~/Documents/private
     codex:
-      profile: online-cli
+      profile: agent
 ```
 
 A custom profile is a complete standalone policy — it cannot select another
@@ -248,6 +278,76 @@ sandbox:
 For a child launched inside an existing sandbox, `shared` means “keep the
 inherited HOME.” It does not escape back to the real host home; a child cannot
 loosen its parent's isolation.
+
+### Agent config and credentials
+
+An isolated home starts empty, so the first sandboxed run of an agent
+authenticates from scratch, and nothing from your host setup comes with it:
+settings, custom commands, skills, hooks, and MCP server definitions all live
+under the host `~/.claude` (or `~/.codex`) and stay there. After that first
+login the credentials persist, because `{data}/home` is durable.
+
+Isolating rather than sharing is the recommended posture for these tools —
+container setups scope the config volume per project so credentials do not
+leak between unrelated codebases — and Bunny gets one thing for free that
+those setups usually have to work around. Claude Code keeps state in two
+places, `~/.claude/` and the `~/.claude.json` file beside it, and a container
+volume can mount a directory but not a file, which is why onboarding so often
+reappears on every start. Bunny's unit is the whole home, so both are inside
+it and neither needs its own mount.
+
+To carry parts of your host setup over, seed the durable home directly. Files
+placed there appear at `$HOME` inside the boundary:
+
+```bash
+mkdir -p ~/.local/share/bunny/data/claude/home/.claude
+cp -r ~/.claude/settings.json ~/.claude/skills \
+  ~/.local/share/bunny/data/claude/home/.claude/
+```
+
+Copy deliberately rather than wholesale. Hooks and MCP definitions name
+absolute paths and commands, and one that points outside the boundary — or at
+a credential the policy hides — will fail inside it. Under `home: ephemeral`
+the same directories are what `persist:` exists to keep.
+
+One limit is worth being explicit about: an OAuth token has to live in the
+home for the tool to reuse it, so the agent process can read it. Sandbox
+platforms that inject credentials at the boundary keep raw values out of the
+sandbox entirely; Bunny cannot do that for a token the tool itself manages.
+What the boundary does buy is that the token is *this package's* and reaching
+anything else — your SSH keys, other tools' credentials, the rest of the host
+home — is what it prevents.
+
+### Git identity in a sandbox
+
+Redirecting HOME costs a package its Git identity: Git looks for `.gitconfig`
+under HOME, which now points into `{data}/home`, so `git commit` fails with
+“Please tell me who you are.” Granting the host file under `fs.read` does not
+fix it, because HOME still points elsewhere.
+
+Bunny asks Git instead. Every sandboxed launch whose HOME is redirected —
+`isolated`, `ephemeral`, or `clean`, under either boundary — resolves
+`user.name` and `user.email` in the working directory and passes them in:
+
+```text
+GIT_AUTHOR_NAME     GIT_COMMITTER_NAME
+GIT_AUTHOR_EMAIL    GIT_COMMITTER_EMAIL
+```
+
+Asking Git is what makes an `include` or `includeIf` chain resolve, and it is
+resolved per launch in the working directory because those conditions can key
+on the repository: an identity selected by remote URL differs between two
+checkouts, and the sandbox gets the one the host would have used.
+
+Only the name and email cross the boundary. Everything that would hand over
+credentials stays behind — `credential.helper`, `core.sshCommand`,
+`url.*.insteadOf`, `http.extraHeader` — as does `commit.gpgSign`, which would
+only fail inside a sandbox whose GnuPG socket is masked. An identity already in
+the environment was set deliberately and wins; a missing identity or a missing
+Git is not an error, and the launch proceeds without one.
+
+`home: shared` needs none of this: it reads the host config through the real
+HOME already.
 
 ### Ephemeral home: seeded and discarded, with selective persistence
 
@@ -374,7 +474,7 @@ D-Bus on.
 
 `agents: false` is for packages that should not use your SSH, GnuPG, or
 keyring credentials even while `hide: [~/.ssh]` conceals the key files
-themselves. `offline-cli` disables it.
+themselves. `offline` and `agent` disable it.
 
 `tty: false` opts into process and terminal isolation (`TIOCSTI` injection and
 tracing of the launching shell). It breaks programs that expect a controlling
@@ -742,6 +842,28 @@ model, a VM remains the answer. Neither boundary applies policy to binaries
 launched outside Bunny, and nested clamping is a correctness mechanism for
 cooperative nesting, not a defence against a hostile parent process — a
 parent can always run a child's code directly with its own privileges.
+
+### SSH does not work inside either boundary
+
+An unprivileged user namespace maps only your own UID; every other UID,
+including root, appears as the overflow UID (`65534`, `nobody`). OpenSSH
+requires its configuration files be owned by root or by you, so on any host
+with drop-ins under `/etc/ssh/ssh_config.d/` — which systemd now ships — ssh
+refuses to start:
+
+```text
+Bad owner or permissions on /etc/ssh/ssh_config.d/20-systemd-ssh-proxy.conf
+```
+
+This affects `scoped` as well as `hardened`, and applies whatever `features:
+{agents: ...}` says: with agents enabled the SSH agent socket *is* reachable
+and `ssh-add -l` lists your keys, but ssh itself will not run. The practical
+consequence is that `git push` over SSH fails inside a sandbox. Bubblewrap
+cannot fix it — mapping additional UIDs needs `newuidmap` and a subuid range,
+which bubblewrap does not use.
+
+Push from outside the sandbox, or use an HTTPS remote with a credential the
+policy grants deliberately.
 
 ## Diagnosing support
 

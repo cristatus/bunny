@@ -69,7 +69,7 @@ sandbox:
 
 ```bash
 code .                                            # always sandboxed
-bunny run --sandbox-profile online-cli codex -- .  # sandboxed for this launch only
+bunny run --sandbox-profile agent codex -- .  # sandboxed for this launch only
 ```
 
 The default `scoped` boundary isolates application state and can disable
