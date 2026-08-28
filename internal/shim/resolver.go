@@ -10,6 +10,7 @@ import (
 type State interface {
 	CommandOwner(name string) (string, bool)
 	IsInstalled(id string) bool
+	ProvidesOf(id string) string
 }
 
 // Catalog is the small slice of catalog.Loader the resolver needs.
@@ -34,10 +35,11 @@ type Resolver struct {
 //
 //  1. Look up command → owning package via state.Commands.
 //  2. If the owning manifest has `provides:`, walk up cwd for `.bunny-version`.
-//  3. If pinned, attempt package ID `<provides>-<version>`; if installed, use it.
-//  4. If pinned but the candidate isn't installed, error — silent fallback to
-//     the global default would run the wrong toolchain version, which is the
-//     opposite of what a project pin means.
+//  3. If pinned, resolve the pin to a package id (a bare version joins the
+//     capability; a package id is used as written) and use it if installed.
+//  4. If pinned but unusable — not installed, or not a provider of this
+//     capability — error. Silent fallback to the global default would run the
+//     wrong toolchain, the opposite of what a project pin means.
 func (r *Resolver) Resolve(name, cwd string) (*Resolved, error) {
 	owner, ok := r.State.CommandOwner(name)
 	if !ok {
@@ -63,15 +65,21 @@ func (r *Resolver) Resolve(name, cwd string) (*Resolved, error) {
 		return &Resolved{PackageID: owner, Source: "default"}, nil
 	}
 
-	candidate := m.Provides + "-" + pinned.Version
-	if r.State.IsInstalled(candidate) {
-		return &Resolved{
-			PackageID: candidate,
-			Source:    fmt.Sprintf(".bunny-version (%s)", pinned.Source),
-		}, nil
+	candidate := pinned.PackageID()
+	switch {
+	case !r.State.IsInstalled(candidate):
+		return nil, fmt.Errorf(
+			"%s %s pinned in %s, but %s is not installed\nhint: bunny install %s",
+			m.Provides, pinned.Value, pinned.Source, candidate, candidate,
+		)
+	case r.State.ProvidesOf(candidate) != m.Provides:
+		return nil, fmt.Errorf(
+			"%s %s pinned in %s, but %s does not provide %s\nhint: pin a package that does, or a bare version",
+			m.Provides, pinned.Value, pinned.Source, candidate, m.Provides,
+		)
 	}
-	return nil, fmt.Errorf(
-		"%s %s pinned in %s, but %s is not installed\nhint: bunny install %s",
-		m.Provides, pinned.Version, pinned.Source, candidate, candidate,
-	)
+	return &Resolved{
+		PackageID: candidate,
+		Source:    fmt.Sprintf(".bunny-version (%s)", pinned.Source),
+	}, nil
 }

@@ -43,6 +43,12 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   read-only root. The paths come from the resolved layout, so they follow a
   configured `install:` root and need no `fs.read` entry.
 
+- A `.bunny-version` pin may name a package id instead of a version
+  (`jdk corretto-21`), so a project can fix a specific vendor build. A bare
+  version still derives `<capability>-<version>`; package ids cannot start
+  with a digit, so the forms are unambiguous. A pinned package must actually
+  provide the capability.
+
 See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
 
 ### Changed
@@ -68,6 +74,11 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
 - `sandbox:` in a package manifest: run-time policy is the user's alone. No
   catalog manifest used it.
 - `bunny sandbox` as its own command; see Changed.
+- Reading other tools' pin files (`.tool-versions`, `.sdkmanrc`,
+  `.java-version`). They encode a vendor and patch level Bunny cannot honor —
+  `java=21.0.1-amzn` names Corretto, which was reduced to "JDK 21" and then
+  ran Temurin — so a shared pin file silently diverged from what it asked for.
+  `.bunny-version` is now the only format read, and `bunny pin` writes it.
 
 ### Fixed
 

@@ -387,12 +387,16 @@ func (a *App) resolveCapabilityProvider(capability, cwd string) (string, error) 
 		return "", fmt.Errorf("resolve project version for %s: %w", capability, err)
 	}
 	if pinned != nil {
-		candidate := capability + "-" + pinned.Version
-		if a.State.IsInstalled(candidate) {
-			return candidate, nil
+		candidate := pinned.PackageID()
+		switch {
+		case !a.State.IsInstalled(candidate):
+			return "", fmt.Errorf("%s %s pinned in %s, but %s is not installed\nhint: bunny install %s",
+				capability, pinned.Value, pinned.Source, candidate, candidate)
+		case a.State.ProvidesOf(candidate) != capability:
+			return "", fmt.Errorf("%s %s pinned in %s, but %s does not provide %s",
+				capability, pinned.Value, pinned.Source, candidate, capability)
 		}
-		return "", fmt.Errorf("%s %s pinned in %s, but %s is not installed\nhint: bunny install %s",
-			capability, pinned.Version, pinned.Source, candidate, candidate)
+		return candidate, nil
 	}
 	if active := a.State.ResolveProvider(capability); active != "" {
 		return active, nil

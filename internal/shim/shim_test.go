@@ -91,6 +91,7 @@ func TestRemoveRejectsUnsafeName(t *testing.T) {
 type stubState struct {
 	owner     map[string]string
 	installed map[string]bool
+	provides  map[string]string // package id -> capability
 }
 
 func (s *stubState) CommandOwner(name string) (string, bool) {
@@ -98,6 +99,18 @@ func (s *stubState) CommandOwner(name string) (string, bool) {
 	return v, ok
 }
 func (s *stubState) IsInstalled(id string) bool { return s.installed[id] }
+
+// ProvidesOf defaults to the `<capability>-<version>` convention when the test
+// does not say otherwise, so existing cases keep their meaning.
+func (s *stubState) ProvidesOf(id string) string {
+	if c, ok := s.provides[id]; ok {
+		return c
+	}
+	if i := strings.LastIndex(id, "-"); i > 0 {
+		return id[:i]
+	}
+	return ""
+}
 
 type stubCatalog struct {
 	manifests map[string]*manifest.Manifest

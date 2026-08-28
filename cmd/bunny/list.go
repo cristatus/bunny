@@ -157,7 +157,7 @@ func (c *InfoCmd) Run(a *App) error {
 		detail.activeProvider = a.State.Providers[m.Provides]
 		if cwd, err := os.Getwd(); err == nil {
 			if pin, err := shim.ResolveProjectVersion(cwd, m.Provides); err == nil && pin != nil {
-				detail.projectPin = pin.Version + " (" + filepath.Base(pin.Source) + ")"
+				detail.projectPin = pin.Value + " (" + filepath.Base(pin.Source) + ")"
 			}
 		}
 	}
