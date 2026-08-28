@@ -394,6 +394,16 @@ func TestBuiltinSandboxProfilesAreAvailableWithoutConfig(t *testing.T) {
 	}
 }
 
+// BuiltinSandboxProfileNames is shell completion's source of truth for
+// --sandbox-profile; it must name exactly the reserved profiles, sorted,
+// with no separate hardcoded list to drift out of sync.
+func TestBuiltinSandboxProfileNames(t *testing.T) {
+	want := []string{"clean", "desktop", "ephemeral", "offline-cli", "online-cli"}
+	if got := BuiltinSandboxProfileNames(); !slices.Equal(got, want) {
+		t.Errorf("BuiltinSandboxProfileNames() = %v, want %v", got, want)
+	}
+}
+
 func TestLoadAcceptsBuiltinProfileAndRejectsRedefinition(t *testing.T) {
 	if _, err := Load(write(t, "sandbox:\n  packages:\n    vscode:\n      profile: desktop\n")); err != nil {
 		t.Fatalf("built-in profile should be selectable without a definition: %v", err)
