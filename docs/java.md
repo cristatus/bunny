@@ -17,7 +17,7 @@ bunny install zulu-21       # Azul Zulu
 bunny install graalvm-21    # GraalVM Community
 
 bunny use corretto-21       # set Corretto as the global default
-bunny run zulu-21 -- java -version   # one-off execution without changing the default
+bunny run zulu-21 -- -version        # one-off execution without changing the default
 ```
 
 JDK manifests update through the vendor-neutral
@@ -81,8 +81,14 @@ This is not theoretical: the Micronaut CLI ships class files compiled for Java
 also installed, `mn --version` still runs correctly because bunny launches it
 under 25.
 
-## Reading existing pin files
+## Pinning a JDK per project
 
-You do not need to convert existing configuration files. Alongside its own
-`.bunny-version`, Bunny reads `.sdkmanrc` (SDKMAN), `.tool-versions` (asdf/mise),
-and `.java-version` (jenv). See [Per-project pinning](pinning.md).
+`.bunny-version` pins by capability, and a pin may name a package id, so a
+project can select a specific vendor build:
+
+```
+jdk 21              # Temurin, the jdk-* line
+jdk corretto-21     # Amazon Corretto for this tree
+```
+
+See [Per-project pinning](pinning.md).
