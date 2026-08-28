@@ -96,7 +96,7 @@ func embeddedFlags(typ reflect.Type) []string {
 // do invoke them, so the check is against the offered list, not the script text.
 var hiddenCommands = map[string]bool{
 	"complete-ids": true, "complete-tags": true, "complete-capabilities": true,
-	"complete-catalogs": true,
+	"complete-catalogs": true, "netsetup": true,
 }
 
 // flagText is how a shell's script spells a long flag: bash and zsh complete

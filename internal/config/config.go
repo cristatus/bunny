@@ -1,9 +1,9 @@
 // Package config is the user's settings file, at ~/.config/bunny/config.yaml
 // or $BUNNY_HOME/config.yaml under a single-root install.
 //
-// It is the only place that can activate optional behavior. Manifests may
-// recommend a sandbox policy, but data redirection and run-time sandboxing
-// remain inert until the user opts in here.
+// It is the only place that can activate optional behavior, and — for the
+// sandbox — the only place policy is written at all: data redirection and
+// run-time sandboxing are inert until the user opts in here.
 package config
 
 import (
@@ -52,8 +52,8 @@ type Config struct {
 	Install map[string]string `yaml:"install,omitempty"`
 
 	// Sandbox holds reusable profiles and the package IDs the user explicitly
-	// opts into run-time sandboxing. A manifest may recommend policy, but only
-	// presence in Sandbox.Packages activates it.
+	// opts into run-time sandboxing. Presence in Sandbox.Packages is what
+	// activates it; nothing outside this file contributes policy.
 	Sandbox Sandbox `yaml:"sandbox,omitempty"`
 }
 
@@ -65,55 +65,89 @@ type Sandbox struct {
 }
 
 // SandboxPolicy is a reusable user policy. Feature maps merge by key and Hide
-// is additive; Home, when set, replaces the inherited value.
+// is additive; Home and Boundary, when set, replace the inherited value.
+// FS and Net reuse the manifest vocabulary: present grant/allow lists replace
+// inherited ones rather than append.
 type SandboxPolicy struct {
-	Home     string          `yaml:"home,omitempty"`
-	Hide     []string        `yaml:"hide,omitempty"`
-	Features map[string]bool `yaml:"features,omitempty"`
+	Boundary string               `yaml:"boundary,omitempty"` // scoped | hardened
+	Home     string               `yaml:"home,omitempty"`     // isolated | shared | ephemeral | clean
+	Hide     []string             `yaml:"hide,omitempty"`
+	Persist  []string             `yaml:"persist,omitempty"` // home-relative; ephemeral only
+	Features map[string]bool      `yaml:"features,omitempty"`
+	FS       *manifest.SandboxFS  `yaml:"fs,omitempty"`
+	Net      *manifest.SandboxNet `yaml:"net,omitempty"`
 }
 
-// SandboxPackage stores activation plus a package-specific policy. Presence
-// defaults activation to always; on-demand keeps normal launches direct while
-// retaining policy for `bunny sandbox <id>`. Profile selects a reusable policy;
-// the inline policy overrides it without replacing unspecified settings.
+// SandboxPackage is one package's activated policy. Presence here activates
+// the sandbox for every normal launch; there is no activation field. Profile
+// selects a reusable policy, which the inline policy then overrides per key.
 type SandboxPackage struct {
-	Activation    string `yaml:"activation,omitempty"`
 	Profile       string `yaml:"profile,omitempty"`
 	SandboxPolicy `yaml:",inline"`
 }
 
 const (
-	SandboxActivationAlways   = "always"
-	SandboxActivationOnDemand = "on-demand"
-
 	SandboxProfileDesktop    = "desktop"
 	SandboxProfileOnlineCLI  = "online-cli"
 	SandboxProfileOfflineCLI = "offline-cli"
+	SandboxProfileEphemeral  = "ephemeral"
+	SandboxProfileClean      = "clean"
 )
 
-// builtinSandboxProfiles provide stable policy vocabulary without putting
-// generic feature boilerplate in manifests or every user's config. Activation
-// remains package-specific and user-owned; selecting one of these names only
-// chooses policy.
+// builtinSandboxProfiles are the reserved policy presets. Each states its
+// net mode explicitly so it means the same thing under either boundary. All
+// keep tty enabled, since interactive programs need a controlling terminal;
+// only offline-cli cuts credential agents off.
 var builtinSandboxProfiles = map[string]SandboxPolicy{
 	SandboxProfileDesktop: {
 		Home: "isolated",
+		Net:  &manifest.SandboxNet{Mode: "host"},
 		Features: map[string]bool{
-			"network": true, "x11": true, "wayland": true, "dbus": true, "audio": true,
+			"x11": true, "wayland": true, "dbus": true, "audio": true,
+			"agents": true, "tty": true,
 		},
 	},
 	SandboxProfileOnlineCLI: {
 		Home: "isolated",
+		Net:  &manifest.SandboxNet{Mode: "host"},
 		Features: map[string]bool{
-			"network": true, "x11": false, "wayland": false, "dbus": false, "audio": false,
+			"x11": false, "wayland": false, "dbus": false, "audio": false,
+			"agents": true, "tty": true,
 		},
 	},
 	SandboxProfileOfflineCLI: {
 		Home: "isolated",
+		Net:  &manifest.SandboxNet{Mode: "none"},
 		Features: map[string]bool{
-			"network": false, "x11": false, "wayland": false, "dbus": false, "audio": false,
+			"x11": false, "wayland": false, "dbus": false, "audio": false,
+			"agents": false, "tty": true,
 		},
 	},
+	// desktop, but HOME is discarded on exit.
+	SandboxProfileEphemeral: {
+		Home: "ephemeral",
+		Net:  &manifest.SandboxNet{Mode: "host"},
+		Features: map[string]bool{
+			"x11": true, "wayland": true, "dbus": true, "audio": true,
+			"agents": true, "tty": true,
+		},
+	},
+	// desktop, but HOME is blank every run: no seed, unlike ephemeral.
+	SandboxProfileClean: {
+		Home: "clean",
+		Net:  &manifest.SandboxNet{Mode: "host"},
+		Features: map[string]bool{
+			"x11": true, "wayland": true, "dbus": true, "audio": true,
+			"agents": true, "tty": true,
+		},
+	},
+}
+
+// BuiltinSandboxProfileNames lists the reserved profile names, sorted, for
+// shell completion and other listings — the single source of truth so a new
+// built-in never needs a second place updated to stay completable.
+func BuiltinSandboxProfileNames() []string {
+	return slices.Sorted(maps.Keys(builtinSandboxProfiles))
 }
 
 // SandboxProfile resolves a built-in or user-defined profile. Built-in names
@@ -135,8 +169,38 @@ func (c *Config) SandboxProfile(name string) (SandboxPolicy, bool) {
 
 func cloneSandboxPolicy(policy SandboxPolicy) SandboxPolicy {
 	policy.Hide = slices.Clone(policy.Hide)
+	policy.Persist = slices.Clone(policy.Persist)
 	policy.Features = maps.Clone(policy.Features)
+	if policy.FS != nil {
+		fs := *policy.FS
+		fs.Read = cloneStringListPtr(policy.FS.Read)
+		fs.Write = cloneStringListPtr(policy.FS.Write)
+		policy.FS = &fs
+	}
+	if policy.Net != nil {
+		net := *policy.Net
+		net.Inbound = cloneStringListPtr(policy.Net.Inbound)
+		net.Egress = cloneStringListPtr(policy.Net.Egress)
+		policy.Net = &net
+	}
 	return policy
+}
+
+func cloneStringListPtr(list *[]string) *[]string {
+	if list == nil {
+		return nil
+	}
+	cloned := slices.Clone(*list)
+	return &cloned
+}
+
+// AsManifest converts to the manifest vocabulary that validation and policy
+// merging share, so policy semantics live in one place.
+func (p SandboxPolicy) AsManifest() *manifest.SandboxPolicy {
+	return &manifest.SandboxPolicy{
+		Boundary: p.Boundary, Home: p.Home, Hide: p.Hide, Persist: p.Persist,
+		Features: p.Features, FS: p.FS, Net: p.Net,
+	}
 }
 
 // Catalog is one catalog bunny reads manifests from: a name plus exactly one of
@@ -244,9 +308,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("sandbox.packages.%s: %w", id, err)
 		}
 		pkg := c.Sandbox.Packages[id]
-		if pkg.Activation != "" && pkg.Activation != SandboxActivationAlways && pkg.Activation != SandboxActivationOnDemand {
-			return fmt.Errorf("sandbox.packages.%s.activation: must be \"always\" or \"on-demand\"", id)
-		}
 		if pkg.Profile != "" {
 			if _, ok := c.SandboxProfile(pkg.Profile); !ok {
 				return fmt.Errorf("sandbox.packages.%s.profile: unknown profile %q", id, pkg.Profile)
@@ -295,9 +356,7 @@ func (c *Config) validateCatalogs() error {
 }
 
 func validateSandboxPolicy(field string, policy SandboxPolicy) error {
-	return manifest.ValidateSandboxPolicy(field, &manifest.SandboxPolicy{
-		Home: policy.Home, Hide: policy.Hide, Features: policy.Features,
-	})
+	return manifest.ValidateSandboxPolicy(field, policy.AsManifest())
 }
 
 // absPath expands a leading ~/ and requires the result to be absolute, so a

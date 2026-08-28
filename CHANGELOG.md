@@ -7,6 +7,86 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Hardened sandbox boundary (`boundary: hardened`): a deny-by-default,
+  kernel-enforced allowlist — read-only host root, hidden host home, private
+  `/run`/`/tmp`/`/var/tmp`, explicit `fs.read`/`fs.write` grants, and
+  mandatory PID/IPC/UTS/session isolation with a full capability drop.
+  Integrations default off and grant targets fail closed.
+- Three-state network policy (`net: host | private | none`, or a `net:` block
+  with `inbound`/`egress`). `private` gives the package its own stack via
+  pasta, with nftables egress allowlists and a pinned DNS forwarder.
+  Hostnames are rejected: name-based filtering cannot be enforced.
+- Filtered D-Bus for hardened packages: `features.dbus: true` starts a
+  portal-only `xdg-dbus-proxy`; the raw bus is never bound.
+- `home: ephemeral` discards HOME writes on exit, except paths under
+  `persist:`. `home: clean` gives a blank HOME every run with no seed at all.
+- Built-in `ephemeral` and `clean` profiles, so `bunny run --sandbox-profile
+  ephemeral <id>` makes any installed package throwaway with no config.
+- `bunny run --explain <id>`: print what the launch would do, without
+  launching.
+- Monotonic nested inheritance for boundary and network, with allowlist
+  clamping; a hardened child can only remove filesystem grants.
+- Doctor checks for `pasta`, `nft`, `xdg-dbus-proxy`, and overlayfs, shown
+  only when a configured policy needs them.
+- Scoped sandbox now masks a disabled feature's documented endpoints with
+  kernel-backed mounts, not just its environment variables, so libraries that
+  fall back to a default socket are actually cut off.
+- New `agents` feature key (SSH agent, GnuPG, keyring) and `tty` feature key
+  (new session and PID namespace). All built-in profiles keep `tty` enabled.
+- `config.yaml` is bound read-only inside every sandbox, so a package cannot
+  rewrite the policy that governs it.
+- Hardened sandboxes bind Bunny's own layout read-only — shim directory,
+  `state.json`, manifest snapshots, and the install roots — so a shim resolves
+  a toolchain inside the boundary while `bunny install` still fails on the
+  read-only root. The paths come from the resolved layout, so they follow a
+  configured `install:` root and need no `fs.read` entry.
+
+See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
+
+### Changed
+
+- `bunny sandbox <id>` is now `bunny run --sandbox <id>`, with
+  `--sandbox-profile <name>` and `--explain`. Arguments after the package id
+  pass through to the binary, so a tool flag Bunny does not define no longer
+  needs a `--` escape.
+- Sandbox policy resolves through two layers — the selected profile, then the
+  package's inline override — so the effective policy is readable from
+  `config.yaml` alone.
+- Nested sandbox state moved from `BUNNY_SANDBOX_CONTEXT` to a read-only
+  mounted context file, so a sandboxed process cannot forge or unset its
+  inherited restrictions.
+- A `hide` path that does not exist is now a launch error rather than being
+  silently skipped.
+
+### Removed
+
+- `sandbox.packages.<id>.activation`: presence under `sandbox.packages` is now
+  the whole activation rule.
+- `features.network`, in favor of `net` alone.
+- `sandbox:` in a package manifest: run-time policy is the user's alone. No
+  catalog manifest used it.
+- `bunny sandbox` as its own command; see Changed.
+
+### Fixed
+
+- A hardened sandbox with `net: host` could not resolve DNS. The baseline's
+  private `/run` masked `/run/systemd/resolve`, and `/etc/resolv.conf` is a
+  symlink into it, so every name lookup failed with the network otherwise
+  reachable. The resolver configuration is now bound back for host
+  networking; restricted modes still mask it.
+
+### Security
+
+- The hardened D-Bus proxy validates its upstream bus address to a plain
+  `unix:` socket, so a package cannot inject a `unixexec:` address that would
+  run a process outside the sandbox.
+- Hardened filesystem grants and the working directory are refused when they
+  equal, or are an ancestor of, a protected root, including via a symlink.
+- A `persist:` entry is symlink-resolved and refused if it lands outside the
+  isolated home, so an earlier run cannot plant a symlink out of the sandbox.
+
 ## [0.5.0] - 2026-08-24
 
 ### Added

@@ -31,10 +31,8 @@ env:
 These values point at the install tree (`{app}`) or at files Bunny generates
 (`{data}/toolchains.xml`). They do not redirect user data directories.
 
-A manifest may also recommend a `sandbox:` policy describing the environment
-in which its package normally works. That recommendation is inert unless the
-user names the package under `sandbox.packages`; manifests cannot activate
-sandboxing themselves.
+Manifests carry no `sandbox:` policy at all — run-time sandbox policy is the
+user's alone, written in `~/.config/bunny/config.yaml`.
 
 ## Global package installs
 
@@ -53,9 +51,10 @@ optional runtime sandbox.
 ## Default execution and optional sandbox
 
 Bunny executes a package directly via `execve` unless that exact package ID is
-listed under `sandbox.packages`. The optional [per-package sandbox](sandbox.md)
-scopes a trusted package's state and integrations; it is not a hardened
-security boundary for untrusted code.
+listed under `sandbox.packages`. The optional
+[per-package sandbox](sandbox.md) has two boundaries: the default `scoped`
+scopes a trusted package's state and integrations, while `hardened` is a
+deny-by-default, kernel-enforced allowlist.
 
 ## Opting into data redirection
 

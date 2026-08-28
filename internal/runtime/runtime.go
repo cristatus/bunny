@@ -21,9 +21,16 @@ import (
 
 // FindBwrap returns the path to bwrap or a helpful error.
 func FindBwrap() (string, error) {
-	path, err := exec.LookPath("bwrap")
+	return findTool("bwrap", "required for sandboxing", "bubblewrap", "bubblewrap")
+}
+
+// findTool locates an optional sandbox helper, failing closed with an install
+// hint. The reason names which policy needs it.
+func findTool(name, reason, archPkg, debianPkg string) (string, error) {
+	path, err := exec.LookPath(name)
 	if err != nil {
-		return "", fmt.Errorf("bubblewrap not found: %w\nInstall: sudo pacman -S bubblewrap (Arch) or sudo apt install bubblewrap (Debian/Ubuntu)", err)
+		return "", fmt.Errorf("%s not found (%s): %w\nInstall: sudo pacman -S %s (Arch) or sudo apt install %s (Debian/Ubuntu)",
+			name, reason, err, archPkg, debianPkg)
 	}
 	return path, nil
 }

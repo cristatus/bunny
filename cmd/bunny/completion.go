@@ -174,7 +174,7 @@ func (c *CompletionCmd) Run(_ *App) error {
 // complete-ids command is intentionally excluded.
 var completionSubcommands = []string{
 	"install", "uninstall", "list", "info", "search", "use", "pin", "unpin", "run",
-	"sandbox", "update", "doctor", "init", "setup", "clean", "reshim",
+	"update", "doctor", "init", "setup", "clean", "reshim",
 	"toolchains", "dev", "completion",
 }
 
@@ -223,7 +223,7 @@ const bashCompletion = `_bunny() {
     for (( i=1; i < COMP_CWORD; i++ )); do
         w="${COMP_WORDS[i]}"
         case "$w" in
-            --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--shell) (( i++ )); continue ;;
+            --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--sandbox-profile|--shell) (( i++ )); continue ;;
             -*) continue ;;
         esac
         if [[ -z "$sub" ]]; then sub="$w"; else operand="$w"; break; fi
@@ -248,7 +248,7 @@ const bashCompletion = `_bunny() {
             uninstall)    flags="$flags --purge --yes" ;;
             list)         flags="$flags __FILTERS__ --active" ;;
             search)       flags="$flags __FILTERS__ --installed --available" ;;
-            run|sandbox)  flags="$flags --command" ;;
+            run)          flags="$flags --command --sandbox --sandbox-profile --explain" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
@@ -288,7 +288,7 @@ const bashCompletion = `_bunny() {
         info|search)              COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
         use)                      COMPREPLY=( $(compgen -W "$(bunny complete-ids --providers 2>/dev/null)" -- "$cur") ) ;;
         pin|unpin)                COMPREPLY=( $(compgen -W "$(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
-        update|clean|run|sandbox) COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
+        update|clean|run)         COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ) ;;
         reshim)                   COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null) $(bunny complete-capabilities 2>/dev/null)" -- "$cur") ) ;;
         init|completion)          COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
     esac
@@ -307,7 +307,7 @@ local sub="" operand="" w i
 for (( i = 2; i < CURRENT; i++ )); do
     w=${words[i]}
     case $w in
-        --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--shell) (( i++ )); continue ;;
+        --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--sandbox-profile|--shell) (( i++ )); continue ;;
         -*) continue ;;
     esac
     if [[ -z $sub ]]; then sub=$w; else operand=$w; break; fi
@@ -333,7 +333,7 @@ if [[ $cur == -* ]]; then
         uninstall) flags+=(--purge --yes) ;;
         list) flags+=(__FILTERS__ --active) ;;
         search) flags+=(__FILTERS__ --installed --available) ;;
-        run|sandbox) flags+=(--command) ;;
+        run) flags+=(--command --sandbox --sandbox-profile --explain) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
@@ -369,7 +369,7 @@ case $sub in
     info|search) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
     use) compadd -- ${(f)"$(bunny complete-ids --providers 2>/dev/null)"} ;;
     pin|unpin) compadd -- ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
-    update|clean|run|sandbox) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
+    update|clean|run) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ;;
     reshim) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"} ${(f)"$(bunny complete-capabilities 2>/dev/null)"} ;;
     init|completion) compadd -- bash zsh fish ;;
 esac
@@ -402,7 +402,7 @@ complete -c bunny -l no-progress -d 'Disable interactive progress output'
 complete -c bunny -l version -d 'Print version'
 # positional operands per subcommand
 complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(__bunny_ids)'
-complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim run sandbox; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
+complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim run; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from use; and not __fish_seen_subcommand_from dev' -a '(__bunny_provider_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from pin unpin' -a '(__bunny_capabilities)'
 complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash zsh fish'
@@ -419,7 +419,9 @@ complete -c bunny -n '__fish_seen_subcommand_from list' -l active -d 'Show only 
 complete -c bunny -n '__fish_seen_subcommand_from search' -l installed -d 'Show only installed packages'
 complete -c bunny -n '__fish_seen_subcommand_from search' -l available -d 'Show only packages that are not installed'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -d 'Specific command to run'
-complete -c bunny -n '__fish_seen_subcommand_from sandbox' -s c -l command -r -d 'Specific command to run'
+complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox -d 'Force the sandbox policy for this launch even if not configured'
+complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox-profile -r -d 'Override the configured sandbox profile for this launch'
+complete -c bunny -n '__fish_seen_subcommand_from run' -l explain -d 'Print what this launch would do without launching'
 complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'

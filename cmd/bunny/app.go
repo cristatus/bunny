@@ -298,31 +298,45 @@ func (a *App) installedCatalog() catalog.Loader {
 // run executes a package's binary. command="" runs the first one. Used by
 // both `bunny run` and the shim dispatch path.
 func (a *App) run(id, command string, args []string) error {
-	return a.runPackage(id, command, args, false)
+	return a.runPackage(id, command, args, false, "", false)
 }
 
-// runSandboxed performs a package-aware forced sandbox launch. Unlike normal
-// run/shim dispatch, on-demand and unconfigured packages are sandboxed too.
-func (a *App) runSandboxed(id, command string, args []string) error {
-	return a.runPackage(id, command, args, true)
+// runPackage prepares and launches a package, or explains what that launch
+// would do instead. forceSandbox and profile, from `bunny run --sandbox
+// [--sandbox-profile name]`, override normal activation and the configured
+// profile for this invocation only; explain, from `bunny run --explain`,
+// reports the resolved plan (direct or sandboxed, matching forceSandbox and
+// the package's configured activation) without touching the host.
+func (a *App) runPackage(id, command string, args []string, forceSandbox bool, profile string, explain bool) error {
+	prep, err := a.preparePackage(id, command, args)
+	if err != nil {
+		return err
+	}
+	if explain {
+		out, err := runtime.Explain(prep, a.Config, forceSandbox, profile)
+		if err != nil {
+			return err
+		}
+		fmt.Fprint(os.Stdout, out)
+		return nil
+	}
+	if forceSandbox {
+		return runtime.ExecPackageSandboxed(prep, a.Config, profile)
+	}
+	return runtime.ExecPackage(prep, a.Config)
 }
 
-func (a *App) runPackage(id, command string, args []string, forceSandbox bool) error {
+// preparePackage resolves an installed package's manifest into a launchable
+// Prepared; shared by run, run --sandbox, and run --explain.
+func (a *App) preparePackage(id, command string, args []string) (*runtime.Prepared, error) {
 	if !a.State.IsInstalled(id) {
-		return fmt.Errorf("package %q is not installed", id)
+		return nil, fmt.Errorf("package %q is not installed", id)
 	}
 	m, err := a.loadInstalledManifest(id)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	prep, err := a.launcher().Prepare(m, command, args)
-	if err != nil {
-		return err
-	}
-	if forceSandbox {
-		return runtime.ExecPackageSandboxed(prep, a.Config)
-	}
-	return runtime.ExecPackage(prep, a.Config)
+	return a.launcher().Prepare(m, command, args)
 }
 
 // RunShim dispatches a shim invocation (argv[0] = "node", "code", ...) to

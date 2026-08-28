@@ -2,6 +2,7 @@ package paths
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -274,6 +275,17 @@ func TestInstallRootsDeduplicates(t *testing.T) {
 	}
 	if got := p.StagingRoots(); len(got) != 1 || got[0] != "/opt/.staging" {
 		t.Errorf("StagingRoots() = %v, want [/opt/.staging]", got)
+	}
+}
+
+// A sandbox grants LayoutRoots read-only, so it has to name every place a
+// shim looks — including a configured install root, which is the whole reason
+// the list is derived instead of written down in a policy.
+func TestLayoutRootsFollowConfiguredInstallRoots(t *testing.T) {
+	p := At("/x").WithLayout(map[string]string{manifest.KindSDK: "/opt"}, nil)
+	want := []string{"/opt", "/x/app", "/x/bin", "/x/cli", "/x/manifests", "/x/state.json"}
+	if got := p.LayoutRoots(); !slices.Equal(got, want) {
+		t.Errorf("LayoutRoots() = %v, want %v", got, want)
 	}
 }
 

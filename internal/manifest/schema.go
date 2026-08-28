@@ -1,13 +1,18 @@
 // Package manifest defines the YAML schema bunny consumes for each package
 // in the catalog: identity, sources, install steps, run-time portability
-// injection, and optional sandbox recommendations.
+// injection, and desktop integration.
 //
 // The schema is intentionally concrete — env and args are separate
 // blocks rather than wrappers around a generic "redirect" type, so the
 // reader sees what each block does at a glance.
 package manifest
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Manifest is one package's full descriptor.
 type Manifest struct {
@@ -59,26 +64,75 @@ type Manifest struct {
 	Bin []Binary `yaml:"bin"`
 	// Env is set in the binary's environment on launch.
 	Env map[string]string `yaml:"env,omitempty"`
-	// Sandbox recommends a run-time sandbox policy for this package. It never
-	// enables sandboxing: only a matching sandbox.packages entry in the user's
-	// config does that. User profiles and package overrides layer on top.
-	Sandbox *SandboxPolicy `yaml:"sandbox,omitempty"`
-
 	// --- Desktop integration ---
 	Desktop     []DesktopEntry `yaml:"desktop,omitempty"`
 	Icons       []Icon         `yaml:"icons,omitempty"`
 	Completions *Completions   `yaml:"completions,omitempty"`
 }
 
-// SandboxPolicy is a package author's preferred run-time sandbox policy.
-// Profile names a reusable user-config profile; Hide paths are masked and
-// Features toggle optional host integration. Home defaults to "isolated"
-// when the package is enabled, redirecting HOME and XDG state into {data}.
+// SandboxPolicy is the shared shape of one run-time sandbox policy layer:
+// the vocabulary a user's profile and package entry are both written in.
+// Manifests do not carry one — policy is the user's alone. Hide paths are
+// masked and Features toggle optional host integration. Home defaults to
+// "isolated", redirecting HOME and XDG state into {data}.
+// Boundary selects the trust model: "scoped" (default) keeps the
+// high-compatibility read-write host view, "hardened" is the deny-by-default
+// allowlist boundary. FS grants and Net policy are shared vocabulary between
+// the two, though FS is meaningful only under hardened.
 type SandboxPolicy struct {
-	Profile  string          `yaml:"profile,omitempty"`
-	Home     string          `yaml:"home,omitempty"`
+	Boundary string          `yaml:"boundary,omitempty"` // scoped | hardened
+	Home     string          `yaml:"home,omitempty"`     // isolated | shared | ephemeral | clean
 	Hide     []string        `yaml:"hide,omitempty"`
+	Persist  []string        `yaml:"persist,omitempty"` // home-relative; ephemeral only
 	Features map[string]bool `yaml:"features,omitempty"`
+	FS       *SandboxFS      `yaml:"fs,omitempty"`
+	Net      *SandboxNet     `yaml:"net,omitempty"`
+}
+
+// SandboxFS is the hardened boundary's filesystem grant set. The
+// pointer-to-slice fields preserve the difference between an absent key
+// (inherit) and an explicit empty sequence (grant nothing) through
+// profile/package merging; present lists replace inherited ones rather than
+// append, because appending is correct for restrictions and wrong for
+// permissions.
+type SandboxFS struct {
+	Read  *[]string `yaml:"read,omitempty"`  // nil inherits; [] grants nothing
+	Write *[]string `yaml:"write,omitempty"` // nil inherits; [] grants nothing
+	Cwd   string    `yaml:"cwd,omitempty"`   // read | write | hidden
+}
+
+// SandboxNet is the three-state network policy. Mode "host" is the host
+// namespace verbatim, "private" is an own stack via pasta with inbound denied
+// except the listed ports, "none" is an own namespace with no stack. It is
+// the only way to express network policy: there is deliberately no
+// features.network boolean beside it, since one setting with two spellings
+// needs precedence rules for every way the two can disagree.
+type SandboxNet struct {
+	Mode    string    `yaml:"mode,omitempty"`    // host | private | none
+	Inbound *[]string `yaml:"inbound,omitempty"` // nil inherits; [] denies all
+	Egress  *[]string `yaml:"egress,omitempty"`  // nil unrestricted/inherits; [] denies all
+}
+
+// UnmarshalYAML accepts either the full mapping or a bare mode string, so the
+// common on/off case reads `net: none` instead of `net: {mode: none}`. Both
+// spell the same field rather than introducing a second one — an invalid mode
+// still fails in validateSandboxNet, which reports the whole vocabulary.
+func (n *SandboxNet) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		var mode string
+		if err := node.Decode(&mode); err != nil {
+			return fmt.Errorf("net: must be a mode name or a mapping: %w", err)
+		}
+		*n = SandboxNet{Mode: mode}
+		return nil
+	}
+	type rawNet SandboxNet // shed this method, keep the field tags
+	var raw rawNet
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	*n = SandboxNet(raw)
+	return nil
 }
 
 // Source describes one downloadable archive or file. Each Source may carry

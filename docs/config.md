@@ -167,8 +167,8 @@ replace or remove a directory without one.
 Extra environment variables applied when Bunny launches a package. This is
 where per-version data redirection is configured. Manifest `env` values describe
 runtime wiring; user config controls optional cache and data relocation.
-Manifest sandbox recommendations are separate and remain inactive until the
-user opts in under `sandbox.packages`.
+Sandbox policy is separate from `env:` entirely, and manifests carry none of
+it: see [Sandboxing](sandbox.md).
 
 Keys match from least to most specific (most specific wins):
 
@@ -199,7 +199,8 @@ Values expand template placeholders:
 | `{share}`           | `~/.local/share`                                                           |
 | `{id}`, `{version}` | the package id and version                                                 |
 
-Manifest `prepare:` steps receive build-time placeholders:
+Manifest `prepare:` steps receive build-time placeholders instead (manifest
+authoring lives in the [catalog](https://github.com/cristatus/bunny-catalog)):
 
 | Placeholder         | Expands to                                            |
 | ------------------- | ----------------------------------------------------- |
@@ -209,17 +210,12 @@ Manifest `prepare:` steps receive build-time placeholders:
 | `{data}`            | the package runtime data dir                          |
 | `{id}`, `{version}` | the package id and version                            |
 
-`{data}` expands to the real runtime path, allowing a preparation step to seed
-default configuration files and bake the path into configs simultaneously.
-Staged files are merged into `{data}` upon install commit without overwriting
-existing user edits.
+A `prepare:` step writes `{data}` through staging; those files merge into the
+real data dir on commit without overwriting existing user edits.
 
 Because `{data}` resolves per package ID, a capability key gives each version
-its own directory: `node-22` and `node-24` each receive distinct `NPM_CONFIG_PREFIX`
-paths.
-
-Environment overrides also propagate to package dependencies (for instance,
-setting `jdk` environment applies to tools declaring `requires: ["jdk"]`).
+its own directory. Overrides also propagate to dependencies, so setting `jdk`
+env applies to tools declaring `requires: ["jdk"]`.
 
 Precedence at launch (lowest to highest):
 
@@ -246,69 +242,38 @@ dirs:
 
 ## `sandbox`
 
-Per-package runtime sandboxing has no global enable switch. A package entry
-activates normal launches and can select a built-in profile without defining
-it locally:
+`profiles:` names a policy, `packages:` activates one. Presence under
+`packages:` is what applies the sandbox to every normal launch — there is no
+activation field.
+
+A profile no package selects is inert until named at launch with
+`bunny run --sandbox-profile <name> <id>`, which is how a policy stays
+available without being automatic. It also saves repeating a policy across
+several packages, though that is the smaller reason to have it.
+
+A package entry selects at most one profile (built-in or custom) and overrides
+individual keys; `features` and `hide` merge additively rather than replacing.
 
 ```yaml
 sandbox:
+  profiles:
+    private-no-network:       # a custom profile is a complete policy
+      home: isolated
+      net: none
+      hide: [~/.ssh, ~/.aws]
   packages:
     code:
-      profile: desktop
-```
-
-Built-in profiles provide reusable policy without repeating feature maps:
-
-| Profile | Home | Network | X11, Wayland, D-Bus, audio |
-| --- | --- | --- | --- |
-| `desktop` | Isolated | Enabled | Enabled |
-| `online-cli` | Isolated | Enabled | Disabled |
-| `offline-cli` | Isolated | Disabled | Disabled |
-
-The names are reserved. A package entry selects one profile and may override
-individual values without replacing the rest:
-
-```yaml
-sandbox:
-  packages:
-    code:
-      activation: on-demand
-      profile: desktop
-      features:
+      profile: desktop        # built-in: desktop, online-cli, offline-cli,
+      features:               # ephemeral, clean (names are reserved)
         audio: false
-      hide:
-        - ~/Documents/private
-    codex:
-      activation: on-demand
-      profile: online-cli
+      hide: [~/Documents/private]
+    some-tool:
+      profile: private-no-network
 ```
 
-User-defined profiles use other names and are useful for complete reusable
-personal policies, including path masks. A package selects either one built-in
-or one custom profile, followed by its inline overrides.
-
-`activation` accepts `always` or `on-demand` and defaults to `always` when
-omitted. Defining a profile alone activates nothing: an exact package entry is
-required, and that entry activates normal launches unless it sets
-`activation: on-demand`. On-demand entries retain their policy for
-`bunny sandbox <id>` without changing normal runs or shims. The command can also
-sandbox an installed package with no package entry, using its manifest and
-built-in defaults.
-
-Effective precedence is built-in defaults, manifest recommendations, selected
-built-in or user-defined profile, then the package override.
-
-| Field | Meaning |
-| --- | --- |
-| `activation` | `always` (default for an entry) or `on-demand` |
-| `profile` | One built-in or user-defined profile to layer into the policy |
-| `home` | `isolated` (default) or `shared` |
-| `features` | Per-key booleans for `network`, `audio`, `wayland`, `x11`, and `dbus` |
-| `hide` | Additive list of host paths to mask |
-
-Feature maps merge by key and `hide` lists are additive. See
-[Sandboxing](sandbox.md) for the complete runtime model, nesting behavior, and
-trust boundary.
+The full field set (`home`, `persist`, `features`, `hide`, `boundary`, `fs`,
+`net`), what each built-in sets, and the nesting and trust model are in
+[Sandboxing](sandbox.md).
 
 ## Recipes
 
@@ -344,15 +309,12 @@ dirs:
     - "{data}/repository"
 ```
 
-With this Node recipe, `npm install -g prettier` writes the executable under
-the active Node package's `{data}/npm-global`. Run `bunny reshim node` (or
-`bunny reshim`) after adding or removing global packages; Bunny then exposes
-`prettier` through its normal shim directory. If the shim is invoked from a
-sandboxed editor while Node itself is not sandbox-enabled, it runs directly
-inside the editor's existing sandbox: npm's prefix/cache remain in Node's
-`{data}`, while the tool inherits the editor's HOME and restrictions.
+With this Node recipe, `npm install -g prettier` writes under the active Node
+package's `{data}/npm-global`; run `bunny reshim` afterwards to expose it. See
+[Sandboxing](sandbox.md#sandbox-the-app-redirect-sdk-data) for how this
+composes with a sandboxed editor.
 
-Important considerations:
+Two caveats:
 
 - **`GRADLE_USER_HOME` moves user configuration**: `~/.gradle/gradle.properties`
   (credentials, `org.gradle.jvmargs`) is no longer read from `$HOME`. Copy it
