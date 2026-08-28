@@ -57,7 +57,7 @@
 # --- Sandbox ------------------------------------------------------------
 #
 # Runtime sandboxing is opt-in per package, and policy is yours alone —
-# manifests carry none. Built-in profiles: desktop, online-cli, offline-cli,
+# manifests carry none. Built-in profiles: desktop, agent, offline,
 # ephemeral, clean. See docs/sandbox.md.
 #
 # profiles: names a policy. packages: activates one for every normal launch.
@@ -83,7 +83,7 @@
 #       hide:
 #         - ~/Documents/private
 #     codex:
-#       profile: online-cli
+#       profile: agent
 
 # --- Catalogs ---------------------------------------------------------------
 #

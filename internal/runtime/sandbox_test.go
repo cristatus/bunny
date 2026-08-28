@@ -50,7 +50,7 @@ func TestSandboxActivationIsPackageMapPresence(t *testing.T) {
 func TestPackageSelectsBuiltinProfileAndOverridesIt(t *testing.T) {
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
 		"codex": {
-			Profile: config.SandboxProfileOnlineCLI,
+			Profile: config.SandboxProfileAgent,
 			SandboxPolicy: config.SandboxPolicy{
 				Features: map[string]bool{"audio": true},
 			},
@@ -65,27 +65,63 @@ func TestPackageSelectsBuiltinProfileAndOverridesIt(t *testing.T) {
 	}
 }
 
+// The agent profile is the only hardened built-in, and the only one that
+// grants the working directory. Both have to survive profile resolution, or
+// the profile silently degrades into a plain isolated launch.
+func TestAgentProfileIsHardenedWithWritableCwd(t *testing.T) {
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"claude": {Profile: config.SandboxProfileAgent},
+	}}}
+	got, err := ResolvePackageSandbox(cfg, "claude", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Boundary != "hardened" {
+		t.Errorf("agent profile must be hardened, got %q", got.Boundary)
+	}
+	if got.FS.Cwd != "write" {
+		t.Errorf("agent profile must grant the working directory, got cwd %q", got.FS.Cwd)
+	}
+	if got.Net.Mode != "host" {
+		t.Errorf("agent profile needs the network for the model API, got %q", got.Net.Mode)
+	}
+	if got.feature("agents") {
+		t.Error("agent profile must not expose credential agents")
+	}
+	// The boundary mandates a new session and PID namespace, so tty is forced
+	// off and the profile says so rather than asking for something it cannot
+	// have. An interactive TUI still renders over inherited stdio.
+	if got.feature("tty") {
+		t.Error("hardened boundary forces tty off; the agent profile must not claim otherwise")
+	}
+	if got.Home != "isolated" {
+		t.Errorf("agent config must persist across runs, got home %q", got.Home)
+	}
+}
+
 func TestBuiltinProfilesSetAgentsAndTTY(t *testing.T) {
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
-		"tool": {Profile: config.SandboxProfileOfflineCLI},
+		"tool": {Profile: config.SandboxProfileOffline},
 	}}}
 	got, err := ResolvePackageSandbox(cfg, "tool", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.feature("agents") {
-		t.Error("offline-cli must disable credential agents")
+		t.Error("offline must disable credential agents")
 	}
 	if !got.feature("tty") {
-		t.Error("offline-cli must keep the controlling terminal")
+		t.Error("offline must keep the controlling terminal")
 	}
 	// Asserted on the *resolved* policy, not just the profile definition:
-	// offline-cli expressed network through features.network until that alias
+	// offline expressed network through features.network until that alias
 	// was removed, and a stale feature key would leave it silently online.
 	if got.Net.Mode != "none" {
-		t.Errorf("offline-cli must isolate the network, got mode %q", got.Net.Mode)
+		t.Errorf("offline must isolate the network, got mode %q", got.Net.Mode)
 	}
-	for _, profile := range []string{config.SandboxProfileDesktop, config.SandboxProfileOnlineCLI} {
+	for _, profile := range []string{
+		config.SandboxProfileDesktop, config.SandboxProfileEphemeral, config.SandboxProfileClean,
+	} {
 		cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
 			"tool": {Profile: profile},
 		}}}

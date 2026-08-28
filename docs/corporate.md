@@ -12,8 +12,8 @@ Unsandboxed Bunny-launched apps have full network access as ordinary host
 processes. Maven and Gradle reach your internal Nexus, npm reaches your internal
 registry, and IDEs reach your license server without extra configuration.
 
-A sandboxed package keeps network access with the `desktop` and `online-cli`
-profiles. The `offline-cli` profile, or `net: none`, creates a
+A sandboxed package keeps network access with the `desktop` and `agent`
+profiles. The `offline` profile, or `net: none`, creates a
 private network namespace and cannot reach proxies, registries, or license
 servers.
 
@@ -105,10 +105,10 @@ into the isolated home, redirect them with the tool's own environment variables,
 or override the package with `home: shared` when sharing the host home is the
 intended policy.
 
-System CA stores and inherited proxy variables remain available. The
-`online-cli` profile disables X11, Wayland, D-Bus, and audio environment
-integration but retains the network; `desktop` retains those integrations as
-well. Explicit `hide` entries can mask credential paths or agent sockets.
+System CA stores and inherited proxy variables remain available. The `agent`
+profile disables X11, Wayland, D-Bus, and audio environment integration but
+retains the network; `desktop` retains those integrations as well. Explicit
+`hide` entries can mask credential paths or agent sockets.
 
 The default `scoped` boundary is state separation, not protection from
 hostile code: the host filesystem stays read-write unless explicitly hidden,
@@ -128,7 +128,19 @@ For sandboxed packages, home-relative credential discovery follows the
 isolated or shared HOME policy above. `SSH_AUTH_SOCK` and `GPG_AGENT_INFO`
 are inherited by default; `features: {agents: false}` unsets them and masks
 the agent, GnuPG, and keyring sockets, which is the control to reach for when
-a package should not use your credentials at all. `offline-cli` sets it.
+a package should not use your credentials at all. `offline` and `agent` set it.
+
+Note that ssh does not run inside either boundary — an unprivileged user
+namespace makes root-owned files under `/etc/ssh/ssh_config.d/` appear owned by
+`nobody`, which OpenSSH refuses. Git over SSH therefore fails inside a sandbox
+regardless of the `agents` setting. See
+[Sandboxing](sandbox.md#ssh-does-not-work-inside-either-boundary).
+
+A sandboxed package with a redirected HOME does get your Git identity: Bunny
+resolves `user.name` and `user.email` in the working directory and passes them
+as `GIT_AUTHOR_*`/`GIT_COMMITTER_*`, so commits are attributed correctly even
+though `~/.gitconfig` is out of reach. Credential-bearing settings such as
+`credential.helper` and `core.sshCommand` are deliberately not passed through.
 
 ## Air-gapped and offline installs
 

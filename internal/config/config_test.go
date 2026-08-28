@@ -330,7 +330,7 @@ func TestLoadRejectsPersistWithoutEphemeralHome(t *testing.T) {
 
 func TestBuiltinSandboxProfilesAreAvailableWithoutConfig(t *testing.T) {
 	var cfg *Config
-	for _, name := range []string{SandboxProfileDesktop, SandboxProfileOnlineCLI, SandboxProfileOfflineCLI, SandboxProfileEphemeral, SandboxProfileClean} {
+	for _, name := range []string{SandboxProfileDesktop, SandboxProfileAgent, SandboxProfileOffline, SandboxProfileEphemeral, SandboxProfileClean} {
 		if _, ok := cfg.SandboxProfile(name); !ok {
 			t.Errorf("built-in profile %q is unavailable", name)
 		}
@@ -347,13 +347,18 @@ func TestBuiltinSandboxProfilesAreAvailableWithoutConfig(t *testing.T) {
 	if desktop.Home != "isolated" || netMode(desktop) != "host" || !desktop.Features["audio"] {
 		t.Errorf("unexpected desktop profile: %+v", desktop)
 	}
-	online, _ := cfg.SandboxProfile(SandboxProfileOnlineCLI)
-	if netMode(online) != "host" || online.Features["x11"] || online.Features["audio"] {
-		t.Errorf("unexpected online-cli profile: %+v", online)
+	// The agent profile is the only built-in that sets a boundary or an fs
+	// grant; both are the reason it exists, so neither may quietly go missing.
+	agent, _ := cfg.SandboxProfile(SandboxProfileAgent)
+	if agent.Boundary != "hardened" || agent.FS == nil || agent.FS.Cwd != "write" {
+		t.Errorf("unexpected agent profile: %+v", agent)
 	}
-	offline, _ := cfg.SandboxProfile(SandboxProfileOfflineCLI)
+	if netMode(agent) != "host" || agent.Features["x11"] || agent.Features["audio"] || agent.Features["agents"] {
+		t.Errorf("unexpected agent profile: %+v", agent)
+	}
+	offline, _ := cfg.SandboxProfile(SandboxProfileOffline)
 	if netMode(offline) != "none" || offline.Features["dbus"] {
-		t.Errorf("unexpected offline-cli profile: %+v", offline)
+		t.Errorf("unexpected offline profile: %+v", offline)
 	}
 	// features.network is gone: no built-in may smuggle network policy back
 	// in through the feature map, where it would now be silently inert.
@@ -398,7 +403,7 @@ func TestBuiltinSandboxProfilesAreAvailableWithoutConfig(t *testing.T) {
 // --sandbox-profile; it must name exactly the reserved profiles, sorted,
 // with no separate hardcoded list to drift out of sync.
 func TestBuiltinSandboxProfileNames(t *testing.T) {
-	want := []string{"clean", "desktop", "ephemeral", "offline-cli", "online-cli"}
+	want := []string{"agent", "clean", "desktop", "ephemeral", "offline"}
 	if got := BuiltinSandboxProfileNames(); !slices.Equal(got, want) {
 		t.Errorf("BuiltinSandboxProfileNames() = %v, want %v", got, want)
 	}

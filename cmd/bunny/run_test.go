@@ -112,10 +112,10 @@ func TestRunCommandForcesSandboxAndExplain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parser.Parse([]string{"run", "--sandbox", "--sandbox-profile", "offline-cli", "--explain", "node"}); err != nil {
+	if _, err := parser.Parse([]string{"run", "--sandbox", "--sandbox-profile", "offline", "--explain", "node"}); err != nil {
 		t.Fatal(err)
 	}
-	if !cli.Run.Sandbox || cli.Run.SandboxProfile != "offline-cli" || !cli.Run.Explain || cli.Run.ID != "node" {
+	if !cli.Run.Sandbox || cli.Run.SandboxProfile != "offline" || !cli.Run.Explain || cli.Run.ID != "node" {
 		t.Fatalf("unexpected run command: %+v", cli.Run)
 	}
 }

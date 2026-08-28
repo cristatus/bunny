@@ -263,7 +263,7 @@ sandbox:
       hide: [~/.ssh, ~/.aws]
   packages:
     code:
-      profile: desktop        # built-in: desktop, online-cli, offline-cli,
+      profile: desktop        # built-in: desktop, agent, offline,
       features:               # ephemeral, clean (names are reserved)
         audio: false
       hide: [~/Documents/private]

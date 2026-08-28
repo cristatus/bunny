@@ -233,7 +233,7 @@ func TestHardenedRejectsSharedHomeAndScopedRejectsGrants(t *testing.T) {
 func TestHardenedOverBuiltinProfileForcesTTYOffWithoutError(t *testing.T) {
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
 		"tool": {
-			Profile:       config.SandboxProfileOnlineCLI, // sets tty: true
+			Profile:       config.SandboxProfileDesktop, // sets tty: true
 			SandboxPolicy: config.SandboxPolicy{Boundary: "hardened"},
 		},
 	}}}

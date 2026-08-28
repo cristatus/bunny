@@ -571,6 +571,15 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		overrides["XDG_CONFIG_HOME"] = filepath.Join(isolatedHome, ".config")
 		overrides["XDG_CACHE_HOME"] = filepath.Join(isolatedHome, ".cache")
 		overrides["XDG_DATA_HOME"] = filepath.Join(isolatedHome, ".local", "share")
+		// Redirecting HOME is what costs the package its Git identity, so the
+		// replacement belongs here rather than in one profile. An identity
+		// already in the environment was chosen deliberately and wins.
+		payload := envMap(p.Env)
+		for name, value := range gitIdentityOverrides(cwd) {
+			if _, ok := payload[name]; !ok {
+				overrides[name] = value
+			}
+		}
 	}
 
 	plan := sandboxPlan{
