@@ -416,6 +416,10 @@ func (s *State) GlobalCommandNames() []string {
 }
 
 // IsInstalled returns true if the package is recorded as installed.
+// ProvidesOf returns the capability an installed package declares, or "" when
+// the package is absent or declares none.
+func (s *State) ProvidesOf(id string) string { return s.Packages[id].Provides }
+
 func (s *State) IsInstalled(id string) bool {
 	_, ok := s.Packages[id]
 	return ok

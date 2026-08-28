@@ -14,7 +14,7 @@ import (
 // capability resolves to a specific version in this directory tree.
 type PinCmd struct {
 	Capability string `arg:"" help:"Capability to pin (e.g. node, jdk)"`
-	Version    string `arg:"" help:"Version to pin (e.g. 22)"`
+	Version    string `arg:"" help:"Version (e.g. 22) or a package id (e.g. corretto-21)"`
 }
 
 func (c *PinCmd) Run(a *App) error {

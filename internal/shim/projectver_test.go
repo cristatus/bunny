@@ -14,7 +14,7 @@ func TestWriteProjectVersion(t *testing.T) {
 	if err := WriteProjectVersion(dir, "node", "22"); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := ResolveProjectVersion(dir, "node"); p == nil || p.Version != "22" {
+	if p, _ := ResolveProjectVersion(dir, "node"); p == nil || p.Value != "22" {
 		t.Fatalf("node pin not created: %+v", p)
 	}
 
@@ -22,10 +22,10 @@ func TestWriteProjectVersion(t *testing.T) {
 	if err := WriteProjectVersion(dir, "jdk", "21"); err != nil {
 		t.Fatal(err)
 	}
-	if p, _ := ResolveProjectVersion(dir, "node"); p == nil || p.Version != "22" {
+	if p, _ := ResolveProjectVersion(dir, "node"); p == nil || p.Value != "22" {
 		t.Errorf("node pin lost after adding jdk: %+v", p)
 	}
-	if p, _ := ResolveProjectVersion(dir, "jdk"); p == nil || p.Version != "21" {
+	if p, _ := ResolveProjectVersion(dir, "jdk"); p == nil || p.Value != "21" {
 		t.Errorf("jdk pin missing: %+v", p)
 	}
 
@@ -102,7 +102,7 @@ func TestResolveProjectVersionWalksUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r == nil || r.Version != "22" {
+	if r == nil || r.Value != "22" {
 		t.Fatalf("expected node 22, got %+v", r)
 	}
 	if r.Source != filepath.Join(parent, ProjectVersionFile) {
@@ -110,7 +110,7 @@ func TestResolveProjectVersionWalksUp(t *testing.T) {
 	}
 
 	r, _ = ResolveProjectVersion(leaf, "jdk")
-	if r == nil || r.Version != "21" {
+	if r == nil || r.Value != "21" {
 		t.Fatalf("expected jdk 21, got %+v", r)
 	}
 
@@ -171,68 +171,10 @@ func TestResolveAllPinsMissing(t *testing.T) {
 	}
 }
 
-func TestMapCapability(t *testing.T) {
-	cases := map[string]string{"java": "jdk", "jdk": "jdk", "nodejs": "node", "node": "node", "python": "", "gradle": ""}
-	for in, want := range cases {
-		if got := mapCapability(in); got != want {
-			t.Errorf("mapCapability(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-func TestParseToolVersions(t *testing.T) {
-	got := parseToolVersions("# comment\njava temurin-21.0.2\nnodejs 20.11.0\npython 3.12\n")
-	if got["jdk"] != "21" || got["node"] != "20" {
-		t.Errorf("got %v, want jdk=21 node=20", got)
-	}
-	if _, ok := got["python"]; ok {
-		t.Error("python should be skipped (unmapped)")
-	}
-}
-
-func TestParseSdkmanrc(t *testing.T) {
-	got := parseSdkmanrc("java=21.0.2-tem\ngradle=8.5\n")
-	if got["jdk"] != "21" {
-		t.Errorf("got %v, want jdk=21", got)
-	}
-	if len(got) != 1 {
-		t.Errorf("gradle should be skipped, got %v", got)
-	}
-}
-
-func TestParseJavaVersion(t *testing.T) {
-	got := parseJavaVersion("# pinned\n17.0.2\n")
-	if got["jdk"] != "17" {
-		t.Errorf("got %v, want jdk=17", got)
-	}
-}
-
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestResolveForeignSdkmanrc(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, ".sdkmanrc", "java=21.0.2-tem\n")
-	pin, err := ResolveProjectVersion(dir, "jdk")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pin == nil || pin.Version != "21" {
-		t.Fatalf("got %+v, want jdk=21", pin)
-	}
-}
-
-func TestResolvePrecedenceBunnyVersionWins(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, ".bunny-version", "jdk 11\n")
-	writeFile(t, dir, ".sdkmanrc", "java=21.0.2-tem\n")
-	pin, _ := ResolveProjectVersion(dir, "jdk")
-	if pin == nil || pin.Version != "11" {
-		t.Fatalf("got %+v, want jdk=11 (.bunny-version beats co-located .sdkmanrc)", pin)
 	}
 }
 
@@ -241,38 +183,56 @@ func TestResolveNearestDirWins(t *testing.T) {
 	writeFile(t, parent, ".bunny-version", "jdk 11\n")
 	child := filepath.Join(parent, "sub")
 	os.MkdirAll(child, 0755)
-	writeFile(t, child, ".java-version", "17.0.2\n")
+	writeFile(t, child, ".bunny-version", "jdk 17\n")
 	pin, _ := ResolveProjectVersion(child, "jdk")
-	if pin == nil || pin.Version != "17" {
-		t.Fatalf("got %+v, want jdk=17 (nearer .java-version beats farther .bunny-version)", pin)
+	if pin == nil || pin.Value != "17" {
+		t.Fatalf("got %+v, want jdk=17 (nearer file wins)", pin)
 	}
 }
 
-func TestResolveAliasSkipped(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, ".sdkmanrc", "java=latest\n")
-	pin, err := ResolveProjectVersion(dir, "jdk")
-	if err != nil {
-		t.Fatal(err)
+// The walk is per capability: a nearer file that pins something else must not
+// stop it, so a subproject overrides only what it names.
+func TestResolveInheritsUnpinnedCapabilityFromAncestor(t *testing.T) {
+	parent := t.TempDir()
+	writeFile(t, parent, ".bunny-version", "jdk 11\n")
+	child := filepath.Join(parent, "sub")
+	os.MkdirAll(child, 0755)
+	writeFile(t, child, ".bunny-version", "node 24\n")
+
+	if pin, _ := ResolveProjectVersion(child, "jdk"); pin == nil || pin.Value != "11" {
+		t.Fatalf("jdk should be inherited from the parent, got %+v", pin)
 	}
-	if pin != nil {
-		t.Fatalf("alias 'latest' must not resolve, got %+v", pin)
+	if pin, _ := ResolveProjectVersion(child, "node"); pin == nil || pin.Value != "24" {
+		t.Fatalf("node should come from the child, got %+v", pin)
 	}
 }
 
-func TestResolveAllPinsMerge(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, ".bunny-version", "jdk 11\n")
-	writeFile(t, dir, ".tool-versions", "nodejs 20.11.0\n")
-	pins, path, err := ResolveAllPins(dir)
-	if err != nil {
-		t.Fatal(err)
+// A foreign pin file is no longer read at all: honoring it meant discarding
+// the vendor and patch level it encodes and silently running another build.
+func TestForeignPinFilesAreIgnored(t *testing.T) {
+	for _, name := range []string{".tool-versions", ".sdkmanrc", ".java-version"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, dir, name, "java=21.0.2-amzn\njava 21.0.2-amzn\n21.0.2\n")
+			if pin, err := ResolveProjectVersion(dir, "jdk"); err != nil || pin != nil {
+				t.Fatalf("%s must be ignored, got %+v (err %v)", name, pin, err)
+			}
+		})
 	}
-	if pins["jdk"] != "11" || pins["node"] != "20" {
-		t.Errorf("got %v, want jdk=11 node=20", pins)
-	}
-	if path == "" {
-		t.Error("expected a representative pin path")
+}
+
+// A pin may name a package id outright, which is how a specific provider is
+// selected; a bare version still derives <capability>-<version>.
+func TestPinPackageID(t *testing.T) {
+	for _, tc := range []struct{ value, want string }{
+		{"21", "jdk-21"},
+		{"corretto-21", "corretto-21"},
+		{"", ""},
+	} {
+		p := &ProjectPin{Capability: "jdk", Value: tc.value}
+		if got := p.PackageID(); got != tc.want {
+			t.Errorf("PackageID(%q) = %q, want %q", tc.value, got, tc.want)
+		}
 	}
 }
 
