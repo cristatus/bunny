@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -96,11 +97,6 @@ func (m *Manifest) Validate() error {
 	if err := ValidateEnv("env", m.Env); err != nil {
 		return err
 	}
-	if m.Sandbox != nil {
-		if err := ValidateSandboxPolicy("sandbox", m.Sandbox); err != nil {
-			return err
-		}
-	}
 	for i, req := range m.Requires {
 		cap, min, hasMin := ParseRequirement(req)
 		if hasMin && (cap == "" || min <= 0) {
@@ -190,34 +186,176 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 
-// ValidateSandboxPolicy validates the policy shape shared by manifests and
-// user config. Paths are interpreted at launch: absolute paths stay absolute,
+// ValidateSandboxPolicy validates one policy layer's shape. Manifests carry
+// no policy of their own, so every caller is user config (a profile or a
+// package entry); the type stays here because it is the vocabulary both are
+// written in. Paths are interpreted at launch: absolute paths stay absolute,
 // while ~ and relative paths are resolved against the real host home.
+// Cross-layer rules (an fs grant reaching a scoped effective boundary, say)
+// are enforced again at resolve time; this catches everything visible within
+// one policy layer.
 func ValidateSandboxPolicy(field string, policy *SandboxPolicy) error {
 	if policy == nil {
 		return nil
 	}
-	if policy.Profile != "" {
-		if err := ValidateID(policy.Profile); err != nil {
-			return vErr(field+".profile", err.Error())
-		}
+	if policy.Boundary != "" && policy.Boundary != "scoped" && policy.Boundary != "hardened" {
+		return vErr(field+".boundary", `must be "scoped" or "hardened"`)
 	}
-	if policy.Home != "" && policy.Home != "isolated" && policy.Home != "shared" {
-		return vErr(field+".home", `must be "isolated" or "shared"`)
+	if policy.Home != "" && policy.Home != "isolated" && policy.Home != "shared" && policy.Home != "ephemeral" && policy.Home != "clean" {
+		return vErr(field+".home", `must be "isolated", "shared", "ephemeral", or "clean"`)
+	}
+	if policy.Boundary == "hardened" && policy.Home == "shared" {
+		return vErr(field+".home", "hardened boundary cannot share the host home")
 	}
 	for i, path := range policy.Hide {
-		if path == "" {
-			return vErr(fmt.Sprintf("%s.hide[%d]", field, i), "must not be empty")
+		if err := validatePolicyPath(path); err != nil {
+			return vErr(fmt.Sprintf("%s.hide[%d]", field, i), err.Error())
 		}
-		if strings.ContainsRune(path, '\x00') {
-			return vErr(fmt.Sprintf("%s.hide[%d]", field, i), "contains NUL")
-		}
+	}
+	if err := validateSandboxPersist(field, policy); err != nil {
+		return err
 	}
 	for name := range policy.Features {
 		if !KnownSandboxFeature(name) {
-			return vErr(field+".features."+name,
-				`must be one of "network", "audio", "wayland", "x11", or "dbus"`)
+			msg := `must be one of "audio", "wayland", "x11", "dbus", "agents", or "tty"`
+			if name == "network" {
+				msg = `is not a feature toggle: use net (net: none, net: host, or a net: {mode: private, ...} block)`
+			}
+			return vErr(field+".features."+name, msg)
 		}
+	}
+	if err := validateSandboxFS(field, policy); err != nil {
+		return err
+	}
+	return validateSandboxNet(field, policy)
+}
+
+// validateSandboxPersist checks each persist entry is a home-relative path
+// (no ~, no absolute path, no ".." escape, and not a bare "." or equivalent
+// that resolves to the home root itself — either would let a persist bind
+// replace the whole discard layer instead of punching a hole for one path)
+// and that persist is only present with home: ephemeral, matching how egress
+// under a non-private net.mode is rejected rather than silently ignored. An
+// entry named in both hide and persist within the same policy layer is
+// rejected by comparing cleaned paths, so equivalent lexical forms (like
+// foo/../bar and bar) cannot slip past; the cross-layer case (set in
+// different layers) is caught once policies are merged, since a single layer
+// cannot see what another layer set.
+func validateSandboxPersist(field string, policy *SandboxPolicy) error {
+	for i, path := range policy.Persist {
+		if err := validatePersistPath(path); err != nil {
+			return vErr(fmt.Sprintf("%s.persist[%d]", field, i), err.Error())
+		}
+		if PathConflictsWithHide(policy.Hide, path) {
+			return vErr(fmt.Sprintf("%s.persist[%d]", field, i), "cannot be both hidden and persisted")
+		}
+	}
+	if len(policy.Persist) > 0 && policy.Home != "" && policy.Home != "ephemeral" {
+		return vErr(field+".persist", "non-empty only with home: ephemeral")
+	}
+	return nil
+}
+
+// PathConflictsWithHide reports whether path names the same location as one
+// of hide's entries, comparing filepath.Clean'd forms so equivalent lexical
+// spellings (foo/../bar and bar) cannot slip past a raw string comparison.
+// Shared by same-layer validation here and the merged-layer check in
+// runtime.PackageSandbox.finalize, since hide and persist can each be set in
+// a different policy layer.
+func PathConflictsWithHide(hide []string, path string) bool {
+	cleaned := filepath.Clean(path)
+	return slices.ContainsFunc(hide, func(h string) bool { return filepath.Clean(h) == cleaned })
+}
+
+func validatePersistPath(path string) error {
+	if err := validatePolicyPath(path); err != nil {
+		return err
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") || filepath.IsAbs(path) {
+		return fmt.Errorf("must be home-relative, not absolute or ~")
+	}
+	cleaned := filepath.Clean(path)
+	if cleaned == "." {
+		return fmt.Errorf("must not resolve to the home root: name a specific file or directory within it")
+	}
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return fmt.Errorf("must not escape the home with ..")
+	}
+	return nil
+}
+
+func validateSandboxFS(field string, policy *SandboxPolicy) error {
+	fs := policy.FS
+	if fs == nil {
+		return nil
+	}
+	// Silent no-ops are how policies lie: grants that cannot take effect in
+	// scoped mode are an error, not decoration.
+	if policy.Boundary == "scoped" {
+		return vErr(field+".fs", "filesystem grants require boundary: hardened")
+	}
+	if fs.Cwd != "" && fs.Cwd != "read" && fs.Cwd != "write" && fs.Cwd != "hidden" {
+		return vErr(field+".fs.cwd", `must be "read", "write", or "hidden"`)
+	}
+	for _, list := range []struct {
+		name  string
+		paths *[]string
+	}{{"read", fs.Read}, {"write", fs.Write}} {
+		if list.paths == nil {
+			continue
+		}
+		for i, path := range *list.paths {
+			if err := validatePolicyPath(path); err != nil {
+				return vErr(fmt.Sprintf("%s.fs.%s[%d]", field, list.name, i), err.Error())
+			}
+		}
+	}
+	return nil
+}
+
+func validateSandboxNet(field string, policy *SandboxPolicy) error {
+	net := policy.Net
+	if net == nil {
+		return nil
+	}
+	switch net.Mode {
+	case "", "host", "private", "none":
+	default:
+		return vErr(field+".net.mode", `must be "host", "private", or "none"`)
+	}
+	if net.Inbound != nil {
+		for i, entry := range *net.Inbound {
+			if _, err := ParseInboundRule(entry); err != nil {
+				return vErr(fmt.Sprintf("%s.net.inbound[%d]", field, i), err.Error())
+			}
+		}
+	}
+	if net.Egress != nil {
+		for i, entry := range *net.Egress {
+			if _, err := ParseEgressRule(entry); err != nil {
+				return vErr(fmt.Sprintf("%s.net.egress[%d]", field, i), err.Error())
+			}
+		}
+	}
+	// Allowlists on a mode that cannot honour them are an error, not a
+	// silent no-op: host has no filter, none has no stack to configure.
+	if net.Mode == "host" || net.Mode == "none" {
+		if net.Inbound != nil {
+			return vErr(field+".net.inbound", fmt.Sprintf("meaningless with mode %q; only private filters inbound", net.Mode))
+		}
+		if net.Egress != nil {
+			return vErr(field+".net.egress", fmt.Sprintf("meaningless with mode %q; only private filters egress", net.Mode))
+		}
+	}
+	return nil
+}
+
+func validatePolicyPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("must not be empty")
+	}
+	if strings.ContainsRune(path, '\x00') {
+		return fmt.Errorf("contains NUL")
 	}
 	return nil
 }
@@ -227,7 +365,7 @@ func ValidateSandboxPolicy(field string, policy *SandboxPolicy) error {
 // while silently granting access.
 func KnownSandboxFeature(name string) bool {
 	switch name {
-	case "network", "audio", "wayland", "x11", "dbus":
+	case "audio", "wayland", "x11", "dbus", "agents", "tty":
 		return true
 	default:
 		return false

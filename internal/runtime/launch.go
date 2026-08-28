@@ -27,6 +27,19 @@ type Prepared struct {
 	// BunnyEnv anchors Bunny's own resolved layout for shim re-entry after a
 	// sandbox redirects HOME and XDG directories.
 	BunnyEnv []string
+	// ConfigFile is the canonical config.yaml path from the resolved Bunny
+	// layout, not the redirected HOME. A sandbox binds it read-only where it
+	// exists, so a package cannot rewrite the policy that governs it.
+	ConfigFile string
+	// DepRoots are the install trees of resolved `requires:` providers. The
+	// hardened boundary binds them back read-only so a package can reach its
+	// runtime dependencies without Bunny exposing anything broader.
+	DepRoots []string
+	// LayoutRoots are Bunny's own read-only paths from the resolved layout,
+	// bound back by the hardened boundary so a shim inside the sandbox can
+	// still resolve a package. Taken from the layout rather than written into
+	// a policy, so they follow a configured `install:` root.
+	LayoutRoots []string
 }
 
 // Launcher builds launch environments. It carries the four things every launch
@@ -88,19 +101,22 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 	}
 	cmdArgs = append(cmdArgs, userArgs...)
 
-	env, err := l.buildEnv(m, vars)
+	env, depRoots, err := l.buildEnv(m, vars)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Prepared{
-		Manifest: m,
-		Binary:   bin,
-		BinPath:  binPath,
-		CmdArgs:  cmdArgs,
-		Env:      env,
-		Vars:     vars,
-		BunnyEnv: l.Paths.RuntimeEnv(),
+		Manifest:    m,
+		Binary:      bin,
+		BinPath:     binPath,
+		CmdArgs:     cmdArgs,
+		Env:         env,
+		Vars:        vars,
+		BunnyEnv:    l.Paths.RuntimeEnv(),
+		ConfigFile:  l.Paths.UserConfigFile(),
+		DepRoots:    depRoots,
+		LayoutRoots: l.Paths.LayoutRoots(),
 	}, nil
 }
 
@@ -110,31 +126,35 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 // bin: lookup, since the executable was installed at runtime, not by bunny.
 func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs []string) (*Prepared, error) {
 	vars := l.Paths.Vars(m.ID, m.Version)
-	env, err := l.buildEnv(m, vars)
+	env, depRoots, err := l.buildEnv(m, vars)
 	if err != nil {
 		return nil, err
 	}
 	return &Prepared{
-		Manifest: m,
-		BinPath:  exePath,
-		CmdArgs:  slices.Clone(userArgs),
-		Env:      env,
-		Vars:     vars,
-		BunnyEnv: l.Paths.RuntimeEnv(),
+		Manifest:    m,
+		BinPath:     exePath,
+		CmdArgs:     slices.Clone(userArgs),
+		Env:         env,
+		Vars:        vars,
+		BunnyEnv:    l.Paths.RuntimeEnv(),
+		ConfigFile:  l.Paths.UserConfigFile(),
+		DepRoots:    depRoots,
+		LayoutRoots: l.Paths.LayoutRoots(),
 	}, nil
 }
 
 // buildEnv layers the launch environment in precedence order: host, then the
 // `requires:` chain, then the package's own manifest env with the user's
-// config env on top.
-func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) ([]string, error) {
-	env, err := l.mergeDepEnv(os.Environ(), m.Requires)
+// config env on top. It also reports the resolved providers' install trees,
+// which the hardened sandbox binds back read-only.
+func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) ([]string, []string, error) {
+	env, depRoots, err := l.mergeDepEnv(os.Environ(), m.Requires)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	builder := newEnvBuilder(env)
 	builder.Overlay(l.Config.OverlayEnv(m.Env, m.ID, m.Provides), vars)
-	return builder.List(), nil
+	return builder.List(), depRoots, nil
 }
 
 // mergeDepEnv resolves each requirement to a provider package and appends that
@@ -142,8 +162,9 @@ func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) ([]str
 // dependency is a warning, not a hard stop: launching degraded (against
 // whatever the host provides) is preferable to refusing to run the program at
 // all. `bunny doctor` surfaces unmet requirements for the user to fix.
-func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, error) {
+func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string, error) {
 	builder := newEnvBuilder(env)
+	var depRoots []string
 	for _, req := range reqs {
 		capability, minMajor, hasMin := manifest.ParseRequirement(req)
 
@@ -164,6 +185,9 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, error) {
 			continue
 		}
 		depVars := l.Paths.Vars(providerID, dep.Version)
+		if app := depVars["app"]; app != "" {
+			depRoots = append(depRoots, app)
+		}
 		// A dependency's config env applies too, so that pointing, say, the jdk
 		// capability at a different JAVA_HOME is honoured by every tool that
 		// requires it, not just by launching the jdk directly. Key on what the
@@ -175,7 +199,7 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, error) {
 		}
 		builder.Overlay(l.Config.OverlayEnv(dep.Env, providerID, depCapability), depVars)
 	}
-	return builder.List(), nil
+	return builder.List(), depRoots, nil
 }
 
 func directExec(p *Prepared) error {

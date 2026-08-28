@@ -74,7 +74,11 @@ bin: [{name: foo, path: "{app}/foo"}]
 	}
 }
 
-func TestParseSandboxRecommendation(t *testing.T) {
+// Sandbox policy is the user's alone: a manifest carries no sandbox block at
+// all, so one is an unknown field rather than a silently-ignored hint. This
+// is what stops a shared catalog manifest from influencing the effective
+// policy someone reads out of their own config.
+func TestParseRejectsManifestSandboxPolicy(t *testing.T) {
 	src := `
 id: foo
 name: Foo
@@ -82,33 +86,55 @@ version: "1.0"
 sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]
 bin: [{name: foo, path: "{app}/foo"}]
 sandbox:
-  profile: desktop
   home: isolated
   hide: [~/.ssh]
-  features:
-    network: false
 `
-	m, err := ParseBytes([]byte(src))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.Sandbox == nil || m.Sandbox.Profile != "desktop" || m.Sandbox.Home != "isolated" || m.Sandbox.Features["network"] {
-		t.Fatalf("unexpected sandbox recommendation: %+v", m.Sandbox)
+	if _, err := ParseBytes([]byte(src)); err == nil {
+		t.Error("a manifest sandbox: block must be rejected, not treated as a recommendation")
 	}
 }
 
-func TestParseRejectsManifestSandboxActivation(t *testing.T) {
-	src := `
-id: foo
-name: Foo
-version: "1.0"
-sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]
-bin: [{name: foo, path: "{app}/foo"}]
-sandbox:
-  enabled: true
-`
-	if _, err := ParseBytes([]byte(src)); err == nil {
-		t.Error("manifest sandbox policy must not be able to activate itself")
+func TestValidateSandboxPolicyPersist(t *testing.T) {
+	valid := &SandboxPolicy{Home: "ephemeral", Persist: []string{".claude/memory"}}
+	if err := ValidateSandboxPolicy("sandbox", valid); err != nil {
+		t.Fatalf("valid ephemeral persist entry rejected: %v", err)
+	}
+
+	for name, policy := range map[string]*SandboxPolicy{
+		"persist without ephemeral home": {Home: "isolated", Persist: []string{".claude/memory"}},
+		"persist with clean home":        {Home: "clean", Persist: []string{".claude/memory"}},
+		"absolute persist path":          {Home: "ephemeral", Persist: []string{"/etc/passwd"}},
+		"tilde persist path":             {Home: "ephemeral", Persist: []string{"~/memory"}},
+		"persist path escapes home":      {Home: "ephemeral", Persist: []string{"../escape"}},
+		"empty persist path":             {Home: "ephemeral", Persist: []string{""}},
+		"persist also hidden":            {Home: "ephemeral", Hide: []string{".claude/memory"}, Persist: []string{".claude/memory"}},
+		// "." and "dir/.." both clean to the home root itself: binding that
+		// onto the overlay destination would replace the whole discard layer
+		// rather than punching a hole for one path, defeating home: ephemeral
+		// entirely.
+		"persist path is the home root":        {Home: "ephemeral", Persist: []string{"."}},
+		"persist path cleans to the home root": {Home: "ephemeral", Persist: []string{"dir/.."}},
+		// foo/../bar and bar name the same path once cleaned; the hide/persist
+		// conflict check must catch that even though the raw strings differ.
+		"persist also hidden via different form": {Home: "ephemeral", Hide: []string{"bar"}, Persist: []string{"foo/../bar"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateSandboxPolicy("sandbox", policy); err == nil {
+				t.Errorf("expected %s to be rejected", name)
+			}
+		})
+	}
+}
+
+func TestValidateSandboxPolicyAcceptsEphemeralHome(t *testing.T) {
+	if err := ValidateSandboxPolicy("sandbox", &SandboxPolicy{Home: "ephemeral"}); err != nil {
+		t.Errorf("home: ephemeral must be a valid policy value: %v", err)
+	}
+}
+
+func TestValidateSandboxPolicyAcceptsCleanHome(t *testing.T) {
+	if err := ValidateSandboxPolicy("sandbox", &SandboxPolicy{Home: "clean"}); err != nil {
+		t.Errorf("home: clean must be a valid policy value: %v", err)
 	}
 }
 

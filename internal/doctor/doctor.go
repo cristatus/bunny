@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/runtime"
@@ -206,6 +207,89 @@ func pathOnPathCheck(binDir string) Result {
 		Severity: Warn,
 		Fix:      "bunny setup",
 	}
+}
+
+// SandboxNeeds says which optional sandbox helpers the user's configured
+// policies actually require. Checks run only for what is needed: an active
+// sandbox must not silently degrade, but an absent helper nobody asked for is
+// not a finding.
+type SandboxNeeds struct {
+	Private      bool // some policy selects net.mode: private
+	Egress       bool // some policy configures an egress allowlist
+	HardenedDBus bool // some hardened policy enables the filtered bus
+	Ephemeral    bool // some policy selects home: ephemeral
+}
+
+// SandboxNeedsFrom resolves each configured package through the same policy
+// resolution a launch uses, so doctor's advice cannot drift from what launch
+// actually requires. A policy that fails to resolve is skipped — the launch
+// error is the better report.
+func SandboxNeedsFrom(cfg *config.Config) SandboxNeeds {
+	var needs SandboxNeeds
+	if cfg == nil {
+		return needs
+	}
+	for id := range cfg.Sandbox.Packages {
+		policy, err := runtime.ResolvePackageSandbox(cfg, id, "")
+		if err != nil {
+			continue
+		}
+		needs.Private = needs.Private || policy.Net.Mode == "private"
+		needs.Egress = needs.Egress || policy.Net.EgressSet
+		// A non-host network mode forces D-Bus off and runs no proxy, so it
+		// creates no proxy dependency.
+		needs.HardenedDBus = needs.HardenedDBus ||
+			(policy.Boundary == "hardened" && policy.Features["dbus"] && policy.Net.Mode == "host")
+		needs.Ephemeral = needs.Ephemeral || policy.Home == "ephemeral"
+	}
+	return needs
+}
+
+// SandboxToolingChecks reports on pasta, nft, and xdg-dbus-proxy for the
+// policies that need them. Execution fails closed with the same hints; these
+// rows let the user fix the host before a launch trips over it.
+func SandboxToolingChecks(needs SandboxNeeds) []Result {
+	var out []Result
+	if needs.Private {
+		out = append(out, toolCheck("pasta", runtime.FindPasta, "configured net.mode: private packages fail closed without it"))
+	}
+	if needs.Egress {
+		out = append(out, toolCheck("nft", runtime.FindNft, "configured egress allowlists fail closed without it"))
+	}
+	if needs.HardenedDBus {
+		out = append(out, toolCheck("dbus-proxy", runtime.FindXDGDBusProxy, "hardened packages requesting D-Bus fail closed without it"))
+	}
+	if needs.Ephemeral {
+		out = append(out, overlayCheck())
+	}
+	return out
+}
+
+// overlayCheck actually builds a probe overlay-in-userns sandbox, since a
+// present bwrap binary is not proof the running kernel supports unprivileged
+// overlayfs (needs Linux ~5.11+): exactly the failure mode a configured
+// home: ephemeral package needs surfaced, since it must fail closed rather
+// than silently keep what the user asked to discard.
+func overlayCheck() Result {
+	const name = "overlay"
+	if err := runtime.CheckOverlaySupport(); err != nil {
+		return Result{
+			Name:     name,
+			Detail:   err.Error(),
+			Severity: Fail,
+			Fix:      "check your kernel version and unprivileged user namespace policy",
+		}
+	}
+	return Result{Name: name, Detail: "unprivileged overlayfs OK", Severity: OK}
+}
+
+func toolCheck(name string, find func() (string, error), why string) Result {
+	path, err := find()
+	if err != nil {
+		detail, _, _ := strings.Cut(err.Error(), "\n")
+		return Result{Name: name, Detail: detail + "; " + why, Severity: Fail}
+	}
+	return Result{Name: name, Detail: path, Severity: OK}
 }
 
 func bwrapCheck() Result {

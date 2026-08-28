@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/shim"
@@ -161,6 +162,40 @@ func TestUserNamespaceCheckOK(t *testing.T) {
 	r := userNamespaceCheck()
 	if r.Severity != OK {
 		t.Errorf("expected OK when bwrap can create an unprivileged sandbox, got %+v", r)
+	}
+}
+
+func TestOverlayCheckOK(t *testing.T) {
+	requireBwrap(t)
+	r := overlayCheck()
+	if r.Severity != OK {
+		t.Errorf("expected OK when bwrap can build an unprivileged overlay, got %+v", r)
+	}
+}
+
+func TestSandboxNeedsFromDetectsEphemeral(t *testing.T) {
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"claude": {SandboxPolicy: config.SandboxPolicy{Home: "ephemeral", Persist: []string{".claude/memory"}}},
+	}}}
+	needs := SandboxNeedsFrom(cfg)
+	if !needs.Ephemeral {
+		t.Errorf("expected an ephemeral home to be detected: %+v", needs)
+	}
+	if needs.Private || needs.Egress || needs.HardenedDBus {
+		t.Errorf("unrelated needs must stay false: %+v", needs)
+	}
+}
+
+func TestSandboxToolingChecksIncludesOverlay(t *testing.T) {
+	results := SandboxToolingChecks(SandboxNeeds{Ephemeral: true})
+	found := false
+	for _, r := range results {
+		if r.Name == "overlay" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an overlay row when a policy needs ephemeral: %+v", results)
 	}
 }
 

@@ -302,6 +302,18 @@ func (p *Paths) ManifestFile(id string) string {
 	return filepath.Join(p.Manifests(), id+".yaml")
 }
 
+// LayoutRoots are the paths a launched process must be able to read for a shim
+// to re-enter Bunny and resolve another package: the shim directory, the record
+// of what is installed, and the install roots themselves. They come from the
+// resolved layout, so a configured `install:` root is reported wherever the
+// user put it. Callers that restrict filesystem access grant them read-only;
+// nothing here needs to be writable, so a package still cannot install,
+// uninstall, or rewrite state from inside a sandbox.
+func (p *Paths) LayoutRoots() []string {
+	roots := append([]string{p.Bin(), p.StateFile(), p.Manifests()}, p.InstallRoots()...)
+	return slices.Sorted(slices.Values(roots))
+}
+
 // --- Config + integration ---
 
 func (p *Paths) UserConfigFile() string { return filepath.Join(p.config, "config.yaml") }

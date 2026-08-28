@@ -37,10 +37,13 @@ tarball**, downloaded once and run directly:
 - **Operating systems other than Linux**: Bunny is built for Linux (`x86_64`).
 - **Replacing system package managers**: `apt`, `dnf`, and `pacman` continue to
   manage system packages and libraries.
-- **Hardened isolation against actively malicious code**: the opt-in
-  [per-package sandbox](docs/sandbox.md) scopes a trusted package's state and
-  optional integrations, but deliberately retains a native read-write host
-  filesystem view. Packages not explicitly enabled remain direct `execve`.
+- **VM-equivalent isolation**: the opt-in
+  [per-package sandbox](docs/sandbox.md) offers a `hardened` boundary that is
+  deny-by-default and kernel-enforced, which materially limits unexpected or
+  malicious user-space behaviour — but a VM remains the answer when the host
+  kernel itself is inside the threat model. The default `scoped` boundary is
+  state separation only, and packages not explicitly enabled remain direct
+  `execve`.
 
 ## Anti-roadmap
 

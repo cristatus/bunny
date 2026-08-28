@@ -37,7 +37,6 @@ type CLI struct {
 	Pin        PinCmd        `cmd:"" help:"Pin a capability to a version in ./.bunny-version"`
 	Unpin      UnpinCmd      `cmd:"" help:"Remove a capability's pin from ./.bunny-version"`
 	Run        RunCmd        `cmd:"" help:"Run an installed package"`
-	Sandbox    SandboxCmd    `cmd:"" help:"Run an installed package with its sandbox policy"`
 	Doctor     DoctorCmd     `cmd:"" help:"Run health checks"`
 	Clean      CleanCmd      `cmd:"" help:"Prune cache and tmp dirs"`
 	Reshim     ReshimCmd     `cmd:"" help:"Regenerate shims for globally-installed executables (npm -g, etc.)"`
@@ -45,6 +44,8 @@ type CLI struct {
 	Setup      SetupCmd      `cmd:"" help:"Install session env, completions, and shell rc integration"`
 	Init       InitCmd       `cmd:"" help:"Print shell setup snippet"`
 	Completion CompletionCmd `cmd:"" help:"Print shell completion script (bash, zsh, or fish)"`
+
+	Netsetup NetsetupCmd `cmd:"" hidden:"" help:"Install a sandbox egress ruleset inside its network namespace, then exec"`
 
 	CompleteIds          CompleteIDsCmd          `cmd:"" hidden:"" help:"List package IDs for shell completion"`
 	CompleteTags         CompleteTagsCmd         `cmd:"" hidden:"" help:"List catalog tags for shell completion"`

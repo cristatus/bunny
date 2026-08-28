@@ -273,12 +273,11 @@ sandbox:
     custom-desktop:
       home: isolated
       hide: [~/.ssh]
+      net: host
       features:
-        network: true
         audio: true
   packages:
     vscode:
-      activation: on-demand
       profile: custom-desktop
       features:
         audio: false
@@ -291,43 +290,107 @@ sandbox:
 	if !ok {
 		t.Fatal("expected desktop profile")
 	}
-	if desktop.Home != "isolated" || !desktop.Features["network"] {
+	if desktop.Home != "isolated" || desktop.Net == nil || desktop.Net.Mode != "host" {
 		t.Fatalf("unexpected desktop profile: %+v", desktop)
 	}
 	vscode, ok := cfg.Sandbox.Packages["vscode"]
 	if !ok {
 		t.Fatal("expected vscode package activation")
 	}
-	if vscode.Activation != "on-demand" || vscode.Profile != "custom-desktop" || vscode.Features["audio"] || len(vscode.Hide) != 1 {
+	if vscode.Profile != "custom-desktop" || vscode.Features["audio"] || len(vscode.Hide) != 1 {
 		t.Fatalf("unexpected vscode package policy: %+v", vscode)
+	}
+}
+
+func TestLoadSandboxPersist(t *testing.T) {
+	cfg, err := Load(write(t, `
+sandbox:
+  packages:
+    claude:
+      home: ephemeral
+      persist: [.claude/memory]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, ok := cfg.Sandbox.Packages["claude"]
+	if !ok {
+		t.Fatal("expected claude package activation")
+	}
+	if claude.Home != "ephemeral" || len(claude.Persist) != 1 || claude.Persist[0] != ".claude/memory" {
+		t.Fatalf("unexpected claude package policy: %+v", claude)
+	}
+}
+
+func TestLoadRejectsPersistWithoutEphemeralHome(t *testing.T) {
+	if _, err := Load(write(t, "sandbox:\n  packages:\n    claude:\n      home: isolated\n      persist: [.claude/memory]\n")); err == nil {
+		t.Fatal("expected persist without home: ephemeral to be rejected")
 	}
 }
 
 func TestBuiltinSandboxProfilesAreAvailableWithoutConfig(t *testing.T) {
 	var cfg *Config
-	for _, name := range []string{SandboxProfileDesktop, SandboxProfileOnlineCLI, SandboxProfileOfflineCLI} {
+	for _, name := range []string{SandboxProfileDesktop, SandboxProfileOnlineCLI, SandboxProfileOfflineCLI, SandboxProfileEphemeral, SandboxProfileClean} {
 		if _, ok := cfg.SandboxProfile(name); !ok {
 			t.Errorf("built-in profile %q is unavailable", name)
 		}
 	}
+	// Every built-in states its net mode explicitly rather than leaning on
+	// the boundary default, so a profile means the same under either boundary.
+	netMode := func(p SandboxPolicy) string {
+		if p.Net == nil {
+			return ""
+		}
+		return p.Net.Mode
+	}
 	desktop, _ := cfg.SandboxProfile(SandboxProfileDesktop)
-	if desktop.Home != "isolated" || !desktop.Features["network"] || !desktop.Features["audio"] {
+	if desktop.Home != "isolated" || netMode(desktop) != "host" || !desktop.Features["audio"] {
 		t.Errorf("unexpected desktop profile: %+v", desktop)
 	}
 	online, _ := cfg.SandboxProfile(SandboxProfileOnlineCLI)
-	if !online.Features["network"] || online.Features["x11"] || online.Features["audio"] {
+	if netMode(online) != "host" || online.Features["x11"] || online.Features["audio"] {
 		t.Errorf("unexpected online-cli profile: %+v", online)
 	}
 	offline, _ := cfg.SandboxProfile(SandboxProfileOfflineCLI)
-	if offline.Features["network"] || offline.Features["dbus"] {
+	if netMode(offline) != "none" || offline.Features["dbus"] {
 		t.Errorf("unexpected offline-cli profile: %+v", offline)
 	}
-
-	// Callers receive a copy rather than mutable process-global policy.
-	desktop.Features["network"] = false
+	// features.network is gone: no built-in may smuggle network policy back
+	// in through the feature map, where it would now be silently inert.
+	for _, name := range BuiltinSandboxProfileNames() {
+		p, _ := cfg.SandboxProfile(name)
+		if _, ok := p.Features["network"]; ok {
+			t.Errorf("built-in %q still sets the removed features.network key", name)
+		}
+		if netMode(p) == "" {
+			t.Errorf("built-in %q leaves net.mode implicit", name)
+		}
+	}
+	// Ephemeral differs from desktop only in Home: every integration stays
+	// as permissive as desktop's, and it carries no persist entries, so a
+	// run started under it leaves nothing behind in its own state.
+	ephemeral, _ := cfg.SandboxProfile(SandboxProfileEphemeral)
+	if ephemeral.Home != "ephemeral" || len(ephemeral.Persist) != 0 ||
+		netMode(ephemeral) != "host" || !ephemeral.Features["x11"] || !ephemeral.Features["audio"] {
+		t.Errorf("unexpected ephemeral profile: %+v", ephemeral)
+	}
+	// Clean differs from ephemeral in what HOME starts from (never seeded,
+	// not seed-and-discard), not in feature permissiveness or persist.
+	clean, _ := cfg.SandboxProfile(SandboxProfileClean)
+	if clean.Home != "clean" || len(clean.Persist) != 0 ||
+		netMode(clean) != "host" || !clean.Features["x11"] || !clean.Features["audio"] {
+		t.Errorf("unexpected clean profile: %+v", clean)
+	}
+	// Callers receive a copy rather than mutable process-global policy —
+	// including the Net pointer, which the built-ins now carry.
+	desktop.Features["audio"] = false
+	desktop.Net.Mode = "none"
 	again, _ := cfg.SandboxProfile(SandboxProfileDesktop)
-	if !again.Features["network"] {
-		t.Fatal("mutating a resolved profile changed the built-in")
+	if !again.Features["audio"] {
+		t.Fatal("mutating a resolved profile's features changed the built-in")
+	}
+	if netMode(again) != "host" {
+		t.Fatal("mutating a resolved profile's net changed the built-in")
 	}
 }
 
@@ -352,11 +415,13 @@ func TestSandboxPackagePresenceActivatesEvenWhenEmpty(t *testing.T) {
 
 func TestLoadRejectsInvalidSandboxConfig(t *testing.T) {
 	for name, body := range map[string]string{
-		"global enable":   "sandbox:\n  enabled: true\n",
-		"unknown profile": "sandbox:\n  packages:\n    vscode:\n      profile: missing\n",
-		"unknown feature": "sandbox:\n  profiles:\n    custom:\n      features:\n        gpu: true\n",
-		"bad activation":  "sandbox:\n  packages:\n    vscode:\n      activation: sometimes\n",
-		"invalid package": "sandbox:\n  packages:\n    Bad_ID: {}\n",
+		"global enable":    "sandbox:\n  enabled: true\n",
+		"unknown profile":  "sandbox:\n  packages:\n    vscode:\n      profile: missing\n",
+		"unknown feature":  "sandbox:\n  profiles:\n    custom:\n      features:\n        gpu: true\n",
+		"bad activation":   "sandbox:\n  packages:\n    vscode:\n      activation: sometimes\n",
+		"invalid package":  "sandbox:\n  packages:\n    Bad_ID: {}\n",
+		"absolute persist": "sandbox:\n  packages:\n    vscode:\n      home: ephemeral\n      persist: [/etc/passwd]\n",
+		"bad home":         "sandbox:\n  packages:\n    vscode:\n      home: gone\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Load(write(t, body)); err == nil {

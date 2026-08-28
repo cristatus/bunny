@@ -30,18 +30,18 @@ stranding installed tools.
 
 `internal/config` is the source of truth for activation and user policy: it
 decides whether tool data is redirected and which exact package IDs run in the
-optional sandbox. Manifests may recommend a sandbox policy, but cannot activate
-it.
+optional sandbox. Manifests carry no sandbox policy at all: it is the user's
+alone.
 
 ## Runtime execution
 
 `runtime.Launcher` layers environment variables in a fixed precedence order
 (host, dependency env, manifest env, config env). Normal execution ends in a
-direct `execve` unless the exact package has always-on activation or the user
-invoked `bunny sandbox`.
+direct `execve` unless the exact package is listed under sandbox.packages or
+the user invoked `bunny run --sandbox`.
 
-The sandbox resolver layers built-in defaults, manifest recommendations, the
-selected built-in or user profile, and the package override. Sandbox launches
+The sandbox resolver merges exactly two layers over the built-in defaults:
+the selected built-in or user profile, then the package override. Sandbox launches
 also export private anchors for the already-resolved Bunny layout. A shim
 re-entering Bunny from an isolated HOME therefore reads the same config and
 state. The inherited sandbox context makes disabled integrations and hidden

@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,17 +124,13 @@ func TestPrepareGlobal(t *testing.T) {
 func TestUnsandboxedGlobalNodeToolInheritsOuterSandboxAndNodeData(t *testing.T) {
 	root := t.TempDir()
 	codeHome := filepath.Join(root, "data", "vscode", "home")
-	contextJSON, err := json.Marshal(sandboxContext{
+	mountTestContext(t, sandboxContext{
 		Packages:         []string{"vscode"},
 		HostHome:         "/host/home",
 		DisabledFeatures: []string{"x11"},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("HOME", codeHome)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(codeHome, ".cache"))
-	t.Setenv(sandboxContextEnv, string(contextJSON))
 	t.Setenv("DISPLAY", ":99") // package config below also tries to restore it
 
 	p := paths.At(root)
@@ -158,7 +153,7 @@ func TestUnsandboxedGlobalNodeToolInheritsOuterSandboxAndNodeData(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sandboxAlways(cfg, m.ID) {
+	if sandboxActivated(cfg, m.ID) {
 		t.Fatal("global Node tool unexpectedly activates a child sandbox")
 	}
 	env, err := inheritSandboxEnv(prepared.Env)
@@ -223,7 +218,7 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 	}}
 
 	l := &Launcher{Paths: p, Catalog: cat, State: st}
-	env, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
+	env, _, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +239,7 @@ func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 	st.SetInstalled("jdk-11", "11.0.0", "jdk", "", "")
 	_ = st.SetProvider("jdk", "jdk-11")
 	l := &Launcher{Paths: p, Catalog: reqCat{}, State: st}
-	env, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
+	env, _, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
 	if err != nil {
 		t.Fatalf("unsatisfiable requirement should degrade, not error: %v", err)
 	}
@@ -255,7 +250,7 @@ func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 
 func TestMergeDepEnvMissingBareRequirementDegrades(t *testing.T) {
 	l := &Launcher{Paths: paths.At(t.TempDir()), Catalog: reqCat{}, State: state.Empty()}
-	env, err := l.mergeDepEnv(nil, []string{"jdk"})
+	env, _, err := l.mergeDepEnv(nil, []string{"jdk"})
 	if err != nil {
 		t.Fatalf("missing bare requirement should degrade, not error: %v", err)
 	}
@@ -333,7 +328,7 @@ func TestMergeDepEnvAppliesConfig(t *testing.T) {
 	}}
 
 	l := &Launcher{Paths: paths.At(root), Catalog: cat, State: st, Config: cfg}
-	env, err := l.mergeDepEnv(nil, []string{"jdk"})
+	env, _, err := l.mergeDepEnv(nil, []string{"jdk"})
 	if err != nil {
 		t.Fatal(err)
 	}
