@@ -32,7 +32,7 @@ import (
 const legacySandboxContextEnv = "BUNNY_SANDBOX_CONTEXT"
 
 // sandboxContextFile is where each sandbox layer mounts the resolved
-// effective policy, read-only, for nested Bunny invocations to clamp against.
+// effective policy, read-only, so a launch inside it knows it is nested.
 // The location is fixed under the user's runtime directory and deliberately
 // not influenced by the environment. Inside a private-network sandbox the
 // process sees itself as uid 0, so a nested Bunny there resolves a path that
@@ -81,6 +81,11 @@ type sandboxPlan struct {
 	// forcedDBus records D-Bus cut off by a non-host network mode rather than
 	// by policy, for --explain.
 	forcedDBus bool
+	// nestedUnder names the enclosing sandbox when this launch runs inside one,
+	// and ignored lists the restrictions its policy asked for that only a new
+	// layer could apply. Both are reported rather than applied.
+	nestedUnder string
+	ignored     []string
 }
 
 // PackageSandbox is the effective run-time policy after merging the selected
@@ -442,6 +447,117 @@ func sandboxArgs(p *Prepared, policy *PackageSandbox, cwd, hostHome string) ([]s
 	return append(plan.args, plan.tail...), nil
 }
 
+// homeOverrides builds the environment a redirected home needs, and reports
+// the isolated home it points at, or "" when the policy keeps the host home.
+// Both boundaries and every launch depth share it: HOME is redirected by
+// environment, not by a mount, so it applies with or without a bwrap layer.
+func homeOverrides(p *Prepared, policy *PackageSandbox, hardened bool, cwd string) (map[string]string, string) {
+	overrides := envMap(p.BunnyEnv)
+	if policy.Home != "isolated" && policy.Home != "ephemeral" && policy.Home != "clean" && !hardened {
+		return overrides, ""
+	}
+	isolatedHome := filepath.Join(p.Vars["data"], "home")
+	overrides["HOME"] = isolatedHome
+	overrides["XDG_CONFIG_HOME"] = filepath.Join(isolatedHome, ".config")
+	overrides["XDG_CACHE_HOME"] = filepath.Join(isolatedHome, ".cache")
+	overrides["XDG_DATA_HOME"] = filepath.Join(isolatedHome, ".local", "share")
+	// Redirecting HOME is what costs the package its Git identity, so the
+	// replacement belongs here rather than in one profile. An identity already
+	// in the environment was chosen deliberately and wins.
+	payload := envMap(p.Env)
+	for name, value := range gitIdentityOverrides(cwd) {
+		if _, ok := payload[name]; !ok {
+			overrides[name] = value
+		}
+	}
+	return overrides, isolatedHome
+}
+
+// nestedDirectPlan is the whole of Bunny's nesting model: the outermost
+// sandbox owns the boundary, and a launch inside one runs directly under it.
+//
+// Nothing is negotiated. A child cannot loosen the enclosing restrictions —
+// the kernel already sees to that, since a new layer can only add mounts and
+// namespaces, never remove the parent's — and it does not try to tighten them
+// either, because a second layer buys coverage only for the rare case of two
+// separately sandboxed packages launching one another, and cannot be built at
+// all inside a private network namespace. What a child still gets is its own
+// redirected home, which is environment rather than mounts.
+//
+// Restrictions the policy asked for and this launch cannot apply are reported,
+// never silently dropped.
+func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContext,
+	packages []string, hostHome, boundary string, disabled, parentDisabled map[string]bool,
+	cwd string,
+) sandboxPlan {
+	overrides, isolatedHome := homeOverrides(p, policy, boundary == "hardened", cwd)
+	ignored := nestedIgnored(policy, current, disabled, parentDisabled)
+	if len(ignored) > 0 {
+		log.Warn("Sandbox policy not applied: already inside a sandbox",
+			"package", p.Manifest.ID, "enclosing", strings.Join(current.Packages, ","),
+			"ignored", strings.Join(ignored, ", "))
+	}
+	return sandboxPlan{
+		env:          sandboxEnv(p.Env, overrides, disabled),
+		isolatedHome: isolatedHome,
+		nestedUnder:  strings.Join(current.Packages, ", "),
+		ignored:      ignored,
+		context: sandboxContext{
+			Packages: packages, HostHome: hostHome, Boundary: boundary,
+			Hidden: slices.Clone(current.Hidden), DisabledFeatures: sortedMapKeys(disabled),
+			NetMode: current.NetMode, Inbound: current.Inbound, Egress: current.Egress,
+			FSRead: slices.Clone(current.FSRead), FSWrite: slices.Clone(current.FSWrite),
+		},
+	}
+}
+
+// nestedIgnored lists what a nested policy asked for that only a new layer
+// could deliver, in the order a reader would check it.
+func nestedIgnored(policy *PackageSandbox, current sandboxContext, disabled, parentDisabled map[string]bool) []string {
+	var ignored []string
+	if policy.Boundary == "hardened" && current.Boundary != "hardened" {
+		ignored = append(ignored, "boundary: hardened")
+	}
+	if mode := policy.Net.Mode; mode != "" && netRank(mode) > netRank(current.NetMode) {
+		ignored = append(ignored, "net: "+mode)
+	}
+	if policy.Home == "ephemeral" || policy.Home == "clean" {
+		ignored = append(ignored, "home: "+policy.Home)
+	}
+	hidden := stringSet(current.Hidden)
+	if n := countMissing(policy.Hide, hidden); n > 0 {
+		ignored = append(ignored, fmt.Sprintf("hide: %d path(s)", n))
+	}
+	var features []string
+	for name := range disabled {
+		if !parentDisabled[name] && name != "tty" {
+			features = append(features, name)
+		}
+	}
+	if len(features) > 0 {
+		slices.Sort(features)
+		ignored = append(ignored, "features off: "+strings.Join(features, " "))
+	}
+	// Only an explicit ask counts: finalize gives every hardened policy a
+	// default cwd mode, and reporting that would fire on policies that asked
+	// for nothing.
+	if policy.FS.ReadSet || policy.FS.WriteSet || policy.FS.Cwd == "write" || policy.FS.Cwd == "hidden" {
+		ignored = append(ignored, "fs grants")
+	}
+	return ignored
+}
+
+// countMissing reports how many entries are absent from have.
+func countMissing(want []string, have map[string]bool) int {
+	n := 0
+	for _, entry := range want {
+		if !have[entry] {
+			n++
+		}
+	}
+	return n
+}
+
 func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string, current sandboxContext) (sandboxPlan, error) {
 	if current.HostHome != "" {
 		hostHome = current.HostHome
@@ -465,12 +581,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 	hardened := boundary == "hardened"
 
-	net, err := clampNetwork(policy, current, nested)
-	if err != nil {
-		return sandboxPlan{}, err
-	}
-
-	// Feature restrictions are monotonic too: the union of everything any
+	// Feature restrictions are monotonic: the union of everything any
 	// enclosing layer disabled with what this policy disables.
 	parentDisabled := stringSet(current.DisabledFeatures)
 	disabled := maps.Clone(parentDisabled)
@@ -478,6 +589,17 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		if !enabled {
 			disabled[name] = true
 		}
+	}
+
+	// Inside an existing sandbox the boundary is already established and this
+	// launch adds no layer to it. Everything below builds one.
+	if nested {
+		return nestedDirectPlan(p, policy, current, packages, hostHome, boundary, disabled, parentDisabled, cwd), nil
+	}
+
+	net, err := clampNetwork(policy)
+	if err != nil {
+		return sandboxPlan{}, err
 	}
 	// A non-host network mode forces the D-Bus masks, but in scoped mode the
 	// variable itself stays: the masks are the enforcement, and removing the
@@ -564,24 +686,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 	next.Hidden = sortedMapKeys(hidden)
 
-	overrides := envMap(p.BunnyEnv)
-	isolatedHome := ""
-	if policy.Home == "isolated" || policy.Home == "ephemeral" || policy.Home == "clean" || hardened {
-		isolatedHome = filepath.Join(p.Vars["data"], "home")
-		overrides["HOME"] = isolatedHome
-		overrides["XDG_CONFIG_HOME"] = filepath.Join(isolatedHome, ".config")
-		overrides["XDG_CACHE_HOME"] = filepath.Join(isolatedHome, ".cache")
-		overrides["XDG_DATA_HOME"] = filepath.Join(isolatedHome, ".local", "share")
-		// Redirecting HOME is what costs the package its Git identity, so the
-		// replacement belongs here rather than in one profile. An identity
-		// already in the environment was chosen deliberately and wins.
-		payload := envMap(p.Env)
-		for name, value := range gitIdentityOverrides(cwd) {
-			if _, ok := payload[name]; !ok {
-				overrides[name] = value
-			}
-		}
-	}
+	overrides, isolatedHome := homeOverrides(p, policy, hardened, cwd)
 
 	plan := sandboxPlan{
 		context:      next,
@@ -605,13 +710,8 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		})
 	}
 
-	newTTYRestriction := disabled["tty"] && !parentDisabled["tty"]
+	newTTYRestriction := disabled["tty"]
 	plan.env = sandboxEnv(p.Env, overrides, disabled)
-	ephemeral := policy.Home == "ephemeral"
-	clean := policy.Home == "clean"
-	if nested && !net.newlyUnshared && plan.pasta == nil && !newTTYRestriction && len(masks) == 0 && !ephemeral && !clean {
-		return plan, nil
-	}
 
 	args := []string{"--dev-bind", "/", "/", "--die-with-parent"}
 	args = append(args, ephemeralOverlayArgs(policy, isolatedHome)...)
@@ -632,7 +732,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	// state: config.yaml is bound read-only wherever it exists. An absent
 	// optional config needs no bind, and Bunny must not create one merely to
 	// satisfy the mount.
-	if !nested && p.ConfigFile != "" {
+	if p.ConfigFile != "" {
 		if _, err := os.Stat(p.ConfigFile); err == nil {
 			args = append(args, "--ro-bind", p.ConfigFile, p.ConfigFile)
 		} else if !os.IsNotExist(err) {
@@ -676,64 +776,26 @@ type clampedNet struct {
 // inner bubblewrap already dropped and stacking a second pasta is not a
 // supported topology, so a nested narrower list is an error naming the parent
 // rather than a silent wish.
-func clampNetwork(policy *PackageSandbox, current sandboxContext, nested bool) (clampedNet, error) {
-	inheritedMode := "host"
-	if nested && current.NetMode != "" {
-		inheritedMode = current.NetMode
-	}
+func clampNetwork(policy *PackageSandbox) (clampedNet, error) {
 	mode := policy.Net.Mode
 	if mode == "" {
 		mode = "host"
 	}
-	if netRank(inheritedMode) > netRank(mode) {
-		mode = inheritedMode
-	}
-
 	out := clampedNet{
 		mode:            mode,
-		newlyRestricted: mode != "host" && inheritedMode == "host",
+		newlyRestricted: mode != "host",
 		forcedDBus:      mode != "host" && policy.feature("dbus"),
 	}
-	switch {
-	case mode == "none":
-		out.newlyUnshared = inheritedMode != "none"
-	case mode == "private" && inheritedMode == "host":
+	switch mode {
+	case "none":
+		out.newlyUnshared = true
+	case "private":
 		out.createsNS = true
 		out.inbound = slices.Clone(policy.Net.Inbound)
 		out.egress = slices.Clone(policy.Net.Egress)
 		out.egressSet = policy.Net.EgressSet
-	case mode == "private": // inherited private namespace
-		parent := parentName(current)
-		var parentInbound []string
-		if current.Inbound != nil {
-			parentInbound = *current.Inbound
-		}
-		if policy.Net.InboundSet && !manifest.InboundCovers(policy.Net.Inbound, parentInbound) {
-			return clampedNet{}, narrowingError(parent, "inbound")
-		}
-		out.inbound = slices.Clone(parentInbound)
-		if policy.Net.EgressSet {
-			if current.Egress == nil || !manifest.EgressCovers(policy.Net.Egress, *current.Egress) {
-				return clampedNet{}, narrowingError(parent, "egress")
-			}
-		}
-		if current.Egress != nil {
-			out.egress = slices.Clone(*current.Egress)
-			out.egressSet = true
-		}
 	}
 	return out, nil
-}
-
-func parentName(current sandboxContext) string {
-	if len(current.Packages) > 0 {
-		return current.Packages[len(current.Packages)-1]
-	}
-	return "parent"
-}
-
-func narrowingError(parent, list string) error {
-	return fmt.Errorf("cannot narrow the %s allowlist of the private network inherited from %q: narrowing an existing namespace is not enforceable once capabilities are dropped; put the network policy on the top-level application", list, parent)
 }
 
 func sandboxEnv(base []string, overrides map[string]string, disabled map[string]bool) []string {

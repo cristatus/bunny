@@ -84,56 +84,6 @@ func TestParseEgressRuleRejectsHostnames(t *testing.T) {
 	}
 }
 
-func TestInboundCoversSemanticRanges(t *testing.T) {
-	// The bug this guards: textual comparison rejected a genuinely broader
-	// child range because it did not literally contain the parent's string.
-	if !InboundCovers([]string{"1-65535/tcp"}, []string{"80-90/tcp"}) {
-		t.Error("1-65535/tcp must cover 80-90/tcp")
-	}
-	if InboundCovers([]string{"80-90/tcp"}, []string{"1-65535/tcp"}) {
-		t.Error("80-90/tcp must not cover 1-65535/tcp")
-	}
-	if !InboundCovers([]string{"80"}, []string{"80/tcp"}) {
-		t.Error("bare 80 (tcp+udp) must cover 80/tcp")
-	}
-	if InboundCovers([]string{"80/tcp"}, []string{"80"}) {
-		t.Error("80/tcp must not cover bare 80 (its udp half is uncovered)")
-	}
-	if !InboundCovers([]string{"80/tcp", "80/udp"}, []string{"80"}) {
-		t.Error("tcp+udp child rules together must cover bare 80")
-	}
-	if !InboundCovers(nil, nil) {
-		t.Error("empty covers empty")
-	}
-}
-
-func TestEgressCoversSemanticCIDR(t *testing.T) {
-	if !EgressCovers([]string{"0.0.0.0/0"}, []string{"10.0.0.0/8"}) {
-		t.Error("0.0.0.0/0 must cover 10.0.0.0/8")
-	}
-	if EgressCovers([]string{"10.0.0.0/8"}, []string{"0.0.0.0/0"}) {
-		t.Error("10.0.0.0/8 must not cover 0.0.0.0/0")
-	}
-	if !EgressCovers([]string{"10.0.0.0/8:443"}, []string{"10.1.2.0/24:443"}) {
-		t.Error("broader prefix, same port must cover")
-	}
-	if EgressCovers([]string{"10.0.0.0/8:443"}, []string{"10.0.0.0/8"}) {
-		t.Error("port-restricted child must not cover all-port parent")
-	}
-	if !EgressCovers([]string{"10.0.0.0/8"}, []string{"10.0.0.0/8:443"}) {
-		t.Error("all-port child must cover a port-restricted parent")
-	}
-	if EgressCovers([]string{"10.0.0.0/8:443/tcp"}, []string{"10.0.0.0/8:443"}) {
-		t.Error("tcp-only child must not cover a both-protocol parent")
-	}
-	if !EgressCovers([]string{"::/0"}, []string{"2001:db8::/32"}) {
-		t.Error("::/0 must cover an IPv6 block")
-	}
-	if EgressCovers([]string{"0.0.0.0/0"}, []string{"2001:db8::/32"}) {
-		t.Error("an IPv4 prefix must not cover an IPv6 block")
-	}
-}
-
 func stringsPtr(v ...string) *[]string { return &v }
 
 func TestValidateSandboxPolicyBoundaryAndFS(t *testing.T) {

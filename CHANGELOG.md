@@ -37,8 +37,12 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   environment wins.
 - `bunny run --explain <id>`: print what the launch would do, without
   launching.
-- Monotonic nested inheritance for boundary and network, with allowlist
-  clamping; a hardened child can only remove filesystem grants.
+- The outermost sandbox owns the boundary: a launch inside an existing sandbox
+  runs directly under it and never builds a second bubblewrap layer. It still
+  gets its own redirected home, and anything its policy asked for that only a
+  layer could apply — a stricter boundary, a narrower network, an ephemeral
+  home, extra masks, filesystem grants — is reported by `--explain` and warned
+  about at launch rather than half-applied.
 - Doctor checks for `pasta`, `nft`, `xdg-dbus-proxy`, and overlayfs, shown
   only when a configured policy needs them.
 - Scoped sandbox now masks a disabled feature's documented endpoints with

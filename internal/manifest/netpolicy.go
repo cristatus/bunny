@@ -3,7 +3,6 @@ package manifest
 import (
 	"fmt"
 	"net/netip"
-	"slices"
 	"strconv"
 	"strings"
 )
@@ -173,83 +172,11 @@ func parsePort(s string) (int, error) {
 // network must pass, compared on parsed port ranges and protocols rather than
 // textual entries (so 1-65535/tcp covers 80-90/tcp). Coverage is per parent
 // rule: a parent rule split across several child rules is conservatively
-// treated as uncovered, erring toward the safe "cannot narrow" result. An
-// unparseable entry is likewise treated as uncovered.
-func InboundCovers(child, parent []string) bool {
-	c, err := parseInboundRules(child)
-	if err != nil {
-		return false
-	}
-	p, err := parseInboundRules(parent)
-	if err != nil {
-		return false
-	}
-	for _, pr := range p {
-		if pr.TCP && !inboundPortCovered(c, true, pr.Ports) {
-			return false
-		}
-		if pr.UDP && !inboundPortCovered(c, false, pr.Ports) {
-			return false
-		}
-	}
-	return true
-}
-
-func inboundPortCovered(child []InboundRule, tcp bool, ports PortRange) bool {
-	for _, cr := range child {
-		enabled := cr.UDP
-		if tcp {
-			enabled = cr.TCP
-		}
-		if enabled && cr.Ports.Lo <= ports.Lo && cr.Ports.Hi >= ports.Hi {
-			return true
-		}
-	}
-	return false
-}
-
 // EgressCovers reports whether the child egress allowlist permits at least
 // everything the parent's does, compared on CIDR containment, port ranges,
 // and protocols (so 0.0.0.0/0 covers 10.0.0.0/8). Same per-rule conservatism
-// as InboundCovers.
-func EgressCovers(child, parent []string) bool {
-	c, err := parseEgressRules(child)
-	if err != nil {
-		return false
-	}
-	p, err := parseEgressRules(parent)
-	if err != nil {
-		return false
-	}
-	for _, pr := range p {
-		if !slices.ContainsFunc(c, func(cr EgressRule) bool { return egressRuleCovers(cr, pr) }) {
-			return false
-		}
-	}
-	return true
-}
-
 // egressRuleCovers reports whether child rule c permits everything parent rule
 // p does: same address family, c's prefix contains p's block, c's protocol is
-// unrestricted or equal, and c's port range (if any) spans p's.
-func egressRuleCovers(c, p EgressRule) bool {
-	if c.Prefix.Addr().Is4() != p.Prefix.Addr().Is4() {
-		return false
-	}
-	if c.Prefix.Bits() > p.Prefix.Bits() || !c.Prefix.Contains(p.Prefix.Addr()) {
-		return false
-	}
-	if c.Proto != "" && c.Proto != p.Proto {
-		return false
-	}
-	if c.Ports != nil {
-		if p.Ports == nil || c.Ports.Lo > p.Ports.Lo || c.Ports.Hi < p.Ports.Hi {
-			return false
-		}
-	}
-	return true
-}
-
 func parseInboundRules(raw []string) ([]InboundRule, error) {
 	out := make([]InboundRule, 0, len(raw))
 	for _, entry := range raw {
