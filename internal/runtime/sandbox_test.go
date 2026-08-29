@@ -424,42 +424,6 @@ func TestFinalizeRejectsPersistWithCleanHome(t *testing.T) {
 	}
 }
 
-func TestEphemeralHomeAlwaysAddsALayerEvenNested(t *testing.T) {
-	p := &Prepared{
-		Manifest: &manifest.Manifest{ID: "node-22"},
-		BinPath:  "/opt/node/bin/node",
-		Vars:     map[string]string{"data": t.TempDir()},
-		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
-	}
-	current := sandboxContext{Packages: []string{"claude"}, HostHome: t.TempDir()}
-	policy := finalized(t, &PackageSandbox{Home: "ephemeral"})
-	plan, err := buildSandboxPlan(p, policy, "/work", "/code/home", current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.needsLayer {
-		t.Fatal("an ephemeral home is mount-enforced and must always add a layer")
-	}
-}
-
-func TestCleanHomeAlwaysAddsALayerEvenNested(t *testing.T) {
-	p := &Prepared{
-		Manifest: &manifest.Manifest{ID: "node-22"},
-		BinPath:  "/opt/node/bin/node",
-		Vars:     map[string]string{"data": t.TempDir()},
-		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
-	}
-	current := sandboxContext{Packages: []string{"claude"}, HostHome: t.TempDir()}
-	policy := finalized(t, &PackageSandbox{Home: "clean"})
-	plan, err := buildSandboxPlan(p, policy, "/work", "/code/home", current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.needsLayer {
-		t.Fatal("a clean home is mount-enforced and must always add a layer")
-	}
-}
-
 func TestExplainSandboxReportsEphemeralHomeAndPersist(t *testing.T) {
 	root := t.TempDir()
 	// Seed the persist path as a prior persistent launch would; --explain
@@ -832,72 +796,6 @@ func TestNestedSandboxUsesChildHomeWithoutAnotherLayer(t *testing.T) {
 	}
 	if !slices.Equal(plan.context.Packages, []string{"vscode", "node-22"}) || plan.context.HostHome != "/host/home" {
 		t.Errorf("unexpected propagated context: %+v", plan.context)
-	}
-}
-
-func TestNestedSandboxAddsOnlyNewMountAndNamespaceRestrictions(t *testing.T) {
-	hostHome := t.TempDir()
-	alreadyHidden := filepath.Join(hostHome, ".ssh")
-	newHidden := filepath.Join(hostHome, ".npmrc")
-	if err := mkdir(newHidden); err != nil {
-		t.Fatal(err)
-	}
-	p := &Prepared{
-		Manifest: &manifest.Manifest{ID: "node-22"},
-		BinPath:  "/opt/node/bin/node",
-		Vars:     map[string]string{"data": t.TempDir()},
-		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
-	}
-	current := sandboxContext{Packages: []string{"vscode"}, HostHome: hostHome, Hidden: []string{alreadyHidden}}
-	policy := finalized(t, &PackageSandbox{
-		Home: "isolated",
-		Hide: []string{"~/.ssh", "~/.npmrc"},
-		Net:  NetPolicy{Mode: "none"},
-	})
-	plan, err := buildSandboxPlan(p, policy, "/work", "/wrong/home", current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.needsLayer || !slices.Contains(plan.args, "--unshare-net") {
-		t.Fatalf("new network restriction should add a layer: %v", plan.args)
-	}
-	if indexSequence(plan.args, []string{"--tmpfs", newHidden}) < 0 {
-		t.Errorf("new hidden path was not mounted: %v", plan.args)
-	}
-	if indexSequence(plan.args, []string{"--tmpfs", alreadyHidden}) >= 0 {
-		t.Errorf("outer hidden path was redundantly mounted: %v", plan.args)
-	}
-	if !slices.Contains(plan.context.Hidden, newHidden) || !slices.Contains(plan.context.Hidden, alreadyHidden) {
-		t.Errorf("replacement context must carry the union of hidden paths: %+v", plan.context)
-	}
-}
-
-func TestNestedChildNewEndpointMaskAddsLayer(t *testing.T) {
-	runtimeDir := t.TempDir()
-	waylandSocket := filepath.Join(runtimeDir, "wayland-0")
-	if err := os.WriteFile(waylandSocket, nil, 0600); err != nil {
-		t.Fatal(err)
-	}
-	p := &Prepared{
-		Manifest: &manifest.Manifest{ID: "node-22"},
-		BinPath:  "/opt/node/bin/node",
-		Vars:     map[string]string{"data": t.TempDir()},
-		Env:      []string{"XDG_RUNTIME_DIR=" + runtimeDir},
-	}
-	current := sandboxContext{Packages: []string{"vscode"}, HostHome: t.TempDir(), DisabledFeatures: []string{"x11"}}
-	policy := finalized(t, &PackageSandbox{Home: "isolated", Features: map[string]bool{"wayland": false}})
-	plan, err := buildSandboxPlan(p, policy, "/work", "", current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !plan.needsLayer {
-		t.Fatal("a newly disabled endpoint must add an enforcing layer")
-	}
-	if indexSequence(plan.args, []string{"--ro-bind", "/dev/null", waylandSocket}) < 0 {
-		t.Errorf("new endpoint mask missing: %v", plan.args)
-	}
-	if !slices.Contains(plan.context.DisabledFeatures, "wayland") || !slices.Contains(plan.context.DisabledFeatures, "x11") {
-		t.Errorf("replacement context must accumulate disabled features: %+v", plan.context)
 	}
 }
 

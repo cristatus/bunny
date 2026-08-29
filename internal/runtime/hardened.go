@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -27,18 +26,13 @@ type hardenedEnv struct {
 // part of the boundary, not optional toggles. Descendant user namespaces stay
 // permitted so Chromium can build its own zygote sandbox.
 func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, current sandboxContext, net clampedNet, env hardenedEnv) (sandboxPlan, error) {
-	nested := len(current.Packages) > 0 && current.Boundary == "hardened"
-	read, write, err := effectiveGrants(policy, current, env.hostHome, nested)
+	read, write, err := effectiveGrants(policy, env.hostHome)
 	if err != nil {
 		return sandboxPlan{}, err
 	}
 	plan.context.FSRead = read
 	plan.context.FSWrite = write
 	netUnshare := net.mode == "none" && net.newlyUnshared
-
-	if nested {
-		return buildNestedHardenedPlan(p, policy, plan, current, env, read, write, netUnshare)
-	}
 
 	// The filtered portal bus exists only at the boundary-establishing layer:
 	// inside an existing hardened sandbox the raw bus is already unreachable,
@@ -162,64 +156,6 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, cu
 	return plan, nil
 }
 
-// buildNestedHardenedPlan handles a hardened child inside an already hardened
-// parent: the allowlist root already exists in the kernel, so the child only
-// removes access — masking revoked grants and demoting revoked writes to
-// read-only — and never rebuilds or widens the boundary. A child that changes
-// nothing runs directly under the inherited boundary.
-//
-// An ephemeral or clean home is the exception to "only removes access": it
-// is a property of this package's own home, which the parent's boundary never
-// established, so the overlay or tmpfs is always added here too.
-//
-// Persist cannot follow: the parent only ever exposes its own package's data
-// directory as writable, so a persist bind here would land read-only and its
-// writes would silently fail to survive. It is rejected instead. Clean needs
-// no writable host access, so it carries no such caveat.
-func buildNestedHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, current sandboxContext, env hardenedEnv, read, write []string, netUnshare bool) (sandboxPlan, error) {
-	masks := slices.Clone(env.masks)
-	var demoted []string
-	for _, grant := range current.FSRead {
-		if !slices.Contains(read, grant) && !slices.Contains(write, grant) {
-			masks = append(masks, statMaskEntry(grant))
-		}
-	}
-	for _, grant := range current.FSWrite {
-		switch {
-		case slices.Contains(write, grant):
-		case slices.Contains(read, grant):
-			demoted = append(demoted, grant)
-		default:
-			masks = append(masks, statMaskEntry(grant))
-		}
-	}
-
-	plan.env = sandboxEnv(p.Env, env.overrides, env.disabled)
-	ephemeral := policy.Home == "ephemeral"
-	clean := policy.Home == "clean"
-	if ephemeral && len(policy.Persist) > 0 {
-		return sandboxPlan{}, fmt.Errorf("sandbox persist is not supported for %s: its hardened boundary is nested inside another hardened package, which cannot expose this package's data directory as writable durable storage", p.Manifest.ID)
-	}
-	if len(masks) == 0 && len(demoted) == 0 && !netUnshare && plan.pasta == nil && !ephemeral && !clean {
-		return plan, nil // nothing new to enforce: inherit the boundary
-	}
-	args := []string{"--ro-bind", "/", "/", "--die-with-parent", "--cap-drop", "ALL"}
-	args = append(args, ephemeralOverlayArgs(policy, env.isolatedHome)...)
-	args = append(args, cleanHomeArgs(policy, env.isolatedHome)...)
-	for _, grant := range demoted {
-		args = append(args, "--ro-bind", grant, grant)
-	}
-	args = append(args, maskMountArgs(masks)...)
-	if netUnshare {
-		args = append(args, "--unshare-net")
-	}
-	args = append(args, payloadEnvArgs(plan.env)...)
-	plan.args = args
-	plan.tail = execTail(env.cwd, p)
-	plan.needsLayer = true
-	return plan, nil
-}
-
 // hostResolverBinds re-exposes the DNS configuration the private /run hides.
 // Only a resolv.conf that resolves into /run needs it; anywhere else the
 // read-only root bind already covers it.
@@ -231,8 +167,6 @@ func hostResolverBinds() []string {
 	return []string{"--ro-bind", target, target}
 }
 
-// statMaskEntry masks a revocation target, treating an unreadable path as a
-// file: the /dev/null bind hides either kind.
 func statMaskEntry(path string) maskEntry {
 	info, err := os.Stat(path)
 	return maskEntry{path: path, dir: err == nil && info.IsDir()}
@@ -284,7 +218,7 @@ func resolveReal(path string) string {
 // symlink) is refused. A write grant implies read access. A nested child may
 // remove grants but never add access absent from the inherited hardened
 // context.
-func effectiveGrants(policy *PackageSandbox, current sandboxContext, hostHome string, nested bool) (read, write []string, err error) {
+func effectiveGrants(policy *PackageSandbox, hostHome string) (read, write []string, err error) {
 	roots := protectedRoots(hostHome)
 	expand := func(raw []string, kind string) ([]string, error) {
 		out := make([]string, 0, len(raw))
@@ -313,32 +247,7 @@ func effectiveGrants(policy *PackageSandbox, current sandboxContext, hostHome st
 			return nil, nil, err
 		}
 	}
-	if !nested {
-		return read, write, nil
-	}
-	// Intersect with the mounted parent context; path lists supplied by the
-	// child process are never trusted to widen it.
-	if policy.FS.ReadSet {
-		read = intersectStrings(read, slices.Concat(current.FSRead, current.FSWrite))
-	} else {
-		read = slices.Clone(current.FSRead)
-	}
-	if policy.FS.WriteSet {
-		write = intersectStrings(write, current.FSWrite)
-	} else {
-		write = slices.Clone(current.FSWrite)
-	}
 	return read, write, nil
-}
-
-func intersectStrings(values, allowed []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		if slices.Contains(allowed, value) {
-			out = append(out, value)
-		}
-	}
-	return out
 }
 
 // autoReadGrants lists the read-only paths a hardened package needs to run at

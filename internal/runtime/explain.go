@@ -25,7 +25,7 @@ func Explain(p *Prepared, cfg *config.Config, forceSandbox bool, profileOverride
 // level and what it produces, without launching anything or touching the
 // host. It runs the same resolution and planning as a real launch, so what is
 // shown is what runs — including restrictions forced by the network mode and
-// clamps inherited from an enclosing sandbox.
+// anything inherited from an enclosing sandbox.
 func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (string, error) {
 	plan, policy, err := planPackageSandbox(p, cfg, profileOverride)
 	if err != nil {
@@ -35,6 +35,30 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	hardened := plan.context.Boundary == "hardened"
 	var rows [][3]string
 	add := func(name, level, detail string) { rows = append(rows, [3]string{name, level, detail}) }
+
+	// A launch inside an existing sandbox adds no layer, so reporting the
+	// policy it asked for would describe controls this launch does not apply.
+	// Report what is actually in force, and what the policy did not get.
+	if plan.nestedUnder != "" {
+		boundary := "scoped"
+		if hardened {
+			boundary = "hardened"
+		}
+		add("nested", "none", "runs directly inside "+plan.nestedUnder+": the outermost sandbox owns the boundary")
+		add("boundary", "inherited", boundary)
+		if plan.isolatedHome != "" {
+			add("home", "env", "isolated: "+plan.isolatedHome)
+		}
+		netMode := plan.context.NetMode
+		if netMode == "" {
+			netMode = "host"
+		}
+		add("network", "inherited", netMode)
+		if len(plan.ignored) > 0 {
+			add("ignored", "none", strings.Join(plan.ignored, ", "))
+		}
+		return renderExplain(rows), nil
+	}
 
 	if hardened {
 		add("boundary", "mount+ns", "hardened: read-only root, hidden host home, private /run and /tmp")
@@ -136,6 +160,11 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	}
 	add("context", contextLevel(plan), contextDetail(plan))
 
+	return renderExplain(rows), nil
+}
+
+// renderExplain aligns the rows into the name/level/detail columns.
+func renderExplain(rows [][3]string) string {
 	nameW, levelW := 0, 0
 	for _, row := range rows {
 		nameW = max(nameW, len(row[0]))
@@ -145,15 +174,15 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	for _, row := range rows {
 		fmt.Fprintf(&b, "%-*s  %-*s  %s\n", nameW, row[0], levelW, row[1], row[2])
 	}
-	return b.String(), nil
+	return b.String()
 }
 
 // contextLevel and contextDetail report whether the immutable mounted context
-// will actually be installed. The pasta path binds it as a host file (works
-// on any bubblewrap); otherwise it needs --ro-bind-data, and without that
-// primitive a nested launch conservatively rebuilds its full layer rather
-// than eliding against a context. Reporting "immutable" unconditionally would
-// overstate what is enforced.
+// will actually be installed. The pasta path binds it as a host file (works on
+// any bubblewrap); otherwise it needs --ro-bind-data. Without the context a
+// launch inside this sandbox cannot tell it is nested, so it would try to build
+// a layer of its own. Reporting "immutable" unconditionally would overstate
+// what is enforced.
 func contextLevel(plan sandboxPlan) string {
 	if contextAvailable(plan) {
 		return "mount"
@@ -165,7 +194,7 @@ func contextDetail(plan sandboxPlan) string {
 	if contextAvailable(plan) {
 		return "immutable: " + sandboxContextFile
 	}
-	return "unavailable (bubblewrap lacks --ro-bind-data); nested launches rebuild the full layer"
+	return "unavailable (bubblewrap lacks --ro-bind-data); a launch inside this sandbox cannot detect it is nested"
 }
 
 func contextAvailable(plan sandboxPlan) bool {

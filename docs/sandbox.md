@@ -690,11 +690,10 @@ fails at namespace creation instead.
 A policy that needs them fails with an install hint when they are absent; it
 never silently falls back to host networking.
 
-Nested launches clamp monotonically (`host` < `private` < `none`): a child
-cannot widen its parent's mode, an absent child list inherits the parent's, a
-broader list is clamped, and a narrower list is an error — narrowing an
-existing namespace cannot be enforced once capabilities are dropped, so
-network policy belongs on the top-level application.
+A launch inside an existing sandbox inherits its network mode and never
+changes it, so network policy belongs on the top-level application. See
+[Applications, dependencies, and child
+commands](#applications-dependencies-and-child-commands).
 
 ### Hidden paths
 
@@ -833,7 +832,7 @@ context   mount      immutable: /run/user/1000/bunny/sandbox-context.json
 
 Every control is listed with its enforcement level (`env`, `mount`,
 `namespace`, `filter`) and what it produces, including restrictions forced by
-the network mode and clamps inherited from an enclosing sandbox. This is the
+the network mode and anything inherited from an enclosing sandbox. This is the
 difference between trusting the sandbox and guessing.
 
 ## Applications, dependencies, and child commands
@@ -894,28 +893,48 @@ Node receives its own HOME/XDG tree. Bunny preserves private anchors to its
 real config, state, and shim directories, so shim resolution keeps
 working even though Code changed HOME and every XDG base directory.
 
-Bunny avoids unnecessary bubblewrap nesting. If the child adds no kernel
-restriction beyond its parent's, it is executed directly within the existing
-sandbox. Another bubblewrap layer is added only when the child introduces a
-new mask, disables the network, or opts into process/TTY isolation.
+**The outermost sandbox owns the boundary.** A launch inside an existing
+sandbox never builds a second bubblewrap layer. It runs directly under the one
+already in force, whatever its own policy asks for.
 
-Each sandbox layer records the restrictions it enforced in a context file
-mounted read-only at `/run/user/<uid>/bunny/sandbox-context.json`, over a
-private temporary filesystem the sandboxed process cannot replace. A nested
-Bunny invocation clamps its policy against that file; environment variables
-have no effect on this decision, so a process cannot loosen its inheritance by
-unsetting or forging one. When the file is absent, a child builds its complete
-sandbox layer rather than assuming anything about its parent. (Very old
-bubblewrap without `--ro-bind-data` cannot mount the context; nested launches
-then always pay for a full layer, which is slower but never weaker.)
+That keeps the model to one rule. A child could never loosen the enclosing
+restrictions anyway — the kernel sees to that, since a new layer can only add
+mounts and namespaces, never remove its parent's — and a second layer would
+only ever matter for two separately sandboxed packages launching one another,
+which is also the one case that cannot work at all inside a private network
+namespace.
 
-Restrictions are monotonic down the process tree:
+What a child still gets is its own redirected home, because that is
+environment rather than mounts.
 
-- a child cannot restore network disabled by its parent;
-- hidden paths remain hidden;
-- X11, Wayland, D-Bus, and audio variables removed by a parent remain removed,
-  even if the child's manifest or user environment tries to set them;
-- a child can add further restrictions but cannot loosen the outer ones.
+Restrictions therefore run down the process tree unchanged: the network mode,
+the hidden paths, the removed X11, Wayland, D-Bus, and audio variables, and
+the boundary itself all stay as the outer layer set them.
+
+Anything the nested policy asked for that only a new layer could apply — a
+stricter boundary, a narrower network, an ephemeral home, extra masks,
+filesystem grants — is reported rather than half-applied. `--explain` shows it
+inside a sandbox:
+
+```text
+nested    none       runs directly inside code: the outermost sandbox owns the boundary
+boundary  inherited  scoped
+home      env        isolated: .../data/node-22/home
+network   inherited  host
+ignored   none       hide: 1 path(s)
+```
+
+The launch itself warns at log level `warn` or lower.
+
+Each layer records what it enforced in a context file mounted read-only at
+`/run/user/<uid>/bunny/sandbox-context.json`, over a private temporary
+filesystem the sandboxed process cannot replace. That file is how a launch
+knows it is nested at all; environment variables have no say, so a process
+cannot pretend otherwise by unsetting or forging one. The mount point is read
+back from the kernel rather than derived from the current uid, because a
+private-network sandbox runs the payload as uid 0 inside pasta's namespace.
+When the file is absent — very old bubblewrap without `--ro-bind-data` — a
+launch cannot tell it is nested and builds its own layer.
 
 Commands that do not pass through Bunny cannot activate another package's
 policy. They still inherit the current process environment, mounts, and
@@ -988,9 +1007,10 @@ The hardened boundary is a kernel-enforced allowlist and materially limits
 unexpected or malicious user-space behaviour. It still does not claim
 VM-equivalent isolation: when the host kernel itself is inside the threat
 model, a VM remains the answer. Neither boundary applies policy to binaries
-launched outside Bunny, and nested clamping is a correctness mechanism for
-cooperative nesting, not a defence against a hostile parent process — a
-parent can always run a child's code directly with its own privileges.
+launched outside Bunny. Nesting is not a defence against a hostile parent
+either: a parent can always run a child's code directly with its own
+privileges, which is why the outermost sandbox simply owns the boundary
+instead of negotiating with the launches inside it.
 
 ### SSH does not work inside either boundary
 
