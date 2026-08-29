@@ -680,6 +680,13 @@ enabled, because the session bus can start processes outside the network
 namespace; a package that needs portals must use `host` mode.
 
 `private` requires `pasta` (the `passt` package) and, with `egress`, `nft`.
+
+Inside a `private` sandbox the payload runs as uid 0 in pasta's user
+namespace, and no further bubblewrap layer can be created there. A nested
+launch therefore only works when it can run directly under the inherited
+boundary, which is what the mounted context lets it do. A nested launch that
+genuinely needs its own layer — one that adds masks, or narrows the home —
+fails at namespace creation instead.
 A policy that needs them fails with an install hint when they are absent; it
 never silently falls back to host networking.
 

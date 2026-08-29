@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -787,7 +788,69 @@ func stringSet(values []string) map[string]bool {
 // its full layer rather than assume anything about the parent. A malformed
 // file is a launch error, never a fallback to a weaker assumption.
 func readMountedContext() (sandboxContext, error) {
-	return readSandboxContextFile(sandboxContextFile)
+	path := sandboxContextFile
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		if found := mountedContextPath(); found != "" {
+			path = found
+		}
+	}
+	return readSandboxContextFile(path)
+}
+
+// contextMountPattern matches a context mount point in Bunny's own runtime
+// layout, for any uid. The components are fixed and the uid is digits, so a
+// mount point cannot contain the characters mountinfo escapes.
+var contextMountPattern = regexp.MustCompile(`^/run/user/[0-9]+/bunny/sandbox-context\.json$`)
+
+// mountedContextPath asks the kernel where an enclosing layer mounted the
+// context, and returns "" when nothing did.
+//
+// The mount target embeds the uid of the process that set it up, and that is
+// not always the uid of the process reading it: a private-network launch runs
+// the payload as uid 0 inside pasta's user namespace, so a path derived here
+// from os.Getuid points at /run/user/0 while the file sits under the real
+// user's runtime directory. Guessing the uid is what mountinfo avoids.
+//
+// This matters more than losing an optimisation. No bubblewrap layer can be
+// created inside pasta's user namespace at all, so a nested launch that cannot
+// read the context tries to build a layer and fails outright, where reading it
+// lets an unchanged child run directly under the inherited boundary.
+//
+// A payload able to create its own mount namespace could stage a decoy here,
+// but the same payload can run a child's code directly with its own
+// privileges. Nested clamping is a correctness mechanism for cooperative
+// nesting, not a defence against a hostile parent, and a decoy cannot remove
+// restrictions the kernel already applies to the payload itself.
+// mountinfoPath is the kernel's mount table. A variable only so tests can
+// point it at a fixture.
+var mountinfoPath = "/proc/self/mountinfo"
+
+func mountedContextPath() string {
+	data, err := os.ReadFile(mountinfoPath)
+	if err != nil {
+		return ""
+	}
+	point := contextPathFromMountinfo(data)
+	if point != "" {
+		log.Debug("Resolved sandbox context through mountinfo", "path", point, "uid", os.Getuid())
+	}
+	return point
+}
+
+// contextPathFromMountinfo returns the first mount point in mountinfo that is
+// a context file in Bunny's runtime layout, or "" for none. Field five is the
+// mount point; a line with fewer fields is not one.
+func contextPathFromMountinfo(data []byte) string {
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 5 {
+			continue
+		}
+		if point := fields[4]; contextMountPattern.MatchString(point) {
+			return point
+		}
+	}
+	return ""
 }
 
 func readSandboxContextFile(path string) (sandboxContext, error) {
