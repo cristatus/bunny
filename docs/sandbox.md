@@ -281,23 +281,27 @@ loosen its parent's isolation.
 
 ### Agent config and credentials
 
-An isolated home starts empty, so the first sandboxed run of an agent
-authenticates from scratch, and nothing from your host setup comes with it:
-settings, custom commands, skills, hooks, and MCP server definitions all live
-under the host `~/.claude` (or `~/.codex`) and stay there. After that first
-login the credentials persist, because `{data}/home` is durable.
+The isolated home starts empty. On a first run, expect this:
 
-Isolating rather than sharing is the recommended posture for these tools —
-container setups scope the config volume per project so credentials do not
-leak between unrelated codebases — and Bunny gets one thing for free that
-those setups usually have to work around. Claude Code keeps state in two
-places, `~/.claude/` and the `~/.claude.json` file beside it, and a container
-volume can mount a directory but not a file, which is why onboarding so often
-reappears on every start. Bunny's unit is the whole home, so both are inside
-it and neither needs its own mount.
+- You sign in from scratch.
+- Your host settings, skills, hooks, and MCP definitions do not come with it. They stay under the host `~/.claude` or `~/.codex`.
+- After you sign in, the credentials persist. `{data}/home` is durable.
 
-To carry parts of your host setup over, seed the durable home directly. Files
-placed there appear at `$HOME` inside the boundary:
+Starting empty is the recommended posture, not a shortcoming. Anthropic's dev
+container guide mounts a config volume scoped to the container rather than
+binding the host directory. Its reference configuration goes further and scopes
+that volume per project. The reason is blunt: a sandbox does not stop a hostile
+prompt from exfiltrating whatever the agent can reach, credentials included.
+A smaller reachable set is the whole point.
+
+Bunny also avoids a problem those setups work around. Claude Code keeps state
+in two places: the `~/.claude` directory, and the `~/.claude.json` file beside
+it. A container volume can mount a directory but not a file, so the file gets
+lost and onboarding returns on every start. Bunny's unit is the whole home, so
+both are already inside it.
+
+**Seeding what you want.** Files placed in the durable home appear at `$HOME`
+inside the boundary:
 
 ```bash
 mkdir -p ~/.local/share/bunny/data/claude/home/.claude
@@ -305,18 +309,156 @@ cp -r ~/.claude/settings.json ~/.claude/skills \
   ~/.local/share/bunny/data/claude/home/.claude/
 ```
 
-Copy deliberately rather than wholesale. Hooks and MCP definitions name
-absolute paths and commands, and one that points outside the boundary — or at
-a credential the policy hides — will fail inside it. Under `home: ephemeral`
-the same directories are what `persist:` exists to keep.
+Copy deliberately, not wholesale. Hooks and MCP definitions name absolute paths
+and commands. One that points outside the boundary will fail inside it. Under
+`home: ephemeral`, these are the directories `persist:` exists to keep.
 
-One limit is worth being explicit about: an OAuth token has to live in the
-home for the tool to reuse it, so the agent process can read it. Sandbox
-platforms that inject credentials at the boundary keep raw values out of the
-sandbox entirely; Bunny cannot do that for a token the tool itself manages.
-What the boundary does buy is that the token is *this package's* and reaching
-anything else — your SSH keys, other tools' credentials, the rest of the host
-home — is what it prevents.
+**One limit.** The OAuth token has to live in the home, because the tool reads
+it from there. Some sandbox platforms inject credentials at the boundary so raw
+values never enter; Bunny cannot do that for a token the tool manages itself.
+What the boundary does buy is that the token is this package's alone. Your SSH
+keys, other tools' credentials, and the rest of your home stay unreachable.
+
+### Matching the vendor's container guidance
+
+Anthropic's dev container guide is the closest published equivalent to the
+`agent` profile. Most of its checklist is policy Bunny already applies:
+
+| Their guidance | Bunny |
+| --- | --- |
+| Config in a container-scoped volume, not the host directory | `home: isolated`, the profile default |
+| Don't mount host secrets (`~/.ssh`, cloud credential files) | the hardened boundary hides the host home; `agents: false` drops the SSH and GnuPG sockets |
+| Cloud provider credentials as environment variables, not mounted files | per-package `env:` in `config.yaml` |
+| MCP servers at project scope in a checked-in `.mcp.json` | works as-is: the repository is the granted working directory |
+| Restrict outbound traffic to what the agent needs | `net: private` with an `egress` allowlist |
+| Run without permission prompts, because execution is confined | see below |
+
+**Running without permission prompts.** This is the practical reason to use the
+profile. Their guidance is that `--dangerously-skip-permissions` becomes
+reasonable once execution is confined and the process is not root. Both hold
+here: the boundary is kernel-enforced, and the process keeps your own uid.
+
+```bash
+cd ~/Projects/thing
+bunny run --sandbox-profile agent claude -- --dangerously-skip-permissions
+```
+
+Their warning carries over unchanged. Confinement is not immunity. The working
+directory is writable and the network is open, so a prompt-free session can
+still rewrite the project and send its contents anywhere. Keep it for
+repositories you trust. Add `net: private` with an `egress` allowlist if
+outbound traffic matters.
+
+**Outbound filtering.** `egress` takes addresses and CIDRs, not hostnames.
+Name-based filtering cannot be enforced at that layer. Their reference script
+makes the same trade in a different place: it resolves the domains it wants and
+allowlists the resulting addresses. See [Network modes](#network-modes).
+
+**Two things differ on purpose.**
+
+Their reference scopes the config volume per project, using `${devcontainerId}`.
+An isolated home is scoped per package, so one `claude` home serves every
+repository. A dev container is already a project, and a rebuild re-authenticates
+anyway. Per-project homes here would mean a fresh login per repository, for a
+token that is the same account either way. Session and project state stays
+namespaced inside the home regardless.
+
+Bunny does not set `CLAUDE_CONFIG_DIR`. That variable exists so a volume
+mounted at `~/.claude` also captures `~/.claude.json` beside it. Here the whole
+home is the unit, so both are already inside it and the native layout survives.
+
+### Using your host agent config instead of the isolated home
+
+Sharing the host config is a step away from the guidance above. You take it for
+convenience: one login, one set of settings, your MCP servers. There are three
+ways. Pick by what you are willing to give up:
+
+| Option | Boundary | Gives up | Use when |
+| --- | --- | --- | --- |
+| Share the whole home | `scoped` only | all home isolation | you trust the tool and want zero setup |
+| Share config, read-only | `hardened` | tool cannot write history or a refreshed token back | **recommended** |
+| Share config, read-write | `hardened` | hooks become a deferred escape | you would have run the agent unsandboxed anyway |
+
+First, a note on `CLAUDE_CONFIG_DIR`, because it looks like the obvious tool and
+is not. It is documented, and it exists because Claude Code keeps the OAuth
+account, personal MCP servers, and per-project trust in `~/.claude.json`,
+*outside* `~/.claude`. Setting the variable makes Claude Code write that file
+inside the config directory instead.
+
+That makes it right for a self-contained config directory and wrong for sharing
+an existing host layout. Your `~/.claude.json` already sits at the home root,
+and the variable only changes where Claude Code looks, not where the file is.
+Point it at `~/.claude` and you get the credentials and settings but not that
+file. The recipes below address `~/.claude.json` where it actually lives.
+
+**Share the whole home.** Simplest, and `scoped` only, since `home: shared`
+contradicts the hardened boundary:
+
+```yaml
+sandbox:
+  profiles:
+    agent-shared:
+      home: shared
+      net: host
+      features: {x11: false, wayland: false, dbus: false, audio: false, agents: false, tty: true}
+```
+
+HOME is the real host home, so the tool finds everything exactly as it does
+unsandboxed. You keep integration masking and `hide:` paths. You give up home
+isolation entirely.
+
+**Share config, read-only.** Under `hardened`, symlink what you want into the
+isolated home and grant it read-only. Session state still lands in
+`{data}/home`, so it stays out of your host config:
+
+```bash
+D=~/.local/share/bunny/data/claude/home
+mkdir -p "$D/.claude"
+ln -sfn ~/.claude/.credentials.json "$D/.claude/.credentials.json"
+ln -sfn ~/.claude/settings.json     "$D/.claude/settings.json"
+ln -sfn ~/.claude/skills            "$D/.claude/skills"
+ln -sfn ~/.claude.json              "$D/.claude.json"
+```
+
+```yaml
+sandbox:
+  profiles:
+    agent-hostconfig:
+      boundary: hardened
+      net: host
+      features: {agents: false}
+      fs:
+        cwd: write
+        read:
+          - ~/.claude/.credentials.json
+          - ~/.claude/settings.json
+          - ~/.claude/skills
+          - ~/.claude.json
+```
+
+Both halves are required. The symlink lets the redirected HOME reach the host
+file. The grant makes the target readable. Neither works alone.
+
+**Share config, read-write.** Move those entries from `read:` to `write:`, or
+symlink `~/.claude` wholesale. The tool can then record history and refresh
+credentials into your host config as it would unsandboxed.
+
+Know the cost first. `~/.claude/settings.json` defines hooks, which are shell
+commands. Your *next unsandboxed* launch runs them. So a write grant there lets
+a sandboxed agent acting on a hostile prompt plant a command that later
+executes outside the boundary with your full privileges. It is a deferred
+escape, and nothing else in the sandbox prevents it.
+
+Trying to grant write to the directory but read-only to `settings.json` does not
+work. Grants bind read before write, so the directory bind covers the file and
+the file ends up writable. Only `hide` overrides a write grant, because masks
+are applied last, and it makes the path unreadable too:
+
+```yaml
+hide: [~/.claude/settings.json, ~/.claude/hooks]   # writes there fail; reads too
+fs:
+  write: [~/.claude]
+```
 
 ### Git identity in a sandbox
 
