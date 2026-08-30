@@ -41,8 +41,10 @@
 #     GRADLE_USER_HOME: "{data}/gradle"        # see the caveat in docs/config.md
 #   maven:
 #     # MAVEN_ARGS is one variable doing two jobs, so an override has to
-#     # restate the toolchains flag bunny's manifest sets.
-#     MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+#     # restate the toolchains flag bunny's manifest sets. Keep
+#     # --global-toolchains: -t/--toolchains would replace ~/.m2/toolchains.xml
+#     # instead of adding to it.
+#     MAVEN_ARGS: "-Dmaven.repo.local={data}/repository --global-toolchains {data}/toolchains.xml"
 
 # --- Directories to create before launch ------------------------------------
 #
