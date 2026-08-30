@@ -53,17 +53,25 @@ manual `-Dorg.gradle...` flags.
 
 **Maven**: Bunny generates a `toolchains.xml` file and passes it via `MAVEN_ARGS`
 (`--global-toolchains …`), allowing `maven-toolchains-plugin` to match
-`<jdk><version>17` against installed JDKs. The installation slot is deliberate:
-Maven merges it with your own `~/.m2/toolchains.xml`, where `-t/--toolchains`
-would replace that file and hide anything you declared in it.
+`<jdk><version>17` against installed JDKs. The global slot is deliberate: Maven
+merges it with your own `~/.m2/toolchains.xml`, where `-t/--toolchains` would
+replace that file and hide anything you declared in it.
 
 ```xml
 <toolchain>
   <type>jdk</type>
-  <provides><version>17</version></provides>
+  <provides><version>17</version><vendor>temurin</vendor></provides>
   <configuration><jdkHome>/home/you/.local/share/bunny/sdk/jdk-17</jdkHome></configuration>
 </toolchain>
 ```
+
+The `<vendor>` lets a build pick between JDKs sharing a major version, and comes
+from the package's update distribution. A JDK tracked by an update backend that
+has no distribution — the Semeru packages today — is published without one, and
+a pom naming that vendor matches nothing.
+
+Java 8 and earlier are written `1.8` rather than `8`, the platform's own
+spelling, which toolchain requirements inherit.
 
 ## Version constraints (`requires`)
 

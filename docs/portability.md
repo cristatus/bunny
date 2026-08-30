@@ -79,9 +79,9 @@ manifest `env:`, each dependency's config `env:`, the package's own manifest
 
 Note the Maven configuration: `MAVEN_ARGS` is a single variable doing two jobs,
 so overriding it requires restating the toolchains flag the manifest sets
-(`--global-toolchains {data}/toolchains.xml` — the installation slot, which
-Maven merges with your own `~/.m2/toolchains.xml`). The manifest's current
-value is saved in
+(`--global-toolchains {data}/toolchains.xml` — the global slot, which Maven
+merges with your own `~/.m2/toolchains.xml`). The manifest's current value is
+saved in
 `~/.local/share/bunny/manifests/maven.yaml`.
 
 See [Configuration](config.md) for full details.
