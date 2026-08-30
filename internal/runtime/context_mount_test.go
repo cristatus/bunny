@@ -43,19 +43,27 @@ func TestContextPathFromMountinfoRejectsForeignPaths(t *testing.T) {
 	}
 }
 
-// The derived path wins when it exists, so the ordinary case never depends on
-// parsing mountinfo at all.
-func TestReadMountedContextPrefersTheDerivedPath(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sandbox-context.json")
-	if err := os.WriteFile(path, []byte(`{"packages":["tool"],"boundary":"hardened"}`), 0o600); err != nil {
-		t.Fatal(err)
+// The pattern is built from the layout constants, so it must accept the path
+// this process would actually derive. Spelling the layout twice is what this
+// guards against: a rename that updates one and not the other.
+func TestContextMountPatternAcceptsTheDerivedPath(t *testing.T) {
+	derived := filepath.Join(runtimeStateRoot, "1000", runtimeStateName, contextFileName)
+	if !contextMountPattern.MatchString(derived) {
+		t.Errorf("pattern %v does not match the derived layout %q", contextMountPattern, derived)
 	}
-	original := sandboxContextFile
-	sandboxContextFile = path
-	t.Cleanup(func() { sandboxContextFile = original })
+	if !contextMountPattern.MatchString(filepath.Join(runtimeStateRoot, "0", runtimeStateName, contextFileName)) {
+		t.Error("pattern must match uid 0, which is the case it exists for")
+	}
+}
 
-	got, err := readMountedContext()
+// The derived path wins when it exists, so the ordinary case never consults
+// the mount table.
+func TestReadMountedContextPrefersTheDerivedPath(t *testing.T) {
+	path := mountTestContextFile(t, `{"packages":["tool"],"boundary":"hardened"}`)
+	got, err := readContextAt(path, true, func() string {
+		t.Error("the mount table must not be consulted when the derived path exists")
+		return ""
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +75,7 @@ func TestReadMountedContextPrefersTheDerivedPath(t *testing.T) {
 // No context anywhere stays the conservative answer: an empty context, not an
 // error, so the caller builds its full layer.
 func TestReadMountedContextAbsentIsEmpty(t *testing.T) {
-	original := sandboxContextFile
-	sandboxContextFile = filepath.Join(t.TempDir(), "absent.json")
-	t.Cleanup(func() { sandboxContextFile = original })
-
+	mountTestContextFile(t, "")
 	got, err := readMountedContext()
 	if err != nil {
 		t.Fatalf("an absent context is not an error: %v", err)
@@ -80,39 +85,39 @@ func TestReadMountedContextAbsentIsEmpty(t *testing.T) {
 	}
 }
 
-// When the derived path is absent, the mount table is what answers. This
-// covers the wiring rather than the parser: without it, a nested launch inside
-// a private-network sandbox sees no context and fails to start.
-func TestReadMountedContextFallsBackToTheMountTable(t *testing.T) {
+// The wiring, not the parser: when the derived path is absent and the uid
+// cannot be trusted, the path the mount table reports is the one actually
+// read. Without this a nested launch inside a private-network sandbox sees no
+// context and fails trying to build a layer it cannot create.
+func TestReadMountedContextReadsWhatTheMountTableReports(t *testing.T) {
 	dir := t.TempDir()
-	staged := filepath.Join(dir, "sandbox-context.json")
+	staged := filepath.Join(dir, "from-mount-table.json")
 	if err := os.WriteFile(staged, []byte(`{"packages":["outer"],"netMode":"private"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	mountinfo := filepath.Join(dir, "mountinfo")
-	// Field five is the mount point, and the scan only accepts Bunny's layout,
-	// so the fixture uses a real uid-bearing path bound to the staged file.
-	line := "32 31 0:26 / /run/user/4242/bunny/sandbox-context.json ro - tmpfs tmpfs ro\n"
-	if err := os.WriteFile(mountinfo, []byte(line), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	absent := filepath.Join(dir, "derived-absent.json")
 
-	originalContext, originalMountinfo := sandboxContextFile, mountinfoPath
-	sandboxContextFile = filepath.Join(dir, "derived-absent.json")
-	mountinfoPath = mountinfo
-	t.Cleanup(func() { sandboxContextFile, mountinfoPath = originalContext, originalMountinfo })
-
-	if got := mountedContextPath(); got != "/run/user/4242/bunny/sandbox-context.json" {
-		t.Fatalf("mount table must supply the path, got %q", got)
-	}
-	// The path the table reports does not exist in a test, so the read is
-	// exercised against the staged file through the same code path.
-	sandboxContextFile = staged
-	got, err := readMountedContext()
+	got, err := readContextAt(absent, true, func() string { return staged })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.NetMode != "private" {
-		t.Errorf("context must carry the enclosing network mode, got %+v", got)
+	if got.NetMode != "private" || len(got.Packages) != 1 {
+		t.Errorf("the reported path must be the one read, got %+v", got)
+	}
+}
+
+// An ordinary launch must not consult the mount table at all: it is on the
+// path of every shim invocation, sandboxed or not.
+func TestReadMountedContextSkipsTheMountTableWhenUidIsTrusted(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "derived-absent.json")
+	got, err := readContextAt(absent, false, func() string {
+		t.Error("an untrusted-uid lookup ran on an ordinary launch")
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Packages) != 0 {
+		t.Errorf("absent context must be empty, got %+v", got)
 	}
 }

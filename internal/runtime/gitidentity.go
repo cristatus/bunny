@@ -81,3 +81,30 @@ func gitIdentity(dir string) (name, email string) {
 	}
 	return name, email
 }
+
+// missingGitIdentity reports which identity variables env does not already
+// set. An identity in the environment was chosen deliberately and wins, so
+// when all four are present there is nothing to look up — and the lookup forks
+// a process, which a launch inside a sandbox would otherwise pay for on every
+// nested command, its parent having already supplied them.
+func missingGitIdentity(env []string) []string {
+	missing := make([]string, 0, len(gitIdentityVars))
+	for _, name := range gitIdentityVars {
+		if !envHasName(env, name) {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// envHasName reports whether env assigns name, without building a map of the
+// whole environment to answer four questions.
+func envHasName(env []string, name string) bool {
+	prefix := name + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
+}

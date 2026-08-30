@@ -166,37 +166,3 @@ func parsePort(s string) (int, error) {
 	}
 	return port, nil
 }
-
-// InboundCovers reports whether the child inbound allowlist permits at least
-// everything the parent's does — the "same or broader" test a nested private
-// network must pass, compared on parsed port ranges and protocols rather than
-// textual entries (so 1-65535/tcp covers 80-90/tcp). Coverage is per parent
-// rule: a parent rule split across several child rules is conservatively
-// EgressCovers reports whether the child egress allowlist permits at least
-// everything the parent's does, compared on CIDR containment, port ranges,
-// and protocols (so 0.0.0.0/0 covers 10.0.0.0/8). Same per-rule conservatism
-// egressRuleCovers reports whether child rule c permits everything parent rule
-// p does: same address family, c's prefix contains p's block, c's protocol is
-func parseInboundRules(raw []string) ([]InboundRule, error) {
-	out := make([]InboundRule, 0, len(raw))
-	for _, entry := range raw {
-		rule, err := ParseInboundRule(entry)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rule)
-	}
-	return out, nil
-}
-
-func parseEgressRules(raw []string) ([]EgressRule, error) {
-	out := make([]EgressRule, 0, len(raw))
-	for _, entry := range raw {
-		rule, err := ParseEgressRule(entry)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rule)
-	}
-	return out, nil
-}
