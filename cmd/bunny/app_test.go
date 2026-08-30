@@ -241,7 +241,7 @@ func TestRegenerateToolchains(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "mvn", Path: "{app}/bin/mvn"}},
 	})
 
-	if err := a.regenerateToolchains(); err != nil {
+	if _, err := a.regenerateToolchains(); err != nil {
 		t.Fatal(err)
 	}
 

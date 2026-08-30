@@ -6,9 +6,9 @@ package toolchains
 import (
 	"fmt"
 	"slices"
-	"sort"
-	"strconv"
 	"strings"
+
+	"github.com/cristatus/bunny/internal/verparse"
 )
 
 const (
@@ -64,18 +64,18 @@ func MergeGradleProperties(existing string, homes []string) string {
 // a jdk toolchain, matched on major version. Sorted by home for determinism.
 func MavenToolchainsXML(jdks []JDK) string {
 	sorted := slices.Clone(jdks)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Home < sorted[j].Home })
+	slices.SortFunc(sorted, func(a, b JDK) int { return strings.Compare(a.Home, b.Home) })
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString("<toolchains>\n")
 	for _, j := range sorted {
 		b.WriteString("  <toolchain>\n")
 		b.WriteString("    <type>jdk</type>\n")
-		fmt.Fprintf(&b, "    <provides><version>%s</version>", mavenVersion(j.Major))
+		var vendor string
 		if j.Vendor != "" {
-			fmt.Fprintf(&b, "<vendor>%s</vendor>", j.Vendor)
+			vendor = "<vendor>" + j.Vendor + "</vendor>"
 		}
-		b.WriteString("</provides>\n")
+		fmt.Fprintf(&b, "    <provides><version>%s</version>%s</provides>\n", mavenVersion(j.Major), vendor)
 		fmt.Fprintf(&b, "    <configuration><jdkHome>%s</jdkHome></configuration>\n", j.Home)
 		b.WriteString("  </toolchain>\n")
 	}
@@ -83,12 +83,16 @@ func MavenToolchainsXML(jdks []JDK) string {
 	return b.String()
 }
 
-// mavenVersion spells a major version the way Maven toolchain requirements do.
-// Java 8 and earlier are conventionally "1.8", not "8", and Maven matches a
-// non-range requirement as a string, so a pom asking for 1.8 finds nothing
-// against a bare 8.
+// mavenVersion spells a major version the way a toolchain requirement does.
+// Java 8 and earlier are conventionally "1.8" rather than "8" — the platform's
+// own convention, which Maven requirements inherit; jdk-8's release file says
+// JAVA_VERSION="1.8.0_504". Maven matches a non-range requirement as a string,
+// so a pom asking for 1.8 finds nothing against a bare 8.
+//
+// major must be a bare major version, as verparse.Major produces; a full
+// version would be prefixed rather than reduced.
 func mavenVersion(major string) string {
-	if n, err := strconv.Atoi(major); err == nil && n > 0 && n <= 8 {
+	if n := verparse.MajorInt(major); n > 0 && n <= 8 {
 		return "1." + major
 	}
 	return major

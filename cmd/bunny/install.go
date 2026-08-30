@@ -83,7 +83,7 @@ func (c *InstallCmd) Run(a *App) error {
 			}
 		}
 		if regenToolchains {
-			if err := a.regenerateToolchains(); err != nil {
+			if _, err := a.regenerateToolchains(); err != nil {
 				errs = append(errs, fmt.Errorf("regenerate toolchains: %w", err))
 			}
 		}
@@ -221,7 +221,7 @@ func (c *UninstallCmd) Run(a *App) error {
 			}
 		}
 		if regenToolchains {
-			if err := a.regenerateToolchains(); err != nil {
+			if _, err := a.regenerateToolchains(); err != nil {
 				errs = append(errs, fmt.Errorf("regenerate toolchains after uninstall: %w", err))
 			}
 		}
