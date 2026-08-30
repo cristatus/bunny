@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -19,6 +20,10 @@ const (
 type JDK struct {
 	Home  string // absolute JDK home (install dir)
 	Major string // major version, e.g. "21"
+	// Vendor is the distribution name, so a build can ask for one of several
+	// JDKs sharing a major version. Two installed 25s are indistinguishable
+	// without it, and Maven then resolves whichever the file lists first.
+	Vendor string
 }
 
 // MergeGradleProperties returns the full gradle.properties content with bunny's
@@ -66,10 +71,25 @@ func MavenToolchainsXML(jdks []JDK) string {
 	for _, j := range sorted {
 		b.WriteString("  <toolchain>\n")
 		b.WriteString("    <type>jdk</type>\n")
-		fmt.Fprintf(&b, "    <provides><version>%s</version></provides>\n", j.Major)
+		fmt.Fprintf(&b, "    <provides><version>%s</version>", mavenVersion(j.Major))
+		if j.Vendor != "" {
+			fmt.Fprintf(&b, "<vendor>%s</vendor>", j.Vendor)
+		}
+		b.WriteString("</provides>\n")
 		fmt.Fprintf(&b, "    <configuration><jdkHome>%s</jdkHome></configuration>\n", j.Home)
 		b.WriteString("  </toolchain>\n")
 	}
 	b.WriteString("</toolchains>\n")
 	return b.String()
+}
+
+// mavenVersion spells a major version the way Maven toolchain requirements do.
+// Java 8 and earlier are conventionally "1.8", not "8", and Maven matches a
+// non-range requirement as a string, so a pom asking for 1.8 finds nothing
+// against a bare 8.
+func mavenVersion(major string) string {
+	if n, err := strconv.Atoi(major); err == nil && n > 0 && n <= 8 {
+		return "1." + major
+	}
+	return major
 }

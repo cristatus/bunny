@@ -44,3 +44,48 @@ func TestMavenToolchainsXML(t *testing.T) {
 		t.Errorf("jdk-21 entry malformed:\n%s", out)
 	}
 }
+
+// Two JDKs can share a major version — a Temurin 25 and a GraalVM 25 — and
+// without a vendor Maven resolves whichever the file happens to list first.
+func TestMavenToolchainsXMLDistinguishesVendors(t *testing.T) {
+	out := MavenToolchainsXML([]JDK{
+		{Home: "/a/graalvm-25", Major: "25", Vendor: "graalvm_community"},
+		{Home: "/a/jbr-25", Major: "25", Vendor: "jetbrains"},
+	})
+	for _, want := range []string{
+		"<version>25</version><vendor>graalvm_community</vendor>",
+		"<version>25</version><vendor>jetbrains</vendor>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// A manifest with no update block has no vendor to report, and an empty
+// <vendor/> would be a requirement no build can match.
+func TestMavenToolchainsXMLOmitsAnUnknownVendor(t *testing.T) {
+	out := MavenToolchainsXML([]JDK{{Home: "/a/jdk-21", Major: "21"}})
+	if strings.Contains(out, "<vendor>") {
+		t.Errorf("an unknown vendor must be omitted entirely:\n%s", out)
+	}
+}
+
+// Java 8 and earlier are "1.8" in a Maven toolchain requirement, and Maven
+// matches a non-range requirement as a string, so a bare "8" is unmatchable
+// by the spelling every pom actually uses.
+func TestMavenToolchainsXMLUsesTheJava8Convention(t *testing.T) {
+	out := MavenToolchainsXML([]JDK{
+		{Home: "/a/jdk-8", Major: "8"},
+		{Home: "/a/jdk-11", Major: "11"},
+	})
+	if !strings.Contains(out, "<version>1.8</version>") {
+		t.Errorf("Java 8 must be spelled 1.8:\n%s", out)
+	}
+	if strings.Contains(out, "<version>8</version>") {
+		t.Errorf("a bare 8 no pom asks for must not appear:\n%s", out)
+	}
+	if !strings.Contains(out, "<version>11</version>") {
+		t.Errorf("11 and later stay bare:\n%s", out)
+	}
+}

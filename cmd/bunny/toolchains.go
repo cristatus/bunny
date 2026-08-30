@@ -45,10 +45,17 @@ func (a *App) installedJDKs() ([]toolchains.JDK, error) {
 		if m.Provides != "jdk" {
 			continue
 		}
-		out = append(out, toolchains.JDK{
+		jdk := toolchains.JDK{
 			Home:  a.Paths.AppDir(id),
 			Major: verparse.Major(m.Version),
-		})
+		}
+		// The primary source's update distribution doubles as the vendor: it is
+		// the only place a manifest names which JDK this is, and it is what
+		// tells two installs of the same major version apart.
+		if len(m.Sources) > 0 && m.Sources[0].Update != nil {
+			jdk.Vendor = m.Sources[0].Update.Distribution
+		}
+		out = append(out, jdk)
 	}
 	return out, nil
 }
