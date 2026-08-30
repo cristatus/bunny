@@ -42,7 +42,7 @@ bunny doctor
 # 3. Install core toolchains and IDEs
 bunny install jdk-21 maven gradle
 bunny install node-22 pnpm
-bunny install jetbrains-toolbox code
+bunny install idea code
 
 # 4. Verify
 mvn -version
@@ -156,7 +156,7 @@ Bunny adheres strictly to the XDG Base Directory Specification:
 ~/.local/share/bunny/
 ├── sdk/{id}/               SDKs and toolchains (JDKs, Node, Maven, Gradle)
 ├── cli/{id}/               Standalone CLI tools (ripgrep, jq, gh)
-├── app/{id}/               GUI applications (code, zed, jetbrains-toolbox)
+├── app/{id}/               GUI applications (code, zed, idea)
 ├── data/{id}/              Per-package data directories ({data} placeholder)
 ├── manifests/{id}.yaml     Install-time manifest snapshots
 ├── state.json              State database (installed packages, providers, roots)

@@ -14,8 +14,8 @@ tarball**, downloaded once and run directly:
 - **JavaScript runtimes**: Node.js LTS lines, Bun, and Deno.
 - **Node ecosystem tools**: Package managers distributed as standalone binaries
   (currently pnpm). npm comes with Node and is managed through it.
-- **Editors / IDEs targeting the above**: JetBrains IDEs (via JetBrains Toolbox),
-  VS Code, Cursor, Zed, and Eclipse.
+- **Editors / IDEs targeting the above**: IntelliJ IDEA, VS Code, Cursor, Zed,
+  and Eclipse.
 - **General-purpose CLI tools**: Ubiquitous utilities including ripgrep, fd, bat,
   fzf, jq, gh, lazygit, delta, and eza.
 - **AI coding agents**: Terminal agents (Claude Code, Codex CLI, opencode, pi)

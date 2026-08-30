@@ -43,7 +43,7 @@ Corepack, Yarn) remain at native host paths across versions.
 
 ## GUI applications
 
-VS Code, Cursor, Zed, and JetBrains Toolbox namespace their configuration
+VS Code, Cursor, Zed, and IntelliJ IDEA namespace their configuration
 directories per application natively. Bunny runs them against their normal host
 paths unless their exact package IDs are configured for data redirection or the
 optional runtime sandbox.

@@ -137,7 +137,7 @@ kinds, accepting absolute paths or paths prefixed with `~/`:
 | ----- | ------------------------------------------------------------------------------ | -------------------------- |
 | `sdk` | JDKs, Node, Maven, Gradle, sbt, pnpm: anything another tool may need a path to | `~/.local/share/bunny/sdk` |
 | `cli` | plain commands (ripgrep, jq, gh)                                               | `~/.local/share/bunny/cli` |
-| `app` | GUI applications (code, cursor, zed, jetbrains-toolbox)                        | `~/.local/share/bunny/app` |
+| `app` | GUI applications (code, cursor, zed, idea)                                     | `~/.local/share/bunny/app` |
 
 The package kind is defined in its manifest. Setting `install.sdk: ~/opt` places
 JDKs and build tools where IDE file pickers can easily reach them:
