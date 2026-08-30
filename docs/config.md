@@ -234,7 +234,7 @@ in complex command flags:
 env:
   maven:
     MAVEN_ARGS:
-      "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+      "-Dmaven.repo.local={data}/repository --global-toolchains {data}/toolchains.xml"
 dirs:
   maven:
     - "{data}/repository"
@@ -292,7 +292,7 @@ env:
     GRADLE_USER_HOME: "{data}/gradle"
   maven:
     MAVEN_ARGS:
-      "-Dmaven.repo.local={data}/repository --toolchains {data}/toolchains.xml"
+      "-Dmaven.repo.local={data}/repository --global-toolchains {data}/toolchains.xml"
   sbt:
     SBT_OPTS:
       "-Dsbt.global.base={data}/sbt -Dsbt.boot.directory={data}/boot -Dsbt.ivy.home={data}/ivy"
@@ -335,5 +335,5 @@ sharing a single cache across multiple versions of a tool, specify a static path
 env:
   maven:
     MAVEN_ARGS:
-      "-Dmaven.repo.local={home}/.cache/maven/repository --toolchains {data}/toolchains.xml"
+      "-Dmaven.repo.local={home}/.cache/maven/repository --global-toolchains {data}/toolchains.xml"
 ```

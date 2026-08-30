@@ -52,8 +52,10 @@ resolves to Bunny's JDK 17 without triggering external downloads or requiring
 manual `-Dorg.gradle...` flags.
 
 **Maven**: Bunny generates a `toolchains.xml` file and passes it via `MAVEN_ARGS`
-(`--toolchains …`), allowing `maven-toolchains-plugin` to match `<jdk><version>17`
-against installed JDKs:
+(`--global-toolchains …`), allowing `maven-toolchains-plugin` to match
+`<jdk><version>17` against installed JDKs. The installation slot is deliberate:
+Maven merges it with your own `~/.m2/toolchains.xml`, where `-t/--toolchains`
+would replace that file and hide anything you declared in it.
 
 ```xml
 <toolchain>
