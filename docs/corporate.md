@@ -70,8 +70,20 @@ system trust store and `NODE_EXTRA_CA_CERTS`.
 
 Bunny does not redirect `~/.m2`. Your `settings.xml` is read from its normal
 host path, and artifacts download into `~/.m2/repository`. The only variable
-Bunny injects is `MAVEN_ARGS="--toolchains {data}/toolchains.xml"`, pointing at
-the generated JDK toolchains file.
+Bunny injects is `MAVEN_ARGS="--global-toolchains {data}/toolchains.xml"`,
+pointing at the generated JDK toolchains file.
+
+That is the *global* slot on purpose. Maven reads a global and a user
+toolchains file and merges them, so your own `~/.m2/toolchains.xml` still
+applies and takes precedence. Using `--toolchains` instead would put Bunny's
+file in the user slot and replace yours, which `mvn -X` reports as reading the
+generated file where `~/.m2/toolchains.xml` should be.
+
+Generated entries carry a `<vendor>` taken from the package's update
+distribution (`temurin`, `graalvm_community`, `jetbrains`), so a build can ask
+for one of several JDKs sharing a major version. Vendor matching is
+case-insensitive, so a pom asking for `Temurin` matches. Java 8 is written
+`1.8`, the spelling toolchain requirements use.
 
 Standard setup for an internal Nexus or Artifactory:
 
