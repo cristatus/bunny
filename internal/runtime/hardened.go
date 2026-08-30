@@ -25,14 +25,13 @@ type hardenedEnv struct {
 // a new session, fresh procfs, a minimal /dev, and a full capability drop are
 // part of the boundary, not optional toggles. Descendant user namespaces stay
 // permitted so Chromium can build its own zygote sandbox.
-func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, current sandboxContext, net clampedNet, env hardenedEnv) (sandboxPlan, error) {
+func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, net netPlan, env hardenedEnv) (sandboxPlan, error) {
 	read, write, err := effectiveGrants(policy, env.hostHome)
 	if err != nil {
 		return sandboxPlan{}, err
 	}
 	plan.context.FSRead = read
 	plan.context.FSWrite = write
-	netUnshare := net.mode == "none" && net.newlyUnshared
 
 	// The filtered portal bus exists only at the boundary-establishing layer:
 	// inside an existing hardened sandbox the raw bus is already unreachable,
@@ -137,7 +136,7 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, cu
 		return sandboxPlan{}, err
 	}
 	args = append(args, persistArgs...)
-	if netUnshare {
+	if net.unsharesNet() {
 		args = append(args, "--unshare-net")
 	}
 	args = append(args,
@@ -165,11 +164,6 @@ func hostResolverBinds() []string {
 		return nil
 	}
 	return []string{"--ro-bind", target, target}
-}
-
-func statMaskEntry(path string) maskEntry {
-	info, err := os.Stat(path)
-	return maskEntry{path: path, dir: err == nil && info.IsDir()}
 }
 
 // protectedRoots are the mount points the hardened baseline establishes as
@@ -211,13 +205,11 @@ func resolveReal(path string) string {
 	return path
 }
 
-// effectiveGrants expands, verifies, and clamps the filesystem grants. Grant
+// effectiveGrants expands and verifies the filesystem grants. Grant
 // targets must already exist and resolve against the real host home; a
 // missing path fails closed rather than causing Bunny to mutate the host. A
 // grant that would re-expose a protected root (via its literal path or a
-// symlink) is refused. A write grant implies read access. A nested child may
-// remove grants but never add access absent from the inherited hardened
-// context.
+// symlink) is refused. A write grant implies read access.
 func effectiveGrants(policy *PackageSandbox, hostHome string) (read, write []string, err error) {
 	roots := protectedRoots(hostHome)
 	expand := func(raw []string, kind string) ([]string, error) {

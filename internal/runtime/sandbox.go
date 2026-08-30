@@ -31,22 +31,29 @@ import (
 // an older Bunny binary.
 const legacySandboxContextEnv = "BUNNY_SANDBOX_CONTEXT"
 
-// sandboxContextFile is where each sandbox layer mounts the resolved
-// effective policy, read-only, so a launch inside it knows it is nested.
-// The location is fixed under the user's runtime directory and deliberately
-// not influenced by the environment. Inside a private-network sandbox the
-// process sees itself as uid 0, so a nested Bunny there resolves a path that
-// holds no context and takes the conservative full-layer path — safe, merely
-// without layer elision. A variable only so tests can point it at a scratch
-// file.
-var sandboxContextFile = fmt.Sprintf("/run/user/%d/bunny/sandbox-context.json", os.Getuid())
+// The context layout, in one place: sandboxContextFile derives the path for
+// this process, and contextMountPattern recognises the same path for any uid.
+// Two spellings of one layout would drift, and the fallback below would then
+// stop matching with nothing to catch it.
+const (
+	runtimeStateRoot = "/run/user"
+	runtimeStateName = "bunny"
+	contextFileName  = "sandbox-context.json"
+)
+
+// sandboxContextFile is where each sandbox layer mounts the resolved effective
+// policy, read-only, so a launch inside it knows it is nested. The location is
+// fixed and deliberately not influenced by the environment: a process that
+// could redirect it could claim restrictions it does not have. A variable only
+// so tests can point it at a scratch file.
+var sandboxContextFile = filepath.Join(runtimeStateRoot, strconv.Itoa(os.Getuid()), runtimeStateName, contextFileName)
 
 // sandboxContext describes the kernel restrictions already in effect around a
 // process. It is installed as a read-only file over a private tmpfs by the
 // bubblewrap layer that created those restrictions, so a sandboxed process
-// cannot forge or unset it the way it could an environment variable. A child
-// Bunny invocation clamps its requested policy against it; an absent file
-// permits only the conservative full-layer path.
+// cannot forge or unset it the way it could an environment variable. A launch
+// that reads one runs directly under the boundary it describes; an absent file
+// means no verified restrictions, so the launch builds its own layer.
 type sandboxContext struct {
 	Packages         []string  `json:"packages"`
 	HostHome         string    `json:"hostHome"`
@@ -123,7 +130,7 @@ type NetPolicy struct {
 	EgressSet  bool
 }
 
-// netRank orders modes by restriction for monotonic inheritance.
+// netRank orders modes by restriction, so a policy can be asked whether it\n// wants something stricter than what is already in force.
 func netRank(mode string) int {
 	switch mode {
 	case "private":
@@ -463,11 +470,14 @@ func homeOverrides(p *Prepared, policy *PackageSandbox, hardened bool, cwd strin
 	overrides["XDG_DATA_HOME"] = filepath.Join(isolatedHome, ".local", "share")
 	// Redirecting HOME is what costs the package its Git identity, so the
 	// replacement belongs here rather than in one profile. An identity already
-	// in the environment was chosen deliberately and wins.
-	payload := envMap(p.Env)
-	for name, value := range gitIdentityOverrides(cwd) {
-		if _, ok := payload[name]; !ok {
-			overrides[name] = value
+	// in the environment was chosen deliberately and wins, and asking Git costs
+	// a fork, so a complete one means no lookup at all.
+	if missing := missingGitIdentity(p.Env); len(missing) > 0 {
+		identity := gitIdentityOverrides(cwd)
+		for _, name := range missing {
+			if value := identity[name]; value != "" {
+				overrides[name] = value
+			}
 		}
 	}
 	return overrides, isolatedHome
@@ -486,34 +496,50 @@ func homeOverrides(p *Prepared, policy *PackageSandbox, hardened bool, cwd strin
 //
 // Restrictions the policy asked for and this launch cannot apply are reported,
 // never silently dropped.
-func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContext,
-	packages []string, hostHome, boundary string, disabled, parentDisabled map[string]bool,
-	cwd string,
-) sandboxPlan {
-	overrides, isolatedHome := homeOverrides(p, policy, boundary == "hardened", cwd)
-	ignored := nestedIgnored(policy, current, disabled, parentDisabled)
+func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContext, facts launchFacts) sandboxPlan {
+	// A parent's restrictions and this policy's both apply, so the payload
+	// environment reflects their union even though no new layer enforces it.
+	disabled := stringSet(current.DisabledFeatures)
+	for name := range facts.disabled {
+		disabled[name] = true
+	}
+	overrides, isolatedHome := homeOverrides(p, policy, facts.boundary == "hardened", facts.cwd)
+	ignored := nestedIgnored(policy, current, facts.disabled)
 	if len(ignored) > 0 {
 		log.Warn("Sandbox policy not applied: already inside a sandbox",
 			"package", p.Manifest.ID, "enclosing", strings.Join(current.Packages, ","),
 			"ignored", strings.Join(ignored, ", "))
 	}
+	// Everything the parent enforced still holds, so the reported context is
+	// the parent's with this launch's identity written over it. Copying the
+	// struct keeps a new field inherited by default instead of silently
+	// dropping out of the nested path.
+	context := current
+	context.Packages = facts.packages
+	context.HostHome = facts.hostHome
+	context.Boundary = facts.boundary
+	context.DisabledFeatures = sortedMapKeys(disabled)
 	return sandboxPlan{
 		env:          sandboxEnv(p.Env, overrides, disabled),
 		isolatedHome: isolatedHome,
 		nestedUnder:  strings.Join(current.Packages, ", "),
 		ignored:      ignored,
-		context: sandboxContext{
-			Packages: packages, HostHome: hostHome, Boundary: boundary,
-			Hidden: slices.Clone(current.Hidden), DisabledFeatures: sortedMapKeys(disabled),
-			NetMode: current.NetMode, Inbound: current.Inbound, Egress: current.Egress,
-			FSRead: slices.Clone(current.FSRead), FSWrite: slices.Clone(current.FSWrite),
-		},
+		context:      context,
 	}
+}
+
+// launchFacts are the values both plan paths resolve before they diverge.
+type launchFacts struct {
+	packages []string
+	hostHome string
+	boundary string
+	cwd      string
+	disabled map[string]bool // what this policy disables, parent aside
 }
 
 // nestedIgnored lists what a nested policy asked for that only a new layer
 // could deliver, in the order a reader would check it.
-func nestedIgnored(policy *PackageSandbox, current sandboxContext, disabled, parentDisabled map[string]bool) []string {
+func nestedIgnored(policy *PackageSandbox, current sandboxContext, disabled map[string]bool) []string {
 	var ignored []string
 	if policy.Boundary == "hardened" && current.Boundary != "hardened" {
 		ignored = append(ignored, "boundary: hardened")
@@ -524,19 +550,19 @@ func nestedIgnored(policy *PackageSandbox, current sandboxContext, disabled, par
 	if policy.Home == "ephemeral" || policy.Home == "clean" {
 		ignored = append(ignored, "home: "+policy.Home)
 	}
-	hidden := stringSet(current.Hidden)
-	if n := countMissing(policy.Hide, hidden); n > 0 {
-		ignored = append(ignored, fmt.Sprintf("hide: %d path(s)", n))
-	}
-	var features []string
-	for name := range disabled {
-		if !parentDisabled[name] && name != "tty" {
-			features = append(features, name)
+	if len(policy.Hide) > 0 {
+		if n := countMissing(policy.Hide, stringSet(current.Hidden)); n > 0 {
+			ignored = append(ignored, fmt.Sprintf("hide: %d path(s)", n))
 		}
 	}
-	if len(features) > 0 {
-		slices.Sort(features)
-		ignored = append(ignored, "features off: "+strings.Join(features, " "))
+	// tty is excluded because finalize forces it off on every hardened policy,
+	// so reporting it would name a restriction nobody asked for.
+	extra := maps.Clone(disabled)
+	maps.DeleteFunc(extra, func(name string, _ bool) bool {
+		return name == "tty" || slices.Contains(current.DisabledFeatures, name)
+	})
+	if len(extra) > 0 {
+		ignored = append(ignored, "features off: "+strings.Join(sortedMapKeys(extra), " "))
 	}
 	// Only an explicit ask counts: finalize gives every hardened policy a
 	// default cwd mode, and reporting that would fire on policies that asked
@@ -568,12 +594,6 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		packages = append(packages, p.Manifest.ID)
 	}
 
-	envValues := envMap(p.Env)
-	runtimeDir := envValues["XDG_RUNTIME_DIR"]
-	if runtimeDir == "" {
-		runtimeDir = fmt.Sprintf("/run/user/%d", os.Getuid())
-	}
-
 	// Boundary is monotonic: a child of a hardened parent remains hardened.
 	boundary := policy.Boundary
 	if nested && current.Boundary == "hardened" {
@@ -581,10 +601,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 	hardened := boundary == "hardened"
 
-	// Feature restrictions are monotonic: the union of everything any
-	// enclosing layer disabled with what this policy disables.
-	parentDisabled := stringSet(current.DisabledFeatures)
-	disabled := maps.Clone(parentDisabled)
+	disabled := map[string]bool{}
 	for name, enabled := range policy.Features {
 		if !enabled {
 			disabled[name] = true
@@ -592,14 +609,21 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 
 	// Inside an existing sandbox the boundary is already established and this
-	// launch adds no layer to it. Everything below builds one.
+	// launch adds no layer to it. Everything below builds one, and reaches this
+	// point only when there is no enclosing context at all — so `current` is
+	// the zero value below, and nothing needs comparing against a parent.
 	if nested {
-		return nestedDirectPlan(p, policy, current, packages, hostHome, boundary, disabled, parentDisabled, cwd), nil
+		return nestedDirectPlan(p, policy, current, launchFacts{
+			packages: packages, hostHome: hostHome, boundary: boundary,
+			cwd: cwd, disabled: disabled,
+		}), nil
 	}
 
-	net, err := clampNetwork(policy)
-	if err != nil {
-		return sandboxPlan{}, err
+	net := resolveNetwork(policy)
+	envValues := envMap(p.Env)
+	runtimeDir := envValues["XDG_RUNTIME_DIR"]
+	if runtimeDir == "" {
+		runtimeDir = filepath.Join(runtimeStateRoot, strconv.Itoa(os.Getuid()))
 	}
 	// A non-host network mode forces the D-Bus masks, but in scoped mode the
 	// variable itself stays: the masks are the enforcement, and removing the
@@ -628,7 +652,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		}
 	}
 
-	hidden := stringSet(current.Hidden)
+	hidden := map[string]bool{}
 	var masks []maskEntry
 	addMask := func(path string, required bool) error {
 		if hidden[path] {
@@ -664,8 +688,8 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		// namespace. Hardened mode needs none of this: its private /run,
 		// /tmp, and hidden home cover every documented endpoint.
 		for _, feature := range featureEndpoints {
-			newlyDisabled := disabled[feature.name] && !parentDisabled[feature.name]
-			forcedDBus := feature.name == "dbus" && net.newlyRestricted && !parentDisabled["dbus"]
+			newlyDisabled := disabled[feature.name]
+			forcedDBus := feature.name == "dbus" && net.restricted()
 			if !newlyDisabled && !forcedDBus {
 				continue
 			}
@@ -678,7 +702,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		// Any lookup is an unfiltered side channel: nss-resolve reaches
 		// systemd-resolved over a varlink socket netfilter never sees, so
 		// every restricted network mode masks the resolver IPC directory.
-		if net.newlyRestricted {
+		if net.restricted() {
 			if err := addMask("/run/systemd/resolve", false); err != nil {
 				return sandboxPlan{}, err
 			}
@@ -693,7 +717,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		isolatedHome: isolatedHome,
 		forcedDBus:   net.forcedDBus,
 	}
-	if net.createsNS {
+	if net.createsNS() {
 		plan.pasta = &pastaSpec{
 			inbound:   net.inbound,
 			egress:    net.egress,
@@ -703,23 +727,22 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 
 	if hardened {
-		return buildHardenedPlan(p, policy, plan, current, net, hardenedEnv{
+		return buildHardenedPlan(p, policy, plan, net, hardenedEnv{
 			cwd: cwd, hostHome: hostHome, runtimeDir: runtimeDir,
 			isolatedHome: isolatedHome, envValues: envValues,
 			overrides: overrides, disabled: disabled, masks: masks,
 		})
 	}
 
-	newTTYRestriction := disabled["tty"]
 	plan.env = sandboxEnv(p.Env, overrides, disabled)
 
 	args := []string{"--dev-bind", "/", "/", "--die-with-parent"}
 	args = append(args, ephemeralOverlayArgs(policy, isolatedHome)...)
 	args = append(args, cleanHomeArgs(policy, isolatedHome)...)
-	if net.newlyUnshared {
+	if net.unsharesNet() {
 		args = append(args, "--unshare-net")
 	}
-	if newTTYRestriction {
+	if disabled["tty"] {
 		args = append(args, "--new-session", "--unshare-pid", "--proc", "/proc")
 	}
 	if plan.pasta != nil {
@@ -758,44 +781,43 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	return plan, nil
 }
 
-// clampedNet is the network outcome of monotonic inheritance.
-type clampedNet struct {
-	mode            string
-	inbound         []string
-	egress          []string
-	egressSet       bool
-	createsNS       bool // this launch runs pasta
-	newlyUnshared   bool // this launch adds --unshare-net
-	newlyRestricted bool // host -> private/none transition happens here
-	forcedDBus      bool // non-host mode cut D-Bus off despite policy
+// netPlan is the concrete network this launch establishes. The three
+// "does this launch do X" questions the plan builders ask are all answered by
+// mode alone, so they are methods rather than fields that could disagree with
+// it.
+type netPlan struct {
+	mode       string // host | private | none
+	inbound    []string
+	egress     []string
+	egressSet  bool
+	forcedDBus bool // non-host mode cut D-Bus off despite policy
 }
 
-// clampNetwork resolves the effective mode as the most restrictive of the
-// policy's and the inherited one (host < private < none), and clamps
-// allowlists. Narrowing an existing private namespace needs capabilities the
-// inner bubblewrap already dropped and stacking a second pasta is not a
-// supported topology, so a nested narrower list is an error naming the parent
-// rather than a silent wish.
-func clampNetwork(policy *PackageSandbox) (clampedNet, error) {
+// restricted reports whether this launch leaves host networking behind.
+func (n netPlan) restricted() bool { return n.mode != "host" }
+
+// unsharesNet reports whether the launch adds --unshare-net.
+func (n netPlan) unsharesNet() bool { return n.mode == "none" }
+
+// createsNS reports whether the launch runs pasta to build its own stack.
+func (n netPlan) createsNS() bool { return n.mode == "private" }
+
+// resolveNetwork fills in the concrete mode and the D-Bus consequence of it.
+// A launch inside an existing sandbox never reaches here — it inherits the
+// enclosing mode untouched — so there is nothing to reconcile and no way to
+// fail.
+func resolveNetwork(policy *PackageSandbox) netPlan {
 	mode := policy.Net.Mode
 	if mode == "" {
 		mode = "host"
 	}
-	out := clampedNet{
-		mode:            mode,
-		newlyRestricted: mode != "host",
-		forcedDBus:      mode != "host" && policy.feature("dbus"),
-	}
-	switch mode {
-	case "none":
-		out.newlyUnshared = true
-	case "private":
-		out.createsNS = true
+	out := netPlan{mode: mode, forcedDBus: mode != "host" && policy.feature("dbus")}
+	if mode == "private" {
 		out.inbound = slices.Clone(policy.Net.Inbound)
 		out.egress = slices.Clone(policy.Net.Egress)
 		out.egressSet = policy.Net.EgressSet
 	}
-	return out, nil
+	return out
 }
 
 func sandboxEnv(base []string, overrides map[string]string, disabled map[string]bool) []string {
@@ -850,19 +872,41 @@ func stringSet(values []string) map[string]bool {
 // its full layer rather than assume anything about the parent. A malformed
 // file is a launch error, never a fallback to a weaker assumption.
 func readMountedContext() (sandboxContext, error) {
-	path := sandboxContextFile
-	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		if found := mountedContextPath(); found != "" {
-			path = found
+	// Only uid 0 can be wrong about the derived path, and only because pasta
+	// maps the payload there. Every ordinary launch — including every
+	// unsandboxed shim invocation, which reaches this through directExec —
+	// therefore skips the mount table rather than reading and parsing it to
+	// find nothing.
+	return readContextAt(sandboxContextFile, os.Getuid() == 0, mountedContextPath)
+}
+
+// readContextAt reads the context an enclosing layer mounted. When remapped,
+// this process cannot trust a uid to name the path, so an absent derived path
+// falls back to resolve, which asks the kernel where the mount actually
+// landed.
+func readContextAt(derived string, remapped bool, resolve func() string) (sandboxContext, error) {
+	path := derived
+	if remapped {
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			if found := resolve(); found != "" {
+				path = found
+			}
 		}
 	}
 	return readSandboxContextFile(path)
 }
 
+// mountinfoPath is the kernel's mount table. A variable only so tests can
+// point it at a fixture.
+var mountinfoPath = "/proc/self/mountinfo"
+
 // contextMountPattern matches a context mount point in Bunny's own runtime
-// layout, for any uid. The components are fixed and the uid is digits, so a
-// mount point cannot contain the characters mountinfo escapes.
-var contextMountPattern = regexp.MustCompile(`^/run/user/[0-9]+/bunny/sandbox-context\.json$`)
+// layout, for any uid. The components come from the layout constants above, so
+// a rename cannot desync the two. The uid is digits and the rest is fixed, so
+// a matching mount point never contains the characters mountinfo escapes.
+var contextMountPattern = regexp.MustCompile(`^` +
+	regexp.QuoteMeta(runtimeStateRoot) + `/[0-9]+/` +
+	regexp.QuoteMeta(runtimeStateName+"/"+contextFileName) + `$`)
 
 // mountedContextPath asks the kernel where an enclosing layer mounted the
 // context, and returns "" when nothing did.
@@ -880,13 +924,9 @@ var contextMountPattern = regexp.MustCompile(`^/run/user/[0-9]+/bunny/sandbox-co
 //
 // A payload able to create its own mount namespace could stage a decoy here,
 // but the same payload can run a child's code directly with its own
-// privileges. Nested clamping is a correctness mechanism for cooperative
-// nesting, not a defence against a hostile parent, and a decoy cannot remove
+// privileges. Nesting is a correctness mechanism for cooperative launches,
+// not a defence against a hostile parent, and a decoy cannot remove
 // restrictions the kernel already applies to the payload itself.
-// mountinfoPath is the kernel's mount table. A variable only so tests can
-// point it at a fixture.
-var mountinfoPath = "/proc/self/mountinfo"
-
 func mountedContextPath() string {
 	data, err := os.ReadFile(mountinfoPath)
 	if err != nil {

@@ -785,6 +785,9 @@ func TestNestedSandboxUsesChildHomeWithoutAnotherLayer(t *testing.T) {
 	if !slices.Contains(plan.env, "HOME="+filepath.Join(root, "home")) {
 		t.Errorf("child HOME missing from env: %v", plan.env)
 	}
+	if plan.isolatedHome != filepath.Join(root, "home") {
+		t.Errorf("nested plan must still name its own home: %q", plan.isolatedHome)
+	}
 	if slices.Contains(plan.env, "DISPLAY=:99") {
 		t.Errorf("child restored outer-disabled X11: %v", plan.env)
 	}

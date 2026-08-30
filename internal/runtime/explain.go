@@ -39,10 +39,10 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	// A launch inside an existing sandbox adds no layer, so reporting the
 	// policy it asked for would describe controls this launch does not apply.
 	// Report what is actually in force, and what the policy did not get.
-	if plan.nestedUnder != "" {
-		boundary := "scoped"
-		if hardened {
-			boundary = "hardened"
+	if !plan.needsLayer {
+		boundary := plan.context.Boundary
+		if boundary == "" {
+			boundary = "scoped"
 		}
 		add("nested", "none", "runs directly inside "+plan.nestedUnder+": the outermost sandbox owns the boundary")
 		add("boundary", "inherited", boundary)
@@ -158,7 +158,8 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	if len(policy.Hide) > 0 {
 		add("hide", "mount", fmt.Sprintf("%d paths: %s", len(policy.Hide), strings.Join(policy.Hide, ", ")))
 	}
-	add("context", contextLevel(plan), contextDetail(plan))
+	level, detail := contextRow(contextAvailable(plan))
+	add("context", level, detail)
 
 	return renderExplain(rows), nil
 }
@@ -177,24 +178,18 @@ func renderExplain(rows [][3]string) string {
 	return b.String()
 }
 
-// contextLevel and contextDetail report whether the immutable mounted context
-// will actually be installed. The pasta path binds it as a host file (works on
-// any bubblewrap); otherwise it needs --ro-bind-data. Without the context a
-// launch inside this sandbox cannot tell it is nested, so it would try to build
-// a layer of its own. Reporting "immutable" unconditionally would overstate
-// what is enforced.
-func contextLevel(plan sandboxPlan) string {
-	if contextAvailable(plan) {
-		return "mount"
+// contextRow reports whether the immutable mounted context will actually be
+// installed. The pasta path binds it as a host file (works on any bubblewrap);
+// otherwise it needs --ro-bind-data. Without the context a launch inside this
+// sandbox cannot tell it is nested, so it would try to build a layer of its
+// own. Reporting "immutable" unconditionally would overstate what is enforced.
+//
+// The availability probe forks bwrap, so it is passed in and taken once.
+func contextRow(available bool) (level, detail string) {
+	if available {
+		return "mount", "immutable: " + sandboxContextFile
 	}
-	return "none"
-}
-
-func contextDetail(plan sandboxPlan) string {
-	if contextAvailable(plan) {
-		return "immutable: " + sandboxContextFile
-	}
-	return "unavailable (bubblewrap lacks --ro-bind-data); a launch inside this sandbox cannot detect it is nested"
+	return "none", "unavailable (bubblewrap lacks --ro-bind-data); a launch inside this sandbox cannot detect it is nested"
 }
 
 func contextAvailable(plan sandboxPlan) bool {

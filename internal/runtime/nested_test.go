@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +11,7 @@ import (
 // coverage only for two separately sandboxed packages launching one another
 // and cannot be built at all inside a private network namespace.
 func TestNestedLaunchNeverBuildsALayer(t *testing.T) {
-	parent := sandboxContext{Packages: []string{"outer"}, HostHome: "/home/u"}
+	parent := outerContext()
 	for name, policy := range map[string]*PackageSandbox{
 		"same policy":      {Home: "isolated"},
 		"wants hardened":   {Boundary: "hardened"},
@@ -37,24 +36,6 @@ func TestNestedLaunchNeverBuildsALayer(t *testing.T) {
 		if plan.pasta != nil || plan.proxy != nil {
 			t.Errorf("%s: nested launch must start no helpers", name)
 		}
-	}
-}
-
-// A nested child still gets its own redirected home, because that is
-// environment rather than mounts and needs no layer.
-func TestNestedLaunchKeepsItsOwnHome(t *testing.T) {
-	p, _ := hardenedPrepared(t)
-	parent := sandboxContext{Packages: []string{"outer"}, HostHome: "/home/u"}
-	plan, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: "isolated"}), "/work", "/home/u", parent)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(p.Vars["data"], "home")
-	if plan.isolatedHome != want {
-		t.Errorf("isolatedHome = %q, want %q", plan.isolatedHome, want)
-	}
-	if !slices.Contains(plan.env, "HOME="+want) {
-		t.Errorf("nested launch must still redirect HOME: %v", plan.env)
 	}
 }
 
@@ -93,7 +74,7 @@ func TestNestedLaunchInheritsRestrictions(t *testing.T) {
 // What a nested policy asked for and cannot get is named, so it is reported
 // rather than silently dropped.
 func TestNestedIgnoredNamesWhatCannotApply(t *testing.T) {
-	parent := sandboxContext{Packages: []string{"outer"}, HostHome: "/home/u"}
+	parent := outerContext()
 	policy := finalized(t, &PackageSandbox{
 		Boundary: "hardened",
 		Home:     "clean",
@@ -101,7 +82,7 @@ func TestNestedIgnoredNamesWhatCannotApply(t *testing.T) {
 		Net:      NetPolicy{Mode: "none"},
 		FS:       FSPolicy{Cwd: "write"},
 	})
-	got := nestedIgnored(policy, parent, map[string]bool{"audio": true}, map[string]bool{})
+	got := nestedIgnored(policy, parent, map[string]bool{"audio": true})
 	joined := strings.Join(got, "; ")
 	for _, want := range []string{"boundary: hardened", "net: none", "home: clean", "hide: 2 path(s)", "features off: audio", "fs grants"} {
 		if !strings.Contains(joined, want) {
@@ -124,7 +105,13 @@ func TestNestedIgnoredSilentWhenNothingIsLost(t *testing.T) {
 		Features: map[string]bool{"audio": false},
 	})
 	disabled := map[string]bool{"audio": true, "tty": true}
-	if got := nestedIgnored(policy, parent, disabled, map[string]bool{"audio": true}); len(got) > 0 {
+	if got := nestedIgnored(policy, parent, disabled); len(got) > 0 {
 		t.Errorf("nothing should be reported, got %v", got)
 	}
+}
+
+// outerContext is the minimum an enclosing sandbox reports: it launched
+// something, and it knows the real host home.
+func outerContext() sandboxContext {
+	return sandboxContext{Packages: []string{"outer"}, HostHome: "/home/u"}
 }
