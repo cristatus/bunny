@@ -104,7 +104,9 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	switch policy.FS.Cwd {
 	case "write":
 		if cwdEscapes {
-			return sandboxPlan{}, fmt.Errorf("sandbox cwd %s is a protected root or an ancestor of one; run from a specific subdirectory to grant it write access", env.cwd)
+			return sandboxPlan{}, fmt.Errorf(
+				"sandbox cwd %s is a protected root or an ancestor of one: %s asks for fs.cwd: write, which would undo the hidden host home; run from a project directory instead",
+				env.cwd, policySource(policy))
 		}
 		args = append(args, "--bind", env.cwd, env.cwd)
 	case "hidden":
@@ -301,4 +303,13 @@ func hardenedIntegrationBinds(policy *PackageSandbox, env hardenedEnv, overrides
 		}
 	}
 	return args
+}
+
+// policySource names where a policy value the user may not have written came
+// from, so an error about it points at something they can change.
+func policySource(policy *PackageSandbox) string {
+	if policy.Profile == "" {
+		return "this package's sandbox policy"
+	}
+	return "the " + policy.Profile + " profile"
 }

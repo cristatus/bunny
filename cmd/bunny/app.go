@@ -313,12 +313,14 @@ func (a *App) runPackage(id, command string, args []string, forceSandbox bool, p
 		return err
 	}
 	if explain {
+		// An explanation can accompany an error: a policy that resolved but
+		// cannot be built here still has something to report, and the error
+		// keeps the exit status honest.
 		out, err := runtime.Explain(prep, a.Config, forceSandbox, profile)
-		if err != nil {
-			return err
+		if out != "" {
+			fmt.Fprint(os.Stdout, out)
 		}
-		fmt.Fprint(os.Stdout, out)
-		return nil
+		return err
 	}
 	if forceSandbox {
 		return runtime.ExecPackageSandboxed(prep, a.Config, profile)
