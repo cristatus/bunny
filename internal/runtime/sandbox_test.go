@@ -956,3 +956,74 @@ func indexSequence(values, sequence []string) int {
 	}
 	return -1
 }
+
+// A policy that resolves but cannot be built here is exactly what --explain is
+// for, so it reports what was asked rather than returning nothing. The error
+// still travels, so a caller's exit status says the launch would fail.
+func TestExplainBlockedPolicyStillReports(t *testing.T) {
+	policy := &PackageSandbox{
+		Profile:  "agent",
+		Boundary: "hardened",
+		Home:     "isolated",
+		Net:      NetPolicy{Mode: "host"},
+		FS:       FSPolicy{Cwd: "write"},
+	}
+	out := explainBlocked(policy)
+	for _, want := range []string{"profile", "agent", "hardened", "cwd write"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("blocked explanation missing %q:\n%s", want, out)
+		}
+	}
+	// Every row is what was requested, not what is in force — nothing here was
+	// planned, so claiming enforcement would be a lie.
+	if strings.Contains(out, "mount") {
+		t.Errorf("a blocked policy must not report enforcement levels:\n%s", out)
+	}
+	// The caller prints the error; repeating it would say it twice.
+	if strings.Contains(out, "protected root") {
+		t.Errorf("the blocker belongs to the caller's error, not a row:\n%s", out)
+	}
+}
+
+// An error about a value the user did not write says where it came from, so it
+// points at something they can change.
+func TestPolicySourceNamesTheProfile(t *testing.T) {
+	if got := policySource(&PackageSandbox{Profile: "agent"}); !strings.Contains(got, "agent") {
+		t.Errorf("got %q, want the profile named", got)
+	}
+	if got := policySource(&PackageSandbox{}); strings.Contains(got, "profile") {
+		t.Errorf("an inline policy has no profile to name, got %q", got)
+	}
+}
+
+// The wiring, not the renderer: ExplainSandbox must return the explanation
+// alongside the error, or --explain tells a reader less than attempting the
+// launch would. Planning is made to fail the way it does in practice — a
+// hardened cwd: write launched from the host home.
+func TestExplainSandboxReturnsOutputWithTheError(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", cwd) // so cwd is a protected root
+
+	p, _ := hardenedPrepared(t)
+	cfg := &config.Config{Sandbox: config.Sandbox{
+		Profiles: map[string]config.SandboxPolicy{
+			"locked": {Boundary: "hardened", FS: &manifest.SandboxFS{Cwd: "write"}},
+		},
+	}}
+	out, err := ExplainSandbox(p, cfg, "locked")
+	if err == nil {
+		t.Fatal("a hardened cwd: write at the home root must fail to plan")
+	}
+	if out == "" {
+		t.Fatal("the explanation must accompany the error")
+	}
+	if !strings.Contains(out, "locked") {
+		t.Errorf("the explanation must name the profile that asked:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), "locked") {
+		t.Errorf("the error must name the profile too: %v", err)
+	}
+}

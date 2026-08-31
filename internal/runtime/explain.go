@@ -29,7 +29,14 @@ func Explain(p *Prepared, cfg *config.Config, forceSandbox bool, profileOverride
 func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (string, error) {
 	plan, policy, err := planPackageSandbox(p, cfg, profileOverride)
 	if err != nil {
-		return "", err
+		// A policy that resolved but cannot be built here is the case --explain
+		// exists for: report what was asked and what blocks it, rather than
+		// leaving a reader with less than an attempted launch would tell them.
+		// The error still travels, so the exit status says the launch would fail.
+		if policy == nil {
+			return "", err
+		}
+		return explainBlocked(policy), err
 	}
 
 	hardened := plan.context.Boundary == "hardened"
@@ -198,4 +205,30 @@ func contextAvailable(plan sandboxPlan) bool {
 	}
 	path, err := exec.LookPath("bwrap")
 	return err == nil && bwrapSupportsRoBindData(path)
+}
+
+// explainBlocked reports a resolved policy that cannot be planned in this
+// context. Only the policy is available — there is no plan to read effective
+// mounts from — so every row is labelled as requested rather than in force.
+func explainBlocked(policy *PackageSandbox) string {
+	var rows [][3]string
+	add := func(name, level, detail string) { rows = append(rows, [3]string{name, level, detail}) }
+
+	if policy.Profile != "" {
+		add("profile", "requested", policy.Profile)
+	}
+	boundary := policy.Boundary
+	if boundary == "" {
+		boundary = "scoped"
+	}
+	add("boundary", "requested", boundary)
+	add("home", "requested", policy.Home)
+	add("network", "requested", policy.Net.Mode)
+	if policy.FS.Cwd != "" {
+		add("fs", "requested", fmt.Sprintf("cwd %s; %d read, %d write grants",
+			policy.FS.Cwd, len(policy.FS.Read), len(policy.FS.Write)))
+	}
+	// The blocker itself is not a row: the caller prints the error, and
+	// repeating it here would say the same sentence twice.
+	return renderExplain(rows)
 }

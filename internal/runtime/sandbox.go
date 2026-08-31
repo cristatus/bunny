@@ -100,6 +100,10 @@ type sandboxPlan struct {
 // separately so the same policy can be applied automatically (a
 // sandbox.packages entry) or for one launch (--sandbox/--sandbox-profile).
 type PackageSandbox struct {
+	// Profile is the selected profile's name, "" when the policy is inline
+	// only. Kept so an error about a value the user did not write can say
+	// where it came from.
+	Profile  string
 	Boundary string
 	Home     string
 	Hide     []string
@@ -130,7 +134,8 @@ type NetPolicy struct {
 	EgressSet  bool
 }
 
-// netRank orders modes by restriction, so a policy can be asked whether it\n// wants something stricter than what is already in force.
+// netRank orders modes by restriction, so a policy can be asked whether it
+// wants something stricter than what is already in force.
 func netRank(mode string) int {
 	switch mode {
 	case "private":
@@ -172,6 +177,7 @@ func ResolvePackageSandbox(cfg *config.Config, id string, profileOverride string
 		effective.mergeLayer(policy.AsManifest())
 	}
 	effective.mergeLayer(pkg.AsManifest())
+	effective.Profile = profile
 	effective.Hide = dedupSorted(effective.Hide)
 	effective.Persist = dedupSorted(effective.Persist)
 	if err := effective.finalize(id); err != nil {
