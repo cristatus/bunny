@@ -163,8 +163,9 @@ trust to auto-bump and skip the cron entirely on internal manifests.
 
 `~/.local/share/bunny/state.json` provides a flat JSON record of installed
 packages and versions on each machine, making it straightforward to parse from
-configuration management or MDM tooling. There's no built-in fleet view yet;
-see [ROADMAP](../ROADMAP.md).
+configuration management or MDM tooling. A built-in fleet view is a deliberate
+non-goal (see [ROADMAP](../ROADMAP.md)); `state.json` is the integration point
+for whatever aggregation your existing tooling already does.
 
 ## Lockfiles and reproducibility
 

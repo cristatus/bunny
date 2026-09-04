@@ -147,7 +147,7 @@ flags. Maintainer utilities live under `bunny dev` (`dev validate`,
 - [Corporate Environments](docs/corporate.md): Proxies, custom CA roots, Maven settings, and air-gapped workflows.
 - [Architecture](docs/architecture.md): Package boundaries, state management, and transactional mutations.
 - [Changelog](CHANGELOG.md): Release history and migration notes.
-- [Roadmap](ROADMAP.md): Project scope, feature pipeline, and non-goals.
+- [Roadmap](ROADMAP.md): Project scope and non-goals.
 
 ## Directory Layout
 

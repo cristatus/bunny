@@ -9,20 +9,23 @@ We ship packages whose canonical distribution is a **standalone binary or
 tarball**, downloaded once and run directly:
 
 - **JVM ecosystem**: JDK distros (Temurin, Corretto, Zulu, GraalVM, Liberica,
-  OpenJ9/Semeru), build tools (Maven, Gradle, sbt, Ant, JBang), language
-  compilers (Kotlin, Scala), and profilers (VisualVM, async-profiler).
+  OpenJ9/Semeru, JetBrains Runtime), build tools (Maven, Maven Daemon, Gradle,
+  sbt, Ant, JBang), language compilers (Kotlin, Scala), framework CLIs
+  (Micronaut, Quarkus, Spring Boot), servlet containers (Tomcat), and
+  diagnostics/profiling tools (VisualVM, async-profiler, JMC, Arthas).
 - **JavaScript runtimes**: Node.js LTS lines, Bun, and Deno.
 - **Node ecosystem tools**: Package managers distributed as standalone binaries
   (currently pnpm). npm comes with Node and is managed through it.
-- **Editors / IDEs targeting the above**: IntelliJ IDEA, VS Code, Cursor, Zed,
-  and Eclipse.
+- **Editors / IDEs targeting the above**: IntelliJ IDEA, Eclipse, NetBeans,
+  VS Code, Cursor, Zed, and Neovim.
 - **General-purpose CLI tools**: Ubiquitous utilities including ripgrep, fd, bat,
   fzf, jq, gh, lazygit, delta, and eza.
-- **AI coding agents**: Terminal agents (Claude Code, Codex CLI, opencode, pi)
-  and the desktop apps that drive them (Claude Desktop, ChatGPT, GitHub
-  Copilot) — tools pointed at a project, the same grounds an editor earns a
-  slot on, not general chat clients. See [Sandboxing](docs/sandbox.md) for
-  opting an installed package into isolated state and reduced integrations.
+- **AI coding agents**: Terminal agents (Claude Code, Codex CLI, opencode, pi,
+  Antigravity) and the desktop apps that drive them (Claude Desktop, ChatGPT,
+  GitHub Copilot, Antigravity) — tools pointed at a project, the same grounds
+  an editor earns a slot on, not general chat clients. See
+  [Sandboxing](docs/sandbox.md) for opting an installed package into isolated
+  state and reduced integrations.
 
 ## What's out of scope
 
@@ -37,13 +40,9 @@ tarball**, downloaded once and run directly:
 - **Operating systems other than Linux**: Bunny is built for Linux (`x86_64`).
 - **Replacing system package managers**: `apt`, `dnf`, and `pacman` continue to
   manage system packages and libraries.
-- **VM-equivalent isolation**: the opt-in
-  [per-package sandbox](docs/sandbox.md) offers a `hardened` boundary that is
-  deny-by-default and kernel-enforced, which materially limits unexpected or
-  malicious user-space behaviour — but a VM remains the answer when the host
-  kernel itself is inside the threat model. The default `scoped` boundary is
-  state separation only, and packages not explicitly enabled remain direct
-  `execve`.
+- **VM-equivalent isolation**: the opt-in [per-package sandbox](docs/sandbox.md)
+  offers a kernel-enforced `hardened` boundary, but a VM remains the answer
+  when the host kernel itself is inside the threat model.
 
 ## Anti-roadmap
 
@@ -58,7 +57,6 @@ Explicit architectural non-goals:
   forks.
 - **Repackaging npm/pip/cargo packages**: Language package managers manage
   their own modules.
-- **macOS / Windows ports**: Linux only.
 - **Fleet management, telemetry, and signed catalog servers**: Out of scope for
   a workstation tool.
 
