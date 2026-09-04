@@ -37,9 +37,10 @@ const legacySandboxContextEnv = "BUNNY_SANDBOX_CONTEXT"
 // Two spellings of one layout would drift, and the fallback below would then
 // stop matching with nothing to catch it.
 const (
-	runtimeStateRoot = "/run/user"
-	runtimeStateName = "bunny"
-	contextFileName  = "sandbox-context.json"
+	runtimeStateRoot      = "/run/user"
+	runtimeStateName      = "bunny"
+	contextFileName       = "sandbox-context.json"
+	sandboxContextVersion = 1
 )
 
 // sandboxContextFile is where each sandbox layer mounts the resolved effective
@@ -56,6 +57,7 @@ var sandboxContextFile = filepath.Join(runtimeStateRoot, strconv.Itoa(os.Getuid(
 // that reads one runs directly under the boundary it describes; an absent file
 // means no verified restrictions, so the launch builds its own layer.
 type sandboxContext struct {
+	Version          int       `json:"version,omitempty"`
 	Packages         []string  `json:"packages"`
 	HostHome         string    `json:"hostHome"`
 	Boundary         string    `json:"boundary,omitempty"` // "" means scoped
@@ -66,6 +68,10 @@ type sandboxContext struct {
 	Egress           *[]string `json:"egress,omitempty"`  // nil means unrestricted
 	FSRead           []string  `json:"fsRead,omitempty"`  // effective hardened grants
 	FSWrite          []string  `json:"fsWrite,omitempty"`
+	// WritableRoots describes effective mounts, including Bunny's automatic
+	// package-data bind. Nested planners use capabilities, not package-name
+	// guesses, when deciding whether a redirected child home is available.
+	WritableRoots []string `json:"writableRoots,omitempty"`
 }
 
 type sandboxPlan struct {
@@ -74,6 +80,8 @@ type sandboxPlan struct {
 	env        []string
 	needsLayer bool
 	context    sandboxContext // effective state a new layer must mount
+	launch     launchState
+	cwd        string
 
 	// Composition beyond plain bwrap. pasta is set when this launch creates a
 	// private network namespace; proxy when a hardened policy selects the
@@ -532,6 +540,7 @@ func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContex
 		nestedUnder:  strings.Join(current.Packages, ", "),
 		ignored:      ignored,
 		context:      context,
+		cwd:          facts.cwd,
 	}
 }
 
@@ -621,7 +630,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	// the zero value below, and nothing needs comparing against a parent.
 	if nested {
 		if current.Boundary == "hardened" && redirectsHome(policy.Home) && !nestedHomeAvailable(p, current) {
-			return sandboxPlan{}, fmt.Errorf("sandbox package %q: home: %s is unavailable inside hardened package %q; use home: shared to inherit the enclosing home", p.Manifest.ID, policy.Home, strings.Join(current.Packages, ","))
+			return sandboxPlan{}, fmt.Errorf("sandbox package %q: home: %s is unavailable inside hardened package %q because %s is not writable; use home: shared, grant the child data directory in the enclosing policy's fs.write, or launch the child outside that sandbox", p.Manifest.ID, policy.Home, strings.Join(current.Packages, ","), filepath.Join(p.Vars["data"], "home"))
 		}
 		return nestedDirectPlan(p, policy, current, launchFacts{
 			packages: packages, hostHome: hostHome, boundary: boundary,
@@ -645,6 +654,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 
 	next := sandboxContext{
+		Version:          sandboxContextVersion,
 		Packages:         packages,
 		HostHome:         hostHome,
 		Boundary:         boundary,
@@ -726,6 +736,8 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		context:      next,
 		isolatedHome: isolatedHome,
 		forcedDBus:   net.forcedDBus,
+		launch:       newLaunchState(p.Manifest.ID),
+		cwd:          cwd,
 	}
 	if net.createsNS() {
 		plan.pasta = &pastaSpec{
@@ -733,7 +745,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 			egress:     net.egress,
 			egressSet:  net.egressSet,
 			dns:        !(net.egressSet && len(net.egress) == 0),
-			resolvPath: uniqueRuntimePath("resolv", p.Manifest.ID, ".conf"),
+			resolvPath: plan.launch.path("resolv.conf"),
 		}
 	}
 
@@ -800,11 +812,8 @@ func redirectsHome(mode string) bool {
 // writable grants. A direct child may redirect HOME only when one of those
 // already makes its home durable and writable.
 func nestedHomeAvailable(p *Prepared, current sandboxContext) bool {
-	if slices.Contains(current.Packages, p.Manifest.ID) {
-		return true
-	}
 	home := filepath.Join(p.Vars["data"], "home")
-	for _, grant := range current.FSWrite {
+	for _, grant := range current.WritableRoots {
 		if home == grant || isAncestor(grant, home) {
 			return true
 		}
@@ -998,6 +1007,11 @@ func readSandboxContextFile(path string) (sandboxContext, error) {
 	if err := json.Unmarshal(data, &context); err != nil {
 		return sandboxContext{}, fmt.Errorf("decode mounted sandbox context %s: %w", path, err)
 	}
+	// Version zero is the compatible context emitted before versioning. It
+	// lacks capability fields, so decisions fail closed rather than guessing.
+	if context.Version != 0 && context.Version != sandboxContextVersion {
+		return sandboxContext{}, fmt.Errorf("sandbox context %s has unsupported version %d (this Bunny supports %d); launch outside the enclosing sandbox or upgrade both Bunny installations", path, context.Version, sandboxContextVersion)
+	}
 	return context, nil
 }
 
@@ -1057,6 +1071,11 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 	if err := ensureIsolatedHome(plan.isolatedHome); err != nil {
 		return err
 	}
+	if plan.needsLayer {
+		if _, err := ensureRuntimeStateDir(); err == nil {
+			collectStaleLaunches(runtimeStateDir())
+		}
+	}
 	log.Debug("Sandboxed exec", "package", p.Manifest.ID, "boundary", plan.context.Boundary,
 		"net", plan.context.NetMode, "nestedLayer", plan.needsLayer)
 	if !plan.needsLayer {
@@ -1073,7 +1092,7 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 		// inner bubblewrap. The context travels as a host file instead; the
 		// private tmpfs over the runtime directory still prevents the payload
 		// from replacing what bubblewrap mounted.
-		contextArgs, err = fileContextArgs(plan.context, p.Manifest.ID)
+		contextArgs, err = fileContextArgs(plan.context, plan.launch)
 		if err != nil {
 			return err
 		}
@@ -1216,12 +1235,15 @@ func mountContextArgs(bwrapPath string, context sandboxContext) []string {
 // sources resolve against the host view, so the tmpfs mounted over the same
 // directory does not hide it from setup, only from the payload). Works on any
 // bubblewrap, no --ro-bind-data required.
-func fileContextArgs(context sandboxContext, id string) ([]string, error) {
+func fileContextArgs(context sandboxContext, launch launchState) ([]string, error) {
 	encoded, ok := stageContext(context)
 	if !ok {
 		return nil, nil
 	}
-	path := uniqueRuntimePath("context", id, ".json")
+	if err := launch.ensure(); err != nil {
+		return nil, err
+	}
+	path := launch.path("context.json")
 	if err := fsutil.WriteFile(path, encoded, 0o600); err != nil {
 		return nil, fmt.Errorf("stage sandbox context: %w", err)
 	}

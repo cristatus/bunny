@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -32,6 +33,11 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	}
 	plan.context.FSRead = read
 	plan.context.FSWrite = write
+	plan.context.WritableRoots = slices.Clone(write)
+	if dataDir := p.Vars["data"]; dataDir != "" {
+		plan.context.WritableRoots = append(plan.context.WritableRoots, dataDir)
+	}
+	plan.context.WritableRoots = dedupSorted(plan.context.WritableRoots)
 
 	// The filtered portal bus exists only at the boundary-establishing layer:
 	// inside an existing hardened sandbox the raw bus is already unreachable,
@@ -39,7 +45,7 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	// exclude the proxy too — portals execute on the host side with host
 	// network access, which is an escape from network isolation.
 	if policy.feature("dbus") && net.mode == "host" {
-		plan.proxy = newDBusProxySpec(p.Manifest.ID)
+		plan.proxy = newDBusProxySpec(plan.launch)
 		env.overrides["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + filepath.Join(env.runtimeDir, "bus")
 		delete(env.disabled, "dbus")
 	}

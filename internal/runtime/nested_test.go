@@ -101,6 +101,22 @@ func TestNestedRedirectedHomeRejectedUnderHardenedParent(t *testing.T) {
 	}
 }
 
+func TestNestedRedirectedHomeUsesEffectiveWritableRoots(t *testing.T) {
+	p, _ := hardenedPrepared(t)
+	parent := sandboxContext{
+		Version: sandboxContextVersion, Packages: []string{"outer"},
+		HostHome: "/home/u", Boundary: "hardened",
+		WritableRoots: []string{p.Vars["data"]},
+	}
+	plan, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: "isolated"}), "/work", "/home/u", parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.isolatedHome == "" {
+		t.Fatal("available child home was not selected")
+	}
+}
+
 // What a nested policy asked for and cannot get is named, so it is reported
 // rather than silently dropped.
 func TestNestedIgnoredNamesWhatCannotApply(t *testing.T) {
