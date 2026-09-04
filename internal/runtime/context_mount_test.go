@@ -85,6 +85,13 @@ func TestReadMountedContextAbsentIsEmpty(t *testing.T) {
 	}
 }
 
+func TestReadMountedContextRejectsUnknownVersion(t *testing.T) {
+	path := mountTestContextFile(t, `{"version":999,"packages":["future"]}`)
+	if _, err := readSandboxContextFile(path); err == nil {
+		t.Fatal("unknown context version must fail closed")
+	}
+}
+
 // The wiring, not the parser: when the derived path is absent and the uid
 // cannot be trusted, the path the mount table reports is the one actually
 // read. Without this a nested launch inside a private-network sandbox sees no

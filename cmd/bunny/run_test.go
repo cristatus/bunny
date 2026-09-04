@@ -131,3 +131,17 @@ func TestTrimLeadingDashDash(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestSandboxCheckCommandParses(t *testing.T) {
+	var cli CLI
+	parser, err := kong.New(&cli, kong.Name("bunny"), kong.Exit(func(int) {}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse([]string{"sandbox", "check", "codex", "--profile", "agent", "--command", "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if cli.Sandbox.Check.ID != "codex" || cli.Sandbox.Check.Profile != "agent" || cli.Sandbox.Check.Command != "codex" {
+		t.Fatalf("unexpected sandbox check: %+v", cli.Sandbox.Check)
+	}
+}

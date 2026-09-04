@@ -122,6 +122,7 @@ node --version   # 22.x
 | `bunny pin <capability> <version>` | Pin a capability to a version in `./.bunny-version` |
 | `bunny unpin <capability>` | Remove a capability pin from `./.bunny-version` |
 | `bunny run <id> [-- args]` | Execute a package binary (`--sandbox`, `--sandbox-profile <name>`, `--explain`, `-c/--command`) |
+| `bunny sandbox check <id>` | Preflight the exact sandbox policy, helpers, and kernel support |
 | `bunny update [id]` | Check for package updates (`--apply` to install them; defaults to every installed package) |
 | `bunny doctor` | Validate layout, configuration, catalog health, shims, and pins |
 | `bunny setup` | Configure user session environment, completions, and shell rc integration (`--shell`) |

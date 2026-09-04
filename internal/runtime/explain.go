@@ -64,7 +64,7 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 		if len(plan.ignored) > 0 {
 			add("ignored", "none", strings.Join(plan.ignored, ", "))
 		}
-		return renderExplain(rows), nil
+		return renderExplainReport(plan, policy, rows), nil
 	}
 
 	if hardened {
@@ -168,7 +168,73 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	level, detail := contextRow(contextAvailable(plan))
 	add("context", level, detail)
 
-	return renderExplain(rows), nil
+	return renderExplainReport(plan, policy, rows), nil
+}
+
+func renderExplainReport(plan sandboxPlan, policy *PackageSandbox, rows [][3]string) string {
+	hardened := plan.context.Boundary == "hardened"
+	project := "read-write (scoped host view)"
+	hostHome := "readable (scoped boundary)"
+	if pathCoveredBy(plan.cwd, plan.context.Hidden) {
+		project = "hidden"
+	}
+	if pathCoveredBy(plan.context.HostHome, plan.context.Hidden) {
+		hostHome = "hidden by policy"
+	}
+	if hardened {
+		project = "read-only"
+		if pathCoveredBy(plan.cwd, plan.context.WritableRoots) {
+			project = "read-write"
+		} else if pathCoveredBy(plan.cwd, plan.context.Hidden) || policy.FS.Cwd == "hidden" {
+			project = "hidden"
+		}
+		hostHome = "hidden"
+	}
+	packageHome := "shared"
+	switch policy.Home {
+	case "isolated":
+		packageHome = "private and persistent"
+	case "ephemeral":
+		packageHome = "seeded; writes discarded except persist paths"
+	case "clean":
+		packageHome = "blank; writes discarded"
+	}
+	network := plan.context.NetMode
+	if network == "" {
+		network = "host (unrestricted)"
+	} else if network == "private" && plan.context.Egress != nil {
+		if len(*plan.context.Egress) == 0 {
+			network = "private; no egress"
+		} else {
+			network = "private; allowlisted egress"
+		}
+	}
+	credentials := "credential-agent sockets available"
+	if !policy.feature("agents") || slices.Contains(plan.context.DisabledFeatures, "agents") {
+		credentials = "SSH/GnuPG agent sockets unavailable"
+	}
+	nesting := "new sandbox boundary"
+	if !plan.needsLayer {
+		nesting = "direct inside " + plan.nestedUnder
+	}
+	summary := [][3]string{
+		{"project", "", project},
+		{"host home", "", hostHome},
+		{"package home", "", packageHome},
+		{"network", "", network},
+		{"credentials", "", credentials},
+		{"nesting", "", nesting},
+	}
+	return "Risk summary\n" + renderExplain(summary) + "\nEnforcement\n" + renderExplain(rows)
+}
+
+func pathCoveredBy(path string, roots []string) bool {
+	for _, root := range roots {
+		if path == root || isAncestor(root, path) {
+			return true
+		}
+	}
+	return false
 }
 
 // renderExplain aligns the rows into the name/level/detail columns.

@@ -210,6 +210,13 @@ func writeResolvConf(path string, dns bool) error {
 // namespace, where it still holds full capabilities, installs the nftables
 // ruleset, and only then drops into bubblewrap.
 func execUnderPasta(p *Prepared, plan sandboxPlan, bwrapArgv []string) error {
+	if err := plan.launch.ensure(); err != nil {
+		return err
+	}
+	// A successful syscall.Exec never runs defers. Any setup failure does, so
+	// partial launch state is removed while successful exec chains retain it
+	// until a later invocation observes that their owner has exited.
+	defer plan.launch.cleanup()
 	pastaPath, err := FindPasta()
 	if err != nil {
 		return err
@@ -235,7 +242,7 @@ func execUnderPasta(p *Prepared, plan sandboxPlan, bwrapArgv []string) error {
 		if err != nil {
 			return err
 		}
-		rulesPath := uniqueRuntimePath("egress", p.Manifest.ID, ".nft")
+		rulesPath := plan.launch.path("egress.nft")
 		if err := fsutil.WriteFile(rulesPath, []byte(ruleset), 0o644); err != nil {
 			return fmt.Errorf("write sandbox egress ruleset: %w", err)
 		}

@@ -222,7 +222,7 @@ func (c *CompletionCmd) Run(_ *App) error {
 // complete-ids command is intentionally excluded.
 var completionSubcommands = []string{
 	"install", "uninstall", "list", "info", "search", "use", "pin", "unpin", "run",
-	"update", "doctor", "init", "setup", "clean", "reshim",
+	"sandbox", "update", "doctor", "init", "setup", "clean", "reshim",
 	"toolchains", "dev", "completion",
 }
 
@@ -282,7 +282,8 @@ const bashCompletion = `_bunny() {
     for (( i=1; i < COMP_CWORD; i++ )); do
         w="${COMP_WORDS[i]}"
         case "$w" in
-            --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--sandbox-profile|--shell) (( i++ )); continue ;;
+			--log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--sandbox-profile|--shell) (( i++ )); continue ;;
+			--profile) [[ "$sub" == sandbox ]] && { (( i++ )); continue; } ;;
             -*) continue ;;
         esac
         if [[ -z "$sub" ]]; then sub="$w"; else operand="$w"; break; fi
@@ -297,7 +298,8 @@ const bashCompletion = `_bunny() {
         --kind)    COMPREPLY=( $(compgen -W "__KINDS__" -- "$cur") ); return ;;
         -t) [[ "$sub" == list || "$sub" == search ]] && { COMPREPLY=( $(compgen -W "$(bunny complete-tags 2>/dev/null)" -- "$cur") ); return; } ;;
         --shell)        COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ); return ;;
-        --sandbox-profile) COMPREPLY=( $(compgen -W "$(bunny complete-profiles 2>/dev/null)" -- "$cur") ); return ;;
+		--sandbox-profile) COMPREPLY=( $(compgen -W "$(bunny complete-profiles 2>/dev/null)" -- "$cur") ); return ;;
+		--profile) [[ "$sub" == sandbox ]] && COMPREPLY=( $(compgen -W "$(bunny complete-profiles 2>/dev/null)" -- "$cur") ); return ;;
         --command|-c)
             [[ "$sub" == run && -n "$operand" ]] && COMPREPLY=( $(compgen -W "$(bunny complete-binaries "$operand" 2>/dev/null)" -- "$cur") )
             return ;;
@@ -311,7 +313,8 @@ const bashCompletion = `_bunny() {
             uninstall)    flags="$flags --purge --yes -y" ;;
             list)         flags="$flags __FILTERS__ --active" ;;
             search)       flags="$flags __FILTERS__ --installed --available" ;;
-            run)          flags="$flags --command -c --sandbox --sandbox-profile --explain" ;;
+			run)          flags="$flags --command -c --sandbox --sandbox-profile --explain" ;;
+			sandbox)      flags="$flags --command -c --profile" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
@@ -328,12 +331,17 @@ const bashCompletion = `_bunny() {
     fi
 
     # dev has its own subcommand, then a catalog id.
-    if [[ "$sub" == dev ]]; then
+	if [[ "$sub" == dev ]]; then
         if [[ "$operand" == update ]]; then
             COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") )
         elif [[ -z "$operand" ]]; then
             COMPREPLY=( $(compgen -W "update validate" -- "$cur") )
-        fi
+	fi
+	if [[ "$sub" == sandbox ]]; then
+		if [[ -z "$operand" ]]; then COMPREPLY=( $(compgen -W "check" -- "$cur") );
+		else COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ); fi
+		return
+	fi
         return
     fi
 
@@ -371,7 +379,8 @@ local sub="" operand="" w i
 for (( i = 2; i < CURRENT; i++ )); do
     w=${words[i]}
     case $w in
-        --log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--sandbox-profile|--shell) (( i++ )); continue ;;
+		--log-level|-l|--tag|-t|-c|--capability|--kind|--catalog|--command|--sandbox-profile|--shell) (( i++ )); continue ;;
+		--profile) [[ $sub == sandbox ]] && { (( i++ )); continue } ;;
         -*) continue ;;
     esac
     if [[ -z $sub ]]; then sub=$w; else operand=$w; break; fi
@@ -386,7 +395,8 @@ case $prev in
     --kind) compadd -- __KINDS__; return ;;
     -t) [[ $sub == list || $sub == search ]] && { compadd -- ${(f)"$(bunny complete-tags 2>/dev/null)"}; return } ;;
     --shell) compadd -- bash zsh fish; return ;;
-    --sandbox-profile) compadd -- ${(f)"$(bunny complete-profiles 2>/dev/null)"}; return ;;
+	--sandbox-profile) compadd -- ${(f)"$(bunny complete-profiles 2>/dev/null)"}; return ;;
+	--profile) [[ $sub == sandbox ]] && compadd -- ${(f)"$(bunny complete-profiles 2>/dev/null)"}; return ;;
     --command|-c)
         [[ $sub == run && -n $operand ]] && compadd -- ${(f)"$(bunny complete-binaries "$operand" 2>/dev/null)"}
         return ;;
@@ -401,7 +411,8 @@ if [[ $cur == -* ]]; then
         uninstall) flags+=(--purge --yes -y) ;;
         list) flags+=(__FILTERS__ --active) ;;
         search) flags+=(__FILTERS__ --installed --available) ;;
-        run) flags+=(--command -c --sandbox --sandbox-profile --explain) ;;
+		run) flags+=(--command -c --sandbox --sandbox-profile --explain) ;;
+		sandbox) flags+=(--command -c --profile) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
@@ -422,6 +433,12 @@ if [[ $sub == dev ]]; then
     elif [[ -z $operand ]]; then
         compadd -- update validate
     fi
+    return
+fi
+
+if [[ $sub == sandbox ]]; then
+    if [[ -z $operand ]]; then compadd -- check
+    else compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"}; fi
     return
 fi
 
@@ -499,6 +516,8 @@ complete -c bunny -f -n '__fish_seen_subcommand_from pin unpin' -a '(__bunny_cap
 complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash zsh fish'
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and not __fish_seen_subcommand_from update validate' -a 'update validate'
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcommand_from update' -a '(__bunny_ids)'
+complete -c bunny -f -n '__fish_seen_subcommand_from sandbox; and not __fish_seen_subcommand_from check' -a 'check'
+complete -c bunny -f -n '__fish_seen_subcommand_from sandbox; and __fish_seen_subcommand_from check' -a '(__bunny_installed_ids)'
 # per-subcommand flags
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d "Also remove the package's data dir"
@@ -513,6 +532,8 @@ complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -f -a 
 complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox -d 'Force the sandbox policy for this launch even if not configured'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox-profile -r -f -a '(__bunny_profiles)' -d 'Override the configured sandbox profile for this launch'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l explain -d 'Print what this launch would do without launching'
+complete -c bunny -n '__fish_seen_subcommand_from sandbox; and __fish_seen_subcommand_from check' -s c -l command -r -f -d 'Specific command to resolve'
+complete -c bunny -n '__fish_seen_subcommand_from sandbox; and __fish_seen_subcommand_from check' -l profile -r -f -a '(__bunny_profiles)' -d 'Sandbox profile to check'
 complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'

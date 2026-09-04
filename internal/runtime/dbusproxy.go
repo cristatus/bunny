@@ -36,9 +36,9 @@ func FindXDGDBusProxy() (string, error) {
 // transport (unixexec:path=/bin/sh,...) that starts a process. So the address
 // is derived from Bunny's own environment and validated to a plain unix:
 // socket; a package cannot redirect the proxy to an exec transport.
-func newDBusProxySpec(id string) *dbusProxySpec {
+func newDBusProxySpec(launch launchState) *dbusProxySpec {
 	return &dbusProxySpec{
-		socketPath: uniqueRuntimePath("dbus", id, ".sock"),
+		socketPath: launch.path("dbus.sock"),
 		busAddress: trustedSessionBusAddress(),
 	}
 }
@@ -126,6 +126,11 @@ func runSupervised(spec *dbusProxySpec, argv, env []string) error {
 	if _, err := ensureRuntimeStateDir(); err != nil {
 		return err
 	}
+	launchDir := launchState{dir: filepath.Dir(spec.socketPath)}
+	if err := launchDir.ensure(); err != nil {
+		return err
+	}
+	defer launchDir.cleanup()
 	_ = os.Remove(spec.socketPath) // a stale socket from a crashed run
 
 	ready, readyWrite, err := os.Pipe()

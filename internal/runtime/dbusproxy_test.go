@@ -1,9 +1,6 @@
 package runtime
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestUnixSocketAddressRejectsActiveTransports(t *testing.T) {
 	for _, bad := range []string{
@@ -51,13 +48,9 @@ func TestTrustedSessionBusAddressIgnoresInjectedExec(t *testing.T) {
 }
 
 func TestDBusProxySocketIsUniquePerLaunch(t *testing.T) {
-	first := newDBusProxySpec("tool")
-	second := newDBusProxySpec("tool")
+	first := newDBusProxySpec(newLaunchState("tool"))
+	second := newDBusProxySpec(newLaunchState("tool"))
 	if first.socketPath == second.socketPath {
 		t.Fatalf("concurrent proxies share socket %q", first.socketPath)
-	}
-	long := newDBusProxySpec("a" + strings.Repeat("b", 63))
-	if len(long.socketPath) >= 108 {
-		t.Errorf("proxy socket exceeds Linux sockaddr_un limit: %q", long.socketPath)
 	}
 }

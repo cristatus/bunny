@@ -44,9 +44,10 @@ The sandbox resolver merges exactly two layers over the built-in defaults:
 the selected built-in or user profile, then the package override. Sandbox launches
 also export private anchors for the already-resolved Bunny layout. A shim
 re-entering Bunny from an isolated HOME therefore reads the same config and
-state. The inherited sandbox context makes disabled integrations and hidden
-paths monotonic; environment-only child isolation is applied at exec, while new
-mount or network restrictions add a nested bubblewrap layer. Declared SDK
+state. The versioned inherited sandbox context makes disabled integrations,
+hidden paths, and effective writable roots explicit and monotonic. The
+outermost sandbox owns the boundary; nested Bunny launches run directly and
+fail closed when a requested child home is not already writable. Declared SDK
 dependencies are launched directly inside the application's existing sandbox,
 so enabling a JDK's own package sandbox does not wrap it again when an IDE uses
 that JDK through `requires`.

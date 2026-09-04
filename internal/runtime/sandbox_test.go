@@ -450,6 +450,11 @@ func TestExplainSandboxReportsEphemeralHomeAndPersist(t *testing.T) {
 	if !strings.Contains(out, "persist") || !strings.Contains(out, ".claude/memory") {
 		t.Errorf("--explain must report the persist paths: %s", out)
 	}
+	for _, want := range []string{"Risk summary", "host home", "package home", "credentials", "Enforcement"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--explain risk summary missing %q:\n%s", want, out)
+		}
+	}
 }
 
 // --explain must never touch the host: it plans and formats only. A prior
@@ -861,6 +866,34 @@ func TestRealUserHomeIgnoresRedirectedEnvironment(t *testing.T) {
 	}
 	if home == os.Getenv("HOME") {
 		t.Fatalf("login home followed redirected HOME %q", home)
+	}
+}
+
+func TestSandboxPreflightSkipsUnusedHelpersForNestedLaunch(t *testing.T) {
+	home, err := realUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mountTestContext(t, sandboxContext{
+		Version: sandboxContextVersion, Packages: []string{"outer"},
+		HostHome: home, Boundary: "hardened", NetMode: "none",
+		DisabledFeatures: []string{"agents", "dbus"},
+	})
+	p := &Prepared{
+		Manifest: &manifest.Manifest{ID: "tool"}, BinPath: "/opt/tool/tool",
+		Vars: map[string]string{"data": t.TempDir()}, Env: []string{"HOME=/parent/home"},
+	}
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"tool": {SandboxPolicy: config.SandboxPolicy{Home: "shared"}},
+	}}}
+	out, err := CheckSandbox(p, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Sandbox preflight", "SKIP  bubblewrap", "ready to launch"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("preflight missing %q:\n%s", want, out)
+		}
 	}
 }
 

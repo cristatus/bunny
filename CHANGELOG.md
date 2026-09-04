@@ -35,14 +35,23 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `core.sshCommand`, `url.*.insteadOf`, `http.extraHeader`, and
   `commit.gpgSign` deliberately do not. An identity already in the
   environment wins.
-- `bunny run --explain <id>`: print what the launch would do, without
-  launching.
+- `bunny run --explain <id>` now leads with a risk summary, then prints the
+  detailed enforcement plan without launching.
+- `bunny sandbox check <id>` preflights the exact resolved policy and only the
+  helper programs and kernel facilities that launch requires.
 - The outermost sandbox owns the boundary: a launch inside an existing sandbox
-  runs directly under it and never builds a second bubblewrap layer. It still
-  gets its own redirected home, and anything its policy asked for that only a
+  runs directly under it and never builds a second bubblewrap layer. A child
+  home is redirected only when the parent's effective writable roots make it
+  available; otherwise the launch fails closed. Anything its policy asked for that only a
   layer could apply — a stricter boundary, a narrower network, an ephemeral
   home, extra masks, filesystem grants — is reported by `--explain` and warned
   about at launch rather than half-applied.
+- Sandbox helper artifacts now live in unique per-launch directories. Active
+  ownership is tied to PID start time, allowing later launches to remove
+  crashed-process state without racing a reused PID or a live sandbox.
+- The immutable nested context is versioned and records effective writable
+  roots, so child-home decisions use explicit capabilities and incompatible
+  Bunny versions fail closed.
 - Doctor checks for `pasta`, `nft`, `xdg-dbus-proxy`, and overlayfs, shown
   only when a configured policy needs them.
 - Scoped sandbox now masks a disabled feature's documented endpoints with

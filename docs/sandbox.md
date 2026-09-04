@@ -29,9 +29,10 @@ PID, IPC, and UTS isolation, a new session, a fresh `/proc`, a minimal
 materially limits unexpected or malicious user-space behaviour; a VM remains
 the answer when the host kernel itself is outside the trust boundary.
 
-`bunny run --explain <id>` prints what that launch would actually do —
-either that it runs directly, or the effective policy with each control's
-enforcement level — without launching anything.
+`bunny run --explain <id>` prints a risk summary followed by the effective
+policy and each control's enforcement level, without launching anything.
+`bunny sandbox check <id>` additionally probes the helpers and kernel
+facilities required by that package's exact policy.
 
 ## Quick start
 
@@ -536,12 +537,13 @@ directory, not HOME, and the scoped boundary's read-write host view (or a
 hardened `fs.cwd: write` grant) already carries edits there back to the host.
 Only HOME-resident state — a memory file, a named session — needs `persist`.
 
-Ephemeral is a property of the home of the package it is set on. A child
-package launched inside an ephemeral parent (say, `node` opened in an
-ephemeral Claude's terminal) that requests its own `isolated` home gets its
-own, separate, persistent `{data}/home` — a parent's ephemeral home discards
-only its own writes, never a child's, and a child cannot un-discard its
-parent's home either.
+Ephemeral is a property of the home of the package it is set on. Under a
+scoped parent, a child package can use its own `{data}/home`. Under a hardened
+parent, however, the child runs directly and its data directory must already
+be within one of the parent's effective writable roots. Bunny rejects a
+redirected child home otherwise. Use `home: shared` to inherit the enclosing
+HOME, grant the child data directory through the parent's `fs.write`, or
+launch the child outside that sandbox.
 
 Unprivileged overlayfs in a user namespace needs roughly Linux 5.11+; it is
 not universal on hardened or older kernels. An ephemeral launch fails closed
@@ -574,9 +576,10 @@ this way the two are equivalent, since an unwritten `ephemeral` seed stays
 empty.
 
 `persist` has no meaning here and is rejected: there is no seed to bind back
-to. That also means `clean` needs no overlayfs support and no writable host
-access, so unlike `ephemeral` it works identically nested or standalone, on
-any kernel bubblewrap runs on.
+to. `clean` needs no overlayfs support when it creates a layer. Like every
+redirected child home, it still requires its destination to be available
+inside an enclosing hardened boundary; otherwise the nested launch is
+rejected.
 
 ### Optional integrations
 
@@ -820,6 +823,15 @@ plan instead:
 
 ```text
 $ bunny run --sandbox --explain some-tool
+Risk summary
+project       read-only
+host home     hidden
+package home  private and persistent
+network       none
+credentials   SSH/GnuPG agent sockets unavailable
+nesting       new sandbox boundary
+
+Enforcement
 boundary  mount+ns   hardened: read-only root, hidden host home, private /run and /tmp
 home      mount      isolated: .../data/some-tool/home
 fs        mount      1 read, 0 write grants; cwd read: ~/Projects/example
@@ -881,7 +893,7 @@ A terminal opened inside a sandboxed editor inherits that editor's sandbox.
 If a command resolves to a Bunny shim, Bunny re-enters and can identify the
 child package.
 
-When both Code and Node are always sandboxed:
+When both Code and Node are always sandboxed under a scoped outer policy:
 
 ```text
 Code sandbox ({data}/code/home)
@@ -904,8 +916,11 @@ only ever matter for two separately sandboxed packages launching one another,
 which is also the one case that cannot work at all inside a private network
 namespace.
 
-What a child still gets is its own redirected home, because that is
-environment rather than mounts.
+What a child gets depends on capabilities already exposed by the parent. A
+scoped parent exposes the host view, so a child can use its own redirected
+home. A hardened parent records its effective writable roots in the immutable
+context; a redirected child home must fall beneath one of them or Bunny fails
+closed. `home: shared` always keeps the enclosing HOME.
 
 Restrictions therefore run down the process tree unchanged: the network mode,
 the hidden paths, the removed X11, Wayland, D-Bus, and audio variables, and
@@ -926,7 +941,8 @@ ignored   none       hide: 1 path(s)
 
 The launch itself warns at log level `warn` or lower.
 
-Each layer records what it enforced in a context file mounted read-only at
+Each layer records what it enforced, including a schema version and effective
+writable roots, in a context file mounted read-only at
 `/run/user/<uid>/bunny/sandbox-context.json`, over a private temporary
 filesystem the sandboxed process cannot replace. That file is how a launch
 knows it is nested at all; environment variables have no say, so a process
@@ -935,6 +951,8 @@ back from the kernel rather than derived from the current uid, because a
 private-network sandbox runs the payload as uid 0 inside pasta's namespace.
 When the file is absent — very old bubblewrap without `--ro-bind-data` — a
 launch cannot tell it is nested and builds its own layer.
+An unknown context version is rejected so two incompatible Bunny versions do
+not silently disagree about inherited security capabilities.
 
 Commands that do not pass through Bunny cannot activate another package's
 policy. They still inherit the current process environment, mounts, and
@@ -1056,6 +1074,17 @@ helper or capability fails closed with the same install/kernel hint.
 A configured or explicitly sandboxed package fails rather than silently
 running unsandboxed when bubblewrap cannot start. Packages without active
 sandboxing continue to launch directly.
+
+For one package, preflight the exact effective policy before launching it:
+
+```bash
+bunny sandbox check some-tool
+bunny sandbox check some-tool --profile agent
+```
+
+The result distinguishes required, optional, and unused components and checks
+bubblewrap, ephemeral overlays, pasta, nftables, the filtered D-Bus proxy, and
+immutable nested-context support only when the resolved launch needs them.
 
 Useful checks when behavior is surprising:
 
