@@ -1,6 +1,9 @@
 package runtime
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestUnixSocketAddressRejectsActiveTransports(t *testing.T) {
 	for _, bad := range []string{
@@ -18,12 +21,13 @@ func TestUnixSocketAddressRejectsActiveTransports(t *testing.T) {
 			t.Errorf("address %q must be rejected, got path %q", bad, path)
 		}
 	}
-	for _, good := range []struct{ addr, path string }{
-		{"unix:path=/run/user/1000/bus", "/run/user/1000/bus"},
-		{"unix:path=/run/user/1000/bus,guid=abc", "/run/user/1000/bus"},
+	for _, good := range []struct{ addr, canonical string }{
+		{"unix:path=/run/user/1000/bus", "unix:path=/run/user/1000/bus"},
+		{"unix:path=/run/user/1000/bus,guid=abc", "unix:path=/run/user/1000/bus,guid=abc"},
+		{"unix:abstract=/tmp/dbus-abc", "unix:abstract=/tmp/dbus-abc"},
 	} {
-		if path, ok := unixSocketAddress(good.addr); !ok || path != good.path {
-			t.Errorf("address %q: got (%q,%v), want (%q,true)", good.addr, path, ok, good.path)
+		if address, ok := unixSocketAddress(good.addr); !ok || address != good.canonical {
+			t.Errorf("address %q: got (%q,%v), want (%q,true)", good.addr, address, ok, good.canonical)
 		}
 	}
 }
@@ -39,5 +43,21 @@ func TestTrustedSessionBusAddressIgnoresInjectedExec(t *testing.T) {
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/run/user/4242/custom-bus")
 	if got := trustedSessionBusAddress(); got != "unix:path=/run/user/4242/custom-bus" {
 		t.Errorf("valid unix address must be used, got %q", got)
+	}
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:abstract=/tmp/dbus-session")
+	if got := trustedSessionBusAddress(); got != "unix:abstract=/tmp/dbus-session" {
+		t.Errorf("valid abstract unix address must be preserved, got %q", got)
+	}
+}
+
+func TestDBusProxySocketIsUniquePerLaunch(t *testing.T) {
+	first := newDBusProxySpec("tool")
+	second := newDBusProxySpec("tool")
+	if first.socketPath == second.socketPath {
+		t.Fatalf("concurrent proxies share socket %q", first.socketPath)
+	}
+	long := newDBusProxySpec("a" + strings.Repeat("b", 63))
+	if len(long.socketPath) >= 108 {
+		t.Errorf("proxy socket exceeds Linux sockaddr_un limit: %q", long.socketPath)
 	}
 }

@@ -10,6 +10,14 @@ import (
 	"github.com/cristatus/bunny/internal/manifest"
 )
 
+func TestLaunchStatePathsAreUnique(t *testing.T) {
+	first := uniqueRuntimePath("egress", "svc", ".nft")
+	second := uniqueRuntimePath("egress", "svc", ".nft")
+	if first == second {
+		t.Fatalf("concurrent launches share state path %q", first)
+	}
+}
+
 func TestPastaArgsMandatoryIsolationFlags(t *testing.T) {
 	args, err := pastaArgs(&pastaSpec{dns: true})
 	if err != nil {
@@ -130,8 +138,15 @@ func TestPrivateModeCreatesPastaCompositionTopLevel(t *testing.T) {
 	if indexSequence(plan.args, []string{"--cap-drop", "ALL"}) < 0 {
 		t.Errorf("private mode must drop capabilities inside pasta's namespace: %v", plan.args)
 	}
-	if indexSequence(plan.args, []string{"--ro-bind", resolvConfPath("svc"), resolvConfBindTarget()}) < 0 {
+	if plan.pasta.resolvPath == "" || indexSequence(plan.args, []string{"--ro-bind", plan.pasta.resolvPath, resolvConfBindTarget()}) < 0 {
 		t.Errorf("private mode must pin the resolver: %v", plan.args)
+	}
+	other, err := buildSandboxPlan(p, policy, "/work", t.TempDir(), sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.pasta.resolvPath == plan.pasta.resolvPath {
+		t.Errorf("concurrent launches must not share resolver staging path %q", plan.pasta.resolvPath)
 	}
 	if plan.context.NetMode != "private" || plan.context.Inbound == nil || plan.context.Egress == nil {
 		t.Errorf("context must carry the effective network policy: %+v", plan.context)

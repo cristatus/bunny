@@ -130,7 +130,7 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 		args = append(args, "--bind", plan.proxy.socketPath, filepath.Join(env.runtimeDir, "bus"))
 	}
 	if plan.pasta != nil {
-		args = append(args, "--ro-bind", resolvConfPath(p.Manifest.ID), resolvConfBindTarget())
+		args = append(args, "--ro-bind", plan.pasta.resolvPath, resolvConfBindTarget())
 	}
 	args = append(args, maskMountArgs(env.masks)...)
 	persistArgs, err := ephemeralPersistArgs(policy, env.isolatedHome)

@@ -844,6 +844,26 @@ func TestForgedEnvironmentContextIsIgnoredAndStripped(t *testing.T) {
 	}
 }
 
+func TestMappedHostUID(t *testing.T) {
+	mapping := []byte("0 1000 1\n1 200000 65536\n")
+	for uid, want := range map[uint64]uint64{0: 1000, 1: 200000, 42: 200041, 70000: 70000} {
+		if got := mappedHostUID(mapping, uid); got != want {
+			t.Errorf("uid %d mapped to %d, want %d", uid, got, want)
+		}
+	}
+}
+
+func TestRealUserHomeIgnoresRedirectedEnvironment(t *testing.T) {
+	t.Setenv("HOME", "/tmp/bunny-redirected-package-home")
+	home, err := realUserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if home == os.Getenv("HOME") {
+		t.Fatalf("login home followed redirected HOME %q", home)
+	}
+}
+
 func TestMalformedMountedContextFailsLaunch(t *testing.T) {
 	path := mountTestContextFile(t, "{not json")
 	if _, err := readSandboxContextFile(path); err == nil {
@@ -1001,11 +1021,18 @@ func TestPolicySourceNamesTheProfile(t *testing.T) {
 // launch would. Planning is made to fail the way it does in practice — a
 // hardened cwd: write launched from the host home.
 func TestExplainSandboxReturnsOutputWithTheError(t *testing.T) {
-	cwd, err := os.Getwd()
+	cwd, err := realUserHomeDir()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", cwd) // so cwd is a protected root
+	oldCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(cwd); err != nil {
+		t.Skipf("cannot enter login home: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldCWD) })
 
 	p, _ := hardenedPrepared(t)
 	cfg := &config.Config{Sandbox: config.Sandbox{

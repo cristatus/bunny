@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -464,9 +465,9 @@ func sandboxArgs(p *Prepared, policy *PackageSandbox, cwd, hostHome string) ([]s
 // the isolated home it points at, or "" when the policy keeps the host home.
 // Both boundaries and every launch depth share it: HOME is redirected by
 // environment, not by a mount, so it applies with or without a bwrap layer.
-func homeOverrides(p *Prepared, policy *PackageSandbox, hardened bool, cwd string) (map[string]string, string) {
+func homeOverrides(p *Prepared, policy *PackageSandbox, cwd string) (map[string]string, string) {
 	overrides := envMap(p.BunnyEnv)
-	if policy.Home != "isolated" && policy.Home != "ephemeral" && policy.Home != "clean" && !hardened {
+	if policy.Home != "isolated" && policy.Home != "ephemeral" && policy.Home != "clean" {
 		return overrides, ""
 	}
 	isolatedHome := filepath.Join(p.Vars["data"], "home")
@@ -509,7 +510,7 @@ func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContex
 	for name := range facts.disabled {
 		disabled[name] = true
 	}
-	overrides, isolatedHome := homeOverrides(p, policy, facts.boundary == "hardened", facts.cwd)
+	overrides, isolatedHome := homeOverrides(p, policy, facts.cwd)
 	ignored := nestedIgnored(policy, current, facts.disabled)
 	if len(ignored) > 0 {
 		log.Warn("Sandbox policy not applied: already inside a sandbox",
@@ -619,6 +620,9 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	// point only when there is no enclosing context at all — so `current` is
 	// the zero value below, and nothing needs comparing against a parent.
 	if nested {
+		if current.Boundary == "hardened" && redirectsHome(policy.Home) && !nestedHomeAvailable(p, current) {
+			return sandboxPlan{}, fmt.Errorf("sandbox package %q: home: %s is unavailable inside hardened package %q; use home: shared to inherit the enclosing home", p.Manifest.ID, policy.Home, strings.Join(current.Packages, ","))
+		}
 		return nestedDirectPlan(p, policy, current, launchFacts{
 			packages: packages, hostHome: hostHome, boundary: boundary,
 			cwd: cwd, disabled: disabled,
@@ -716,7 +720,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 	next.Hidden = sortedMapKeys(hidden)
 
-	overrides, isolatedHome := homeOverrides(p, policy, hardened, cwd)
+	overrides, isolatedHome := homeOverrides(p, policy, cwd)
 
 	plan := sandboxPlan{
 		context:      next,
@@ -725,10 +729,11 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	}
 	if net.createsNS() {
 		plan.pasta = &pastaSpec{
-			inbound:   net.inbound,
-			egress:    net.egress,
-			egressSet: net.egressSet,
-			dns:       !(net.egressSet && len(net.egress) == 0),
+			inbound:    net.inbound,
+			egress:     net.egress,
+			egressSet:  net.egressSet,
+			dns:        !(net.egressSet && len(net.egress) == 0),
+			resolvPath: uniqueRuntimePath("resolv", p.Manifest.ID, ".conf"),
 		}
 	}
 
@@ -777,7 +782,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	// After the resolver mask, so a target under /run/systemd/resolve lands
 	// inside the bwrap-owned tmpfs rather than the unwritable host directory.
 	if plan.pasta != nil {
-		args = append(args, "--ro-bind", resolvConfPath(p.Manifest.ID), resolvConfBindTarget())
+		args = append(args, "--ro-bind", plan.pasta.resolvPath, resolvConfBindTarget())
 	}
 	args = append(args, payloadEnvArgs(plan.env)...)
 
@@ -785,6 +790,26 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	plan.tail = execTail(cwd, p)
 	plan.needsLayer = true
 	return plan, nil
+}
+
+func redirectsHome(mode string) bool {
+	return mode == "isolated" || mode == "ephemeral" || mode == "clean"
+}
+
+// A hardened parent only exposes its own package data bind plus explicit
+// writable grants. A direct child may redirect HOME only when one of those
+// already makes its home durable and writable.
+func nestedHomeAvailable(p *Prepared, current sandboxContext) bool {
+	if slices.Contains(current.Packages, p.Manifest.ID) {
+		return true
+	}
+	home := filepath.Join(p.Vars["data"], "home")
+	for _, grant := range current.FSWrite {
+		if home == grant || isAncestor(grant, home) {
+			return true
+		}
+	}
+	return false
 }
 
 // netPlan is the concrete network this launch establishes. The three
@@ -1024,7 +1049,7 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 	// Unprivileged overlayfs is not universal; a silent fallback to isolated
 	// would persist what the user asked to discard, so an ephemeral launch
 	// fails closed here rather than degrading.
-	if policy.Home == "ephemeral" {
+	if needsOverlayProbe(plan, policy) {
 		if err := CheckOverlaySupport(); err != nil {
 			return err
 		}
@@ -1068,6 +1093,10 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 	return syscall.Exec(bwrapPath, argv, trustedHelperEnv())
 }
 
+func needsOverlayProbe(plan sandboxPlan, policy *PackageSandbox) bool {
+	return plan.needsLayer && policy.Home == "ephemeral"
+}
+
 // planPackageSandbox resolves policy, reads the mounted context, and builds
 // the launch plan without touching the host; shared by execution and
 // --explain so what is shown is what runs.
@@ -1080,7 +1109,7 @@ func planPackageSandbox(p *Prepared, cfg *config.Config, profileOverride string)
 	if err != nil {
 		return sandboxPlan{}, nil, fmt.Errorf("get working directory: %w", err)
 	}
-	hostHome, err := os.UserHomeDir()
+	hostHome, err := realUserHomeDir()
 	if err != nil {
 		return sandboxPlan{}, nil, fmt.Errorf("resolve host home: %w", err)
 	}
@@ -1090,6 +1119,41 @@ func planPackageSandbox(p *Prepared, cfg *config.Config, profileOverride string)
 	}
 	plan, err := buildSandboxPlan(p, policy, cwd, hostHome, context)
 	return plan, policy, err
+}
+
+// realUserHomeDir resolves the login home independently of HOME. HOME may
+// already name an enclosing sandbox's redirected package home when mounted
+// context propagation is unavailable, and using it to choose the hardened
+// mask would expose the actual host home through the read-only root.
+func realUserHomeDir() (string, error) {
+	uid := uint64(os.Getuid())
+	if data, err := os.ReadFile("/proc/self/uid_map"); err == nil {
+		uid = mappedHostUID(data, uid)
+	}
+	account, err := user.LookupId(strconv.FormatUint(uid, 10))
+	if err != nil {
+		return "", fmt.Errorf("resolve login home for uid %d: %w", uid, err)
+	}
+	if account.HomeDir == "" {
+		return "", fmt.Errorf("resolve login home for uid %d: account has no home directory", uid)
+	}
+	return account.HomeDir, nil
+}
+
+func mappedHostUID(data []byte, uid uint64) uint64 {
+	for line := range strings.SplitSeq(string(data), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			continue
+		}
+		inside, err1 := strconv.ParseUint(fields[0], 10, 64)
+		outside, err2 := strconv.ParseUint(fields[1], 10, 64)
+		length, err3 := strconv.ParseUint(fields[2], 10, 64)
+		if err1 == nil && err2 == nil && err3 == nil && uid >= inside && uid-inside < length {
+			return outside + uid - inside
+		}
+	}
+	return uid
 }
 
 func ensureIsolatedHome(home string) error {
@@ -1157,7 +1221,7 @@ func fileContextArgs(context sandboxContext, id string) ([]string, error) {
 	if !ok {
 		return nil, nil
 	}
-	path := filepath.Join(runtimeStateDir(), "context-"+id+".json")
+	path := uniqueRuntimePath("context", id, ".json")
 	if err := fsutil.WriteFile(path, encoded, 0o600); err != nil {
 		return nil, fmt.Errorf("stage sandbox context: %w", err)
 	}
