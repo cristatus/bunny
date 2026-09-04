@@ -23,7 +23,8 @@ func TestNestedLaunchNeverBuildsALayer(t *testing.T) {
 		"disables audio":   {Home: "isolated", Features: map[string]bool{"audio": false}},
 	} {
 		p, _ := hardenedPrepared(t)
-		plan, err := buildSandboxPlan(p, finalized(t, policy), "/work", "/home/u", parent)
+		resolved := finalized(t, policy)
+		plan, err := buildSandboxPlan(p, resolved, "/work", "/home/u", parent)
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -35,6 +36,9 @@ func TestNestedLaunchNeverBuildsALayer(t *testing.T) {
 		}
 		if plan.pasta != nil || plan.proxy != nil {
 			t.Errorf("%s: nested launch must start no helpers", name)
+		}
+		if needsOverlayProbe(plan, resolved) {
+			t.Errorf("%s: direct nested launch must not probe overlay support", name)
 		}
 	}
 }
@@ -50,7 +54,7 @@ func TestNestedLaunchInheritsRestrictions(t *testing.T) {
 		DisabledFeatures: []string{"agents"},
 		Hidden:           []string{"/home/u/.ssh"},
 	}
-	plan, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: "isolated"}), "/work", "/home/u", parent)
+	plan, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: "shared"}), "/work", "/home/u", parent)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +72,32 @@ func TestNestedLaunchInheritsRestrictions(t *testing.T) {
 	}
 	if !slices.Contains(plan.context.Packages, "outer") || !slices.Contains(plan.context.Packages, p.Manifest.ID) {
 		t.Errorf("context must accumulate packages: %v", plan.context.Packages)
+	}
+}
+
+func TestNestedSharedHomeKeepsHardenedParentsHome(t *testing.T) {
+	p, _ := hardenedPrepared(t)
+	p.Env = append(p.Env, "HOME=/parent/home")
+	parent := sandboxContext{Packages: []string{"outer"}, HostHome: "/home/u", Boundary: "hardened"}
+	plan, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: "shared"}), "/work", "/home/u", parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envMap(plan.env)["HOME"]; got != "/parent/home" {
+		t.Errorf("nested shared HOME = %q, want inherited parent home", got)
+	}
+	if plan.isolatedHome != "" {
+		t.Errorf("nested shared home unexpectedly redirects to %q", plan.isolatedHome)
+	}
+}
+
+func TestNestedRedirectedHomeRejectedUnderHardenedParent(t *testing.T) {
+	p, _ := hardenedPrepared(t)
+	parent := sandboxContext{Packages: []string{"outer"}, HostHome: "/home/u", Boundary: "hardened"}
+	for _, mode := range []string{"isolated", "ephemeral", "clean"} {
+		if _, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: mode}), "/work", "/home/u", parent); err == nil {
+			t.Errorf("nested home %q must fail when its data directory is unavailable", mode)
+		}
 	}
 }
 

@@ -38,7 +38,7 @@ func FindXDGDBusProxy() (string, error) {
 // socket; a package cannot redirect the proxy to an exec transport.
 func newDBusProxySpec(id string) *dbusProxySpec {
 	return &dbusProxySpec{
-		socketPath: filepath.Join(runtimeStateDir(), "dbus-"+id+".sock"),
+		socketPath: uniqueRuntimePath("dbus", id, ".sock"),
 		busAddress: trustedSessionBusAddress(),
 	}
 }
@@ -48,8 +48,8 @@ func newDBusProxySpec(id string) *dbusProxySpec {
 // env) and falls back to the conventional runtime socket; an address naming
 // any other transport, extra keys, or multiple addresses is discarded.
 func trustedSessionBusAddress() string {
-	if path, ok := unixSocketAddress(os.Getenv("DBUS_SESSION_BUS_ADDRESS")); ok {
-		return "unix:path=" + path
+	if address, ok := unixSocketAddress(os.Getenv("DBUS_SESSION_BUS_ADDRESS")); ok {
+		return address
 	}
 	if rt := os.Getenv("XDG_RUNTIME_DIR"); rt != "" {
 		return "unix:path=" + filepath.Join(rt, "bus")
@@ -70,22 +70,32 @@ func unixSocketAddress(addr string) (string, bool) {
 	if !ok || transport != "unix" {
 		return "", false
 	}
-	var path string
+	var endpoint string
+	seenGUID := false
 	for _, kv := range strings.Split(rest, ",") {
 		key, value, ok := strings.Cut(kv, "=")
 		if !ok {
 			return "", false
 		}
 		switch key {
-		case "path":
-			path = value
-		case "abstract", "guid":
-			// benign: an abstract socket or a bus GUID, neither executes.
+		case "path", "abstract":
+			if endpoint != "" || value == "" {
+				return "", false
+			}
+			endpoint = key
+		case "guid":
+			if seenGUID || value == "" {
+				return "", false
+			}
+			seenGUID = true
 		default:
 			return "", false
 		}
 	}
-	return path, path != ""
+	if endpoint == "" {
+		return "", false
+	}
+	return addr, true
 }
 
 // proxyArgs is the portal-only preset: the sandbox may call the portal

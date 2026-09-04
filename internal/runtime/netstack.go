@@ -1,11 +1,14 @@
 package runtime
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/charmbracelet/log"
@@ -19,10 +22,11 @@ import (
 // egress list, which promises zero egress and therefore gets no resolver and
 // no DNS exception.
 type pastaSpec struct {
-	inbound   []string
-	egress    []string
-	egressSet bool
-	dns       bool
+	inbound    []string
+	egress     []string
+	egressSet  bool
+	dns        bool
+	resolvPath string
 }
 
 // dnsForwardAddr is the address pasta maps to the host's resolver inside the
@@ -148,8 +152,22 @@ func ensureRuntimeStateDir() (string, error) {
 	return dir, nil
 }
 
-func resolvConfPath(id string) string {
-	return filepath.Join(runtimeStateDir(), "resolv-"+id+".conf")
+var uniqueStateCounter atomic.Uint64
+
+// uniqueRuntimePath gives launch-scoped helpers a pathname without creating
+// it during planning. Randomness prevents collisions across Bunny processes;
+// the counter is only a fallback for systems whose random source is broken.
+func uniqueRuntimePath(kind, id, ext string) string {
+	// Keep AF_UNIX users (notably the D-Bus proxy) below sockaddr_un's short
+	// path limit even when a manifest uses the maximum-length package ID.
+	if len(id) > 32 {
+		id = id[:32]
+	}
+	var random [12]byte
+	if _, err := rand.Read(random[:]); err == nil {
+		return filepath.Join(runtimeStateDir(), kind+"-"+id+"-"+hex.EncodeToString(random[:])+ext)
+	}
+	return filepath.Join(runtimeStateDir(), fmt.Sprintf("%s-%s-%d-%d%s", kind, id, os.Getpid(), uniqueStateCounter.Add(1), ext))
 }
 
 // resolvConfBindTarget resolves where /etc/resolv.conf actually lives.
@@ -169,10 +187,6 @@ func resolvConfBindTarget() string {
 		return filepath.Clean(link)
 	}
 	return path
-}
-
-func egressRulesPath(id string) string {
-	return filepath.Join(runtimeStateDir(), "egress-"+id+".nft")
 }
 
 // writeResolvConf generates the pinned resolver configuration bound over
@@ -204,7 +218,7 @@ func execUnderPasta(p *Prepared, plan sandboxPlan, bwrapArgv []string) error {
 	if err != nil {
 		return err
 	}
-	if err := writeResolvConf(resolvConfPath(p.Manifest.ID), plan.pasta.dns); err != nil {
+	if err := writeResolvConf(plan.pasta.resolvPath, plan.pasta.dns); err != nil {
 		return err
 	}
 
@@ -221,7 +235,7 @@ func execUnderPasta(p *Prepared, plan sandboxPlan, bwrapArgv []string) error {
 		if err != nil {
 			return err
 		}
-		rulesPath := egressRulesPath(p.Manifest.ID)
+		rulesPath := uniqueRuntimePath("egress", p.Manifest.ID, ".nft")
 		if err := fsutil.WriteFile(rulesPath, []byte(ruleset), 0o644); err != nil {
 			return fmt.Errorf("write sandbox egress ruleset: %w", err)
 		}
@@ -262,6 +276,7 @@ func ApplyNetsetup(rulesPath, nftPath string, argv []string) error {
 		}
 	}
 	out, err := exec.Command(nftPath, "-f", rulesPath).CombinedOutput()
+	_ = os.Remove(rulesPath)
 	if err != nil {
 		return fmt.Errorf("install egress ruleset: %w\n%s", err, strings.TrimSpace(string(out)))
 	}
