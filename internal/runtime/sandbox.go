@@ -1071,6 +1071,9 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 	if err := ensureIsolatedHome(plan.isolatedHome); err != nil {
 		return err
 	}
+	// The single reap point, and deliberately ahead of every launchState.ensure
+	// below: this launch has staged nothing yet, so the sweep cannot collect its
+	// own directory, and a launch that ends up staging nothing still reaps.
 	if plan.needsLayer {
 		if _, err := ensureRuntimeStateDir(); err == nil {
 			collectStaleLaunches(runtimeStateDir())

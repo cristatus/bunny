@@ -283,9 +283,11 @@ func ApplyNetsetup(rulesPath, nftPath string, argv []string) error {
 		}
 	}
 	out, err := exec.Command(nftPath, "-f", rulesPath).CombinedOutput()
-	_ = os.Remove(rulesPath)
 	if err != nil {
-		return fmt.Errorf("install egress ruleset: %w\n%s", err, strings.TrimSpace(string(out)))
+		// Keep the ruleset on failure: it is the only copy, and the launch
+		// aborts here with an nft error that means little without it.
+		return fmt.Errorf("install egress ruleset %s: %w\n%s", rulesPath, err, strings.TrimSpace(string(out)))
 	}
+	_ = os.Remove(rulesPath)
 	return syscall.Exec(argv[0], argv, os.Environ())
 }
