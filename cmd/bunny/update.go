@@ -91,6 +91,22 @@ func (c *UpdateCmd) apply(a *App) error {
 	if err != nil {
 		return err
 	}
+	// Nothing to reinstall: answer the way a plain check does, rather than
+	// opening an empty progress list (whose leading blank then doubles the
+	// summary's) and reporting zero work as a result.
+	if len(report.Results) == 0 {
+		if err := report.Err(); err != nil {
+			return err
+		}
+		if c.ID != "" && !a.State.IsInstalled(c.ID) {
+			return fmt.Errorf("package %q is not installed", c.ID)
+		}
+		p := ui.New(os.Stdout)
+		p.Println()
+		p.Println("all packages are up to date")
+		return nil
+	}
+
 	rep := a.reporter()
 	updateIDs := make([]string, len(report.Results))
 	for i, r := range report.Results {
