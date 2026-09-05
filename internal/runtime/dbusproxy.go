@@ -20,6 +20,7 @@ import (
 type dbusProxySpec struct {
 	socketPath string // host-side socket the proxy listens on
 	busAddress string // real session bus the proxy connects to
+	launch     launchState
 }
 
 // FindXDGDBusProxy locates the filter proxy. A hardened policy requesting
@@ -40,6 +41,7 @@ func newDBusProxySpec(launch launchState) *dbusProxySpec {
 	return &dbusProxySpec{
 		socketPath: launch.path("dbus.sock"),
 		busAddress: trustedSessionBusAddress(),
+		launch:     launch,
 	}
 }
 
@@ -126,11 +128,10 @@ func runSupervised(spec *dbusProxySpec, argv, env []string) error {
 	if _, err := ensureRuntimeStateDir(); err != nil {
 		return err
 	}
-	launchDir := launchState{dir: filepath.Dir(spec.socketPath)}
-	if err := launchDir.ensure(); err != nil {
+	if err := spec.launch.ensure(); err != nil {
 		return err
 	}
-	defer launchDir.cleanup()
+	defer spec.launch.cleanup()
 	_ = os.Remove(spec.socketPath) // a stale socket from a crashed run
 
 	ready, readyWrite, err := os.Pipe()

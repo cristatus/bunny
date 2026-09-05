@@ -25,7 +25,6 @@ func (s launchState) ensure() error {
 	if _, err := ensureRuntimeStateDir(); err != nil {
 		return err
 	}
-	collectStaleLaunches(runtimeStateDir())
 	if err := os.Mkdir(s.dir, 0o700); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("create sandbox launch directory: %w", err)
 	}

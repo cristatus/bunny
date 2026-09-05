@@ -8,6 +8,13 @@ import (
 	"github.com/cristatus/bunny/internal/config"
 )
 
+// preflightHeading and preflightRow are shared by both exits so the reader
+// sees one report shape whether or not the policy could be planned.
+const (
+	preflightHeading = "Sandbox preflight\n"
+	preflightRow     = "  %-4s  %-15s %s\n"
+)
+
 // CheckSandbox resolves the exact launch plan and verifies only the optional
 // kernel features and helper programs that plan will use. It does not launch
 // the package.
@@ -18,7 +25,7 @@ func CheckSandbox(p *Prepared, cfg *config.Config, profileOverride string) (stri
 		if policy != nil {
 			out = explainBlocked(policy) + "\n"
 		}
-		return out + fmt.Sprintf("Preflight\n  FAIL  policy  %v\n", err), err
+		return out + preflightHeading + fmt.Sprintf(preflightRow, "FAIL", "policy", err), err
 	}
 	type row struct{ status, name, detail string }
 	rows := []row{{"OK", "policy", "resolved and enforceable in the current context"}}
@@ -36,19 +43,16 @@ func CheckSandbox(p *Prepared, cfg *config.Config, profileOverride string) (stri
 		}
 		rows = append(rows, row{"OK", name, detail})
 	}
-	tool := func(find func() (string, error)) func() (string, error) {
-		return func() (string, error) { return find() }
-	}
-	check("bubblewrap", plan.needsLayer, tool(FindBwrap))
+	check("bubblewrap", plan.needsLayer, FindBwrap)
 	check("overlayfs", needsOverlayProbe(plan, policy), func() (string, error) {
 		if err := CheckOverlaySupport(); err != nil {
 			return "", err
 		}
 		return "unprivileged ephemeral overlay available", nil
 	})
-	check("pasta", plan.pasta != nil, tool(FindPasta))
-	check("nftables", plan.pasta != nil && plan.pasta.egressSet, tool(FindNft))
-	check("D-Bus proxy", plan.proxy != nil, tool(FindXDGDBusProxy))
+	check("pasta", plan.pasta != nil, FindPasta)
+	check("nftables", plan.pasta != nil && plan.pasta.egressSet, FindNft)
+	check("D-Bus proxy", plan.proxy != nil, FindXDGDBusProxy)
 	if plan.needsLayer && contextAvailable(plan) {
 		rows = append(rows, row{"OK", "nested context", "immutable context propagation available"})
 	} else if plan.needsLayer {
@@ -58,9 +62,9 @@ func CheckSandbox(p *Prepared, cfg *config.Config, profileOverride string) (stri
 	}
 
 	var b strings.Builder
-	b.WriteString("Sandbox preflight\n")
+	b.WriteString(preflightHeading)
 	for _, row := range rows {
-		fmt.Fprintf(&b, "  %-4s  %-15s %s\n", row.status, row.name, row.detail)
+		fmt.Fprintf(&b, preflightRow, row.status, row.name, row.detail)
 	}
 	if len(failures) == 0 {
 		b.WriteString("\nready to launch\n")
