@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/cristatus/bunny/internal/config"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // Explain reports what launching p would actually do, mirroring the same
@@ -14,11 +15,11 @@ import (
 // directly (no forced sandbox and no configured "always" activation) reports
 // that fact instead of the plan a forced launch would produce, so --explain
 // without --sandbox shows exactly what a plain `bunny run` does.
-func Explain(p *Prepared, cfg *config.Config, forceSandbox bool, profileOverride string) (string, error) {
+func Explain(p *Prepared, cfg *config.Config, forceSandbox bool, profileOverride string, out *ui.Printer) (string, error) {
 	if !forceSandbox && !sandboxActivated(cfg, p.Manifest.ID) {
 		return fmt.Sprintf("%s runs directly: no sandbox policy is active for this launch (add it to sandbox.packages, or pass --sandbox for this launch only)\n", p.Manifest.ID), nil
 	}
-	return ExplainSandbox(p, cfg, profileOverride)
+	return ExplainSandbox(p, cfg, profileOverride, out)
 }
 
 // ExplainSandbox prints the effective policy with each control's enforcement
@@ -26,7 +27,7 @@ func Explain(p *Prepared, cfg *config.Config, forceSandbox bool, profileOverride
 // host. It runs the same resolution and planning as a real launch, so what is
 // shown is what runs — including restrictions forced by the network mode and
 // anything inherited from an enclosing sandbox.
-func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (string, error) {
+func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out *ui.Printer) (string, error) {
 	plan, policy, err := planPackageSandbox(p, cfg, profileOverride)
 	if err != nil {
 		// A policy that resolved but cannot be built here is the case --explain
@@ -36,7 +37,7 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 		if policy == nil {
 			return "", err
 		}
-		return explainBlocked(policy), err
+		return explainBlocked(policy, out), err
 	}
 
 	hardened := plan.context.Boundary == "hardened"
@@ -64,7 +65,7 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 		if len(plan.ignored) > 0 {
 			add("ignored", "none", strings.Join(plan.ignored, ", "))
 		}
-		return renderExplainReport(plan, policy, rows), nil
+		return renderExplainReport(out, plan, policy, rows), nil
 	}
 
 	if hardened {
@@ -168,10 +169,10 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string) (st
 	level, detail := contextRow(contextAvailable(plan))
 	add("context", level, detail)
 
-	return renderExplainReport(plan, policy, rows), nil
+	return renderExplainReport(out, plan, policy, rows), nil
 }
 
-func renderExplainReport(plan sandboxPlan, policy *PackageSandbox, rows [][3]string) string {
+func renderExplainReport(p *ui.Printer, plan sandboxPlan, policy *PackageSandbox, rows [][3]string) string {
 	hardened := plan.context.Boundary == "hardened"
 	project := "read-write (scoped host view)"
 	hostHome := "readable (scoped boundary)"
@@ -225,7 +226,8 @@ func renderExplainReport(plan sandboxPlan, policy *PackageSandbox, rows [][3]str
 		{"credentials", "", credentials},
 		{"nesting", "", nesting},
 	}
-	return "Risk summary\n" + renderExplain(summary) + "\nEnforcement\n" + renderExplain(rows)
+	return p.Faint("Risk summary") + "\n" + renderExplain(summary) +
+		"\n" + p.Faint("Enforcement") + "\n" + renderExplain(rows)
 }
 
 func pathCoveredBy(path string, roots []string) bool {
@@ -275,8 +277,9 @@ func contextAvailable(plan sandboxPlan) bool {
 
 // explainBlocked reports a resolved policy that cannot be planned in this
 // context. Only the policy is available — there is no plan to read effective
-// mounts from — so every row is labelled as requested rather than in force.
-func explainBlocked(policy *PackageSandbox) string {
+// mounts from — so every row is labelled as requested rather than in force,
+// under a heading that says the same.
+func explainBlocked(policy *PackageSandbox, p *ui.Printer) string {
 	var rows [][3]string
 	add := func(name, level, detail string) { rows = append(rows, [3]string{name, level, detail}) }
 
@@ -296,5 +299,5 @@ func explainBlocked(policy *PackageSandbox) string {
 	}
 	// The blocker itself is not a row: the caller prints the error, and
 	// repeating it here would say the same sentence twice.
-	return renderExplain(rows)
+	return p.Faint("Requested policy") + "\n" + renderExplain(rows)
 }

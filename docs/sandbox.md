@@ -1084,7 +1084,28 @@ bunny sandbox check some-tool --profile agent
 
 The result distinguishes required, optional, and unused components and checks
 bubblewrap, ephemeral overlays, pasta, nftables, the filtered D-Bus proxy, and
-immutable nested-context support only when the resolved launch needs them.
+immutable nested-context support only when the resolved launch needs them. A
+faint row is one this launch never reaches, so a missing helper there costs
+nothing:
+
+```text
+$ bunny sandbox check some-tool
+
+Sandbox preflight
+✓ policy          resolved and enforceable in the current context
+✓ bwrap           /usr/bin/bwrap
+· overlay         not required by this launch
+· pasta           not required by this launch
+· nft             not required by this launch
+· dbus-proxy      not required by this launch
+✓ nested context  immutable context propagation available
+
+ready to launch
+```
+
+A policy that resolves but cannot be planned here reports what was asked
+under a `Requested policy` heading, then the failing check; the command exits
+non-zero either way.
 
 Useful checks when behavior is surprising:
 

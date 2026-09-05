@@ -316,9 +316,11 @@ func (a *App) runPackage(id, command string, args []string, forceSandbox bool, p
 		// An explanation can accompany an error: a policy that resolved but
 		// cannot be built here still has something to report, and the error
 		// keeps the exit status honest.
-		out, err := runtime.Explain(prep, a.Config, forceSandbox, profile)
+		p := ui.New(os.Stdout)
+		out, err := runtime.Explain(prep, a.Config, forceSandbox, profile, p)
 		if out != "" {
-			fmt.Fprint(os.Stdout, out)
+			p.Println()
+			p.Print(out)
 		}
 		return err
 	}
