@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,12 @@ import (
 
 	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/ui"
 )
+
+// plainPrinter renders the reports without escape sequences, so assertions
+// match on the text alone.
+func plainPrinter() *ui.Printer { return ui.NewWithColor(io.Discard, false) }
 
 // Policy resolves for a package with no config entry at all — that is what
 // `bunny run --sandbox-profile <name> <id>` relies on — without that
@@ -440,7 +446,7 @@ func TestExplainSandboxReportsEphemeralHomeAndPersist(t *testing.T) {
 		Vars:     map[string]string{"data": root},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
-	out, err := ExplainSandbox(p, cfg, "")
+	out, err := ExplainSandbox(p, cfg, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +482,7 @@ func TestExplainSandboxIsReadOnly(t *testing.T) {
 	// The persist path does not exist yet, so explain resolves policy and
 	// reports the ephemeral home fine, but planning the persist bind fails —
 	// and either way must not have created anything under {data}.
-	if _, err := ExplainSandbox(p, cfg, ""); err == nil {
+	if _, err := ExplainSandbox(p, cfg, "", plainPrinter()); err == nil {
 		t.Fatal("expected --explain to surface the missing persist path as an error")
 	}
 	if _, statErr := os.Stat(home); !os.IsNotExist(statErr) {
@@ -494,7 +500,7 @@ func TestExplainReportsDirectRunWhenNotSandboxed(t *testing.T) {
 		Vars:     map[string]string{"data": t.TempDir()},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
-	out, err := Explain(p, &config.Config{}, false, "")
+	out, err := Explain(p, &config.Config{}, false, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -512,7 +518,7 @@ func TestExplainReportsSandboxPlanWhenForced(t *testing.T) {
 		Vars:     map[string]string{"data": t.TempDir()},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
-	out, err := Explain(p, &config.Config{}, true, "")
+	out, err := Explain(p, &config.Config{}, true, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +540,7 @@ func TestExplainReportsSandboxPlanWhenAlwaysActivated(t *testing.T) {
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{"claude": {}}}}
-	out, err := Explain(p, cfg, false, "")
+	out, err := Explain(p, cfg, false, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -886,11 +892,11 @@ func TestSandboxPreflightSkipsUnusedHelpersForNestedLaunch(t *testing.T) {
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
 		"tool": {SandboxPolicy: config.SandboxPolicy{Home: "shared"}},
 	}}}
-	out, err := CheckSandbox(p, cfg, "")
+	out, err := CheckSandbox(p, cfg, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Sandbox preflight", "SKIP  bubblewrap", "ready to launch"} {
+	for _, want := range []string{"Sandbox preflight", "· bwrap", "ready to launch"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("preflight missing %q:\n%s", want, out)
 		}
@@ -1021,7 +1027,7 @@ func TestExplainBlockedPolicyStillReports(t *testing.T) {
 		Net:      NetPolicy{Mode: "host"},
 		FS:       FSPolicy{Cwd: "write"},
 	}
-	out := explainBlocked(policy)
+	out := explainBlocked(policy, plainPrinter())
 	for _, want := range []string{"profile", "agent", "hardened", "cwd write"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("blocked explanation missing %q:\n%s", want, out)
@@ -1073,7 +1079,7 @@ func TestExplainSandboxReturnsOutputWithTheError(t *testing.T) {
 			"locked": {Boundary: "hardened", FS: &manifest.SandboxFS{Cwd: "write"}},
 		},
 	}}
-	out, err := ExplainSandbox(p, cfg, "locked")
+	out, err := ExplainSandbox(p, cfg, "locked", plainPrinter())
 	if err == nil {
 		t.Fatal("a hardened cwd: write at the home root must fail to plan")
 	}

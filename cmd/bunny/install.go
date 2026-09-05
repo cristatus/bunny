@@ -137,7 +137,7 @@ func confirmPurge(ids []string) (bool, error) {
 	if !stdinIsTTY() {
 		return false, fmt.Errorf("refusing to --purge in a non-interactive session; pass --yes to confirm")
 	}
-	fmt.Fprintf(os.Stderr, "This permanently deletes the per-app data for: %s\nContinue? [y/N] ", strings.Join(ids, ", "))
+	fmt.Fprintf(os.Stderr, "this permanently deletes the per-app data for: %s\ncontinue? [y/N] ", strings.Join(ids, ", "))
 	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":

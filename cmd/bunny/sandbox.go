@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/cristatus/bunny/internal/runtime"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // SandboxCmd groups sandbox diagnostics separately from package execution.
@@ -23,9 +23,11 @@ func (c *SandboxCheckCmd) Run(a *App) error {
 	if err != nil {
 		return err
 	}
-	out, err := runtime.CheckSandbox(prep, a.Config, c.Profile)
+	p := ui.New(os.Stdout)
+	out, err := runtime.CheckSandbox(prep, a.Config, c.Profile, p)
 	if out != "" {
-		fmt.Fprint(os.Stdout, out)
+		p.Println()
+		p.Print(out)
 	}
 	return err
 }

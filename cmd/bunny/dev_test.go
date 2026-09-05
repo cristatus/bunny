@@ -41,7 +41,7 @@ func TestValidateCatalog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.json"), index, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCatalog(root); err != nil {
+	if _, err := validateCatalog(root); err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,7 +49,7 @@ func TestValidateCatalog(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "index.json"), index, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateCatalog(root); err == nil {
+	if _, err := validateCatalog(root); err == nil {
 		t.Fatal("expected index mismatch")
 	}
 }
