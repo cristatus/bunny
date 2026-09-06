@@ -32,9 +32,9 @@ build tools support "toolchains" to select JDKs by version from known
 installation paths. Bunny automatically generates and maintains that list.
 
 `bunny toolchains` writes toolchain configuration pointing at every installed
-`provides: jdk` package. It runs automatically when you install or uninstall a
-JDK or tool declaring toolchain dependencies. You can also run it manually to
-force a refresh.
+`provides: jdk` package. It runs automatically when you install, uninstall, or
+update a JDK or tool declaring toolchain dependencies. You can also run it
+manually to force a refresh.
 
 **Gradle**: Bunny writes a managed block into `~/.gradle/gradle.properties` (or
 the active `GRADLE_USER_HOME`):
