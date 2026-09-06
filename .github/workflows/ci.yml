@@ -38,3 +38,33 @@ jobs:
 
       - name: go build
         run: go build ./cmd/bunny
+
+  sandbox:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install sandbox test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libcap-dev pkg-config passt nftables xdg-dbus-proxy dbus-daemon curl
+          # Ubuntu 24.04's packaged bwrap predates ephemeral overlay support.
+          curl -fsSL https://github.com/containers/bubblewrap/releases/download/v0.11.0/bubblewrap-0.11.0.tar.xz -o "$RUNNER_TEMP/bubblewrap.tar.xz"
+          echo "988fd6b232dafa04b8b8198723efeaccdb3c6aa9c1c7936219d5791a8b7a8646  $RUNNER_TEMP/bubblewrap.tar.xz" | sha256sum --check
+          tar -xf "$RUNNER_TEMP/bubblewrap.tar.xz" -C "$RUNNER_TEMP"
+          meson setup "$RUNNER_TEMP/bwrap-build" "$RUNNER_TEMP/bubblewrap-0.11.0" -Dman=disabled -Dtests=false -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled
+          meson compile -C "$RUNNER_TEMP/bwrap-build"
+          echo "$RUNNER_TEMP/bwrap-build" >> "$GITHUB_PATH"
+          # This disposable runner must permit the user namespaces under test.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Exercise real sandbox boundaries
+        env:
+          BUNNY_REQUIRE_SANDBOX_TESTS: "1"
+        run: dbus-run-session -- go test -race -count=1 -tags sandbox_integration ./internal/runtime

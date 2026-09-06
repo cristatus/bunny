@@ -9,6 +9,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Dedicated sandbox acceptance CI and `make test-sandbox`, with mandatory
+  helpers, a private session bus, and real namespace/network/overlay tests.
 - Hardened sandbox boundary (`boundary: hardened`): a deny-by-default,
   kernel-enforced allowlist — read-only host root, hidden host home, private
   `/run`/`/tmp`/`/var/tmp`, explicit `fs.read`/`fs.write` grants, and
@@ -112,6 +114,8 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
 
 ### Fixed
 
+- Sandbox acceptance probes use the current CLI and require payload execution
+  when testing D-Bus filtering; home-isolation tests use an actual secret marker.
 - Maven toolchain XML escapes installation paths, vendor names, and versions.
 
 - A hardened sandbox with `net: host` could not resolve DNS. The baseline's

@@ -10,12 +10,15 @@
 package runtime_test
 
 import (
+	"context"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func listenLoopback(t *testing.T) net.Listener {
@@ -24,6 +27,18 @@ func listenLoopback(t *testing.T) net.Listener {
 	if err != nil {
 		t.Fatal(err)
 	}
+	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("reachable"))
+	}), ReadHeaderTimeout: time.Second}
+	go server.Serve(ln)
+	t.Cleanup(func() { _ = server.Close() })
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: time.Second}
+	resp, err := client.Get("http://" + ln.Addr().String())
+	if err != nil {
+		t.Fatalf("host loopback control request failed: %v", err)
+	}
+	resp.Body.Close()
+	client.CloseIdleConnections()
 	return ln
 }
 
@@ -34,19 +49,23 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	defer os.RemoveAll(dir)
 	bunnyBin = filepath.Join(dir, "bunny")
 	build := exec.Command("go", "build", "-o", bunnyBin, "github.com/cristatus/bunny/cmd/bunny")
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		panic("build bunny: " + err.Error())
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 func have(t *testing.T, tool string) {
 	t.Helper()
 	if _, err := exec.LookPath(tool); err != nil {
+		if os.Getenv("BUNNY_REQUIRE_SANDBOX_TESTS") == "1" {
+			t.Fatalf("%s required in sandbox CI: %v", tool, err)
+		}
 		t.Skipf("%s not installed", tool)
 	}
 }
@@ -84,15 +103,27 @@ func probeIn(t *testing.T, home, configYAML, script string, env ...string) (stri
 			`{"version":"1.0","installed":"2026-01-01T00:00:00Z","kind":"cli"}}}`), 0o644))
 	must(os.WriteFile(filepath.Join(home, ".config", "bunny", "config.yaml"), []byte(configYAML), 0o644))
 
-	cmd := exec.Command(bunnyBin, "sandbox", "probe")
-	// Fresh HOME, but keep the trusted runtime dir and session bus so helpers
-	// work; clear XDG base dirs so the layout resolves under the fake HOME.
-	cmd.Env = append(os.Environ(),
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bunnyBin, "run", "--sandbox", "probe")
+	cmd.WaitDelay = time.Second
+	// Never inherit a caller's Bunny installation or nested sandbox context.
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "BUNNY_") {
+			cmd.Env = append(cmd.Env, entry)
+		}
+	}
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(cmd.Env,
 		"HOME="+home,
 		"XDG_DATA_HOME=", "XDG_CONFIG_HOME=", "XDG_CACHE_HOME=",
+		"XDG_RUNTIME_DIR="+t.TempDir(),
 	)
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("sandbox probe timed out: %s", out)
+	}
 	code := 0
 	if exit, ok := err.(*exec.ExitError); ok {
 		code = exit.ExitCode()
@@ -122,18 +153,16 @@ echo "write-data: $(touch "$HOME/ok" && echo yes || echo no)"`
 
 func TestHardenedRealHomeHidden(t *testing.T) {
 	have(t, "bwrap")
-	// A marker in the real HOME must be invisible inside the sandbox.
-	script := `echo "sees-marker: $(test -e "$HOME/../SECRET" && echo yes || echo no)"`
-	// The real home is the fake HOME; drop a secret there via the config's
-	// own directory is awkward, so assert the home dir reads as empty/tmpfs.
-	script = `echo "home-listing: [$(ls -A "$HOME" 2>/dev/null)]"`
-	out, code := probe(t, "sandbox:\n  packages:\n    probe:\n      boundary: hardened\n", script)
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "SECRET"), []byte("private"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := `echo "sees-secret: $(test -e "$REAL_HOME/SECRET" && echo LEAK || echo hidden)"`
+	out, code := probeIn(t, home, "sandbox:\n  packages:\n    probe:\n      boundary: hardened\n", script, "REAL_HOME="+home)
 	if code != 0 {
 		t.Fatalf("launch failed (%d):\n%s", code, out)
 	}
-	// HOME is the isolated data home; the real host home is tmpfs-masked and
-	// never appears. The isolated home contains only the XDG dirs bunny made.
-	if strings.Contains(out, ".ssh") || strings.Contains(out, ".config/bunny") {
+	if !strings.Contains(out, "sees-secret: hidden") {
 		t.Errorf("real host home leaked into the sandbox:\n%s", out)
 	}
 }
@@ -157,6 +186,9 @@ func TestHardenedDBusIgnoresInjectedUnixexec(t *testing.T) {
 	have(t, "bwrap")
 	have(t, "xdg-dbus-proxy")
 	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
+		if os.Getenv("BUNNY_REQUIRE_SANDBOX_TESTS") == "1" {
+			t.Fatal("a session bus is required in sandbox CI (use dbus-run-session)")
+		}
 		t.Skip("no session bus")
 	}
 	marker := filepath.Join(t.TempDir(), "PWNED")
@@ -167,7 +199,10 @@ func TestHardenedDBusIgnoresInjectedUnixexec(t *testing.T) {
 	// The package tries to point the host-side proxy at an exec transport.
 	cfg := "env:\n  probe:\n    DBUS_SESSION_BUS_ADDRESS: \"unixexec:path=" + evil + "\"\n" +
 		"sandbox:\n  packages:\n    probe:\n      boundary: hardened\n      features:\n        dbus: true\n      net:\n        mode: host\n"
-	out, code := probe(t, cfg, `echo ok`)
+	out, code := probe(t, cfg, `echo PAYLOAD_EXECUTED`)
+	if code != 0 || !strings.Contains(out, "PAYLOAD_EXECUTED") {
+		t.Fatalf("legitimate payload must run through the filtered bus (%d):\n%s", code, out)
+	}
 	if _, err := os.Stat(marker); err == nil {
 		t.Fatalf("unixexec address executed on the host (marker created); code=%d\n%s", code, out)
 	}
@@ -220,12 +255,14 @@ echo "memory: $(cat "$HOME/.claude/memory/log" 2>/dev/null | tr '\n' , )"`
 }
 
 func TestPrivateNetworkLoopbackDenied(t *testing.T) {
+	have(t, "bwrap")
 	have(t, "pasta")
+	have(t, "curl")
 	// A host loopback listener must be unreachable from a private-net sandbox.
 	ln := listenLoopback(t)
 	defer ln.Close()
 	addr := ln.Addr().String()
-	script := `echo "reach-host: $(curl -s -o /dev/null --max-time 3 http://` + addr + `/ && echo REACHED || echo blocked)"`
+	script := `echo "reach-host: $(curl --noproxy '*' -s -o /dev/null --max-time 3 http://` + addr + `/ && echo REACHED || echo blocked)"`
 	cfg := "sandbox:\n  packages:\n    probe:\n      net:\n        mode: private\n"
 	out, code := probe(t, cfg, script)
 	if code != 0 {
@@ -237,6 +274,7 @@ func TestPrivateNetworkLoopbackDenied(t *testing.T) {
 }
 
 func TestPrivateEgressRulesetIsTamperProof(t *testing.T) {
+	have(t, "bwrap")
 	have(t, "pasta")
 	have(t, "nft")
 	script := `echo "tamper: $(nft flush ruleset 2>&1 | grep -qi 'not permitted' && echo denied || echo LEAK)"`

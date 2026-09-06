@@ -1115,3 +1115,12 @@ Useful checks when behavior is surprising:
 - built-in profile names cannot be redefined; check custom profile spelling;
 - run `bunny reshim` after installing or removing runtime-global tools;
 - use `bunny doctor` to verify layout, shims, and bubblewrap support.
+
+## Running the acceptance tests
+
+`make test-sandbox` runs real sandbox launches in a private D-Bus session.
+It requires bubblewrap 0.11 or newer, working user namespaces and overlayfs,
+`pasta` (the `passt` package), `nft`, `xdg-dbus-proxy`, `dbus-run-session`, and
+`curl`. This target treats missing helpers or a missing session bus as failures.
+The dedicated sandbox CI job provisions these dependencies and runs the same
+suite. Plain `go test ./...` does not include these build-tagged acceptance tests.
