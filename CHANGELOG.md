@@ -125,6 +125,8 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
 - Maven toolchain XML escapes installation paths, vendor names, and versions.
 - Pin creation and doctor diagnostics honor vendor package IDs and exact
   releases. Malformed/unreadable pins fail closed; pin writes are atomic.
+- Installer version-selection example passes `BUNNY_VERSION` to the installer
+  shell. Java/vendor guidance and competitor comparisons reflect actual behavior.
 
 - A hardened sandbox with `net: host` could not resolve DNS. The baseline's
   private `/run` masked `/run/systemd/resolve`, and `/etc/resolv.conf` is a

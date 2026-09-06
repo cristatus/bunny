@@ -21,7 +21,7 @@ Most developers assemble Java and Node workstations using a fragmented mix of `s
 
 - **Host-native by default, isolated by choice**: `mvn` uses `~/.m2`, Gradle uses `~/.gradle`, and npm caches in `~/.npm` unless configured otherwise. Data paths can be redirected per package, and trusted applications can opt into a bubblewrap sandbox — always on, or for a single launch.
 - **Single binary & symlink shims**: `bunny init` adds a single PATH export with no shell wrapper functions. Executables dispatch directly through symlinks via `argv[0]`, ensuring consistent behavior across terminals, IDEs, and containers.
-- **Per-project version pinning**: Place a `.bunny-version` file in any project root to pin versions without shell hooks. A pin can name a bare version (`jdk 21`) or a specific package (`jdk corretto-21`), so a project can fix its vendor build too.
+- **Per-project version pinning**: Place a `.bunny-version` file in any project root to pin versions without shell hooks. A pin can name a bare version (`jdk 21`) or a specific package (`jdk corretto-21`), so a project can select its vendor too. Add `--exact` to record the installed release and reject version drift.
 - **First-class Java toolchains**: Multi-vendor JDK support (Temurin, Corretto, Zulu, GraalVM) powered by the [Foojay Disco API](https://api.foojay.io/). Automated Gradle and Maven toolchain configuration ensures builds compile against the target JDK regardless of the runtime Java version.
 - **Curated catalog**: JDKs, Node, IDEs, and the CLI utilities you actually reach for day to day. See [bunny-catalog](https://github.com/cristatus/bunny-catalog).
 - **Forkable for teams**: Point `catalogs:` at an internal HTTP endpoint, or at a checkout on disk, to distribute customized JDKs, corporate certificates, and shared tooling. Or list it alongside the public catalog to add your own packages without forking anything.
@@ -50,7 +50,20 @@ java -version
 code .
 ```
 
-To install a specific version of Bunny, prefix the installer: `BUNNY_VERSION=v0.5.0 curl ... | sh`.
+To install a specific version of Bunny, pass the version to the shell running the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | BUNNY_VERSION=v0.5.0 sh
+```
+
+Bunny itself is a single binary. Package preparation requires **bubblewrap**
+and working unprivileged user namespaces, even when runtime sandboxing is off.
+Install bubblewrap through your distribution before installing packages
+(`sudo apt install bubblewrap` on Debian/Ubuntu, or `sudo pacman -S bubblewrap`
+on Arch). Some restricted containers cannot run the installation sandbox.
+Ephemeral homes additionally require bubblewrap 0.11 or newer with overlayfs
+support; private networking and filtered D-Bus use additional helpers described
+in [Sandboxing](docs/sandbox.md).
 
 To consolidate all files under a single root (useful for CI, containers, and fleet images), set `BUNNY_HOME=/opt/bunny`.
 
@@ -92,6 +105,10 @@ bunny run jdk-17 -- -version
 # Pin versions per project in ./.bunny-version
 bunny pin jdk 17
 java -version    # Resolves to JDK 17 within the project directory
+mvn -version     # Receives JAVA_HOME for the same pinned JDK
+
+# Reject a different patch/build release after an update
+bunny pin --exact jdk 17
 ```
 
 Bunny automatically maintains **Gradle and Maven toolchains**. A project configured for Java 17 compiles against Bunny's JDK 17 even when Gradle runs under JDK 21. See [First-class Java](docs/java.md).
@@ -119,7 +136,7 @@ node --version   # 22.x
 | `bunny search [query...]` | Search the catalog, ranked by match strength (`-t/--tag`, `--capability`, `--kind`, `--installed`, `--available`) |
 | `bunny info <id>` | Display package details, active provider state, pins, and dependents |
 | `bunny use <id>` | Switch the active global provider for a capability (e.g. `jdk-21`) |
-| `bunny pin <capability> <version>` | Pin a capability to a version in `./.bunny-version` |
+| `bunny pin <capability> <version>` | Pin a capability to a package in `./.bunny-version` (`--exact` records the installed release) |
 | `bunny unpin <capability>` | Remove a capability pin from `./.bunny-version` |
 | `bunny run <id> [-- args]` | Execute a package binary (`--sandbox`, `--sandbox-profile <name>`, `--explain`, `-c/--command`) |
 | `bunny sandbox check <id>` | Preflight the exact sandbox policy, helpers, and kernel support |
@@ -142,7 +159,7 @@ flags. Maintainer utilities live under `bunny dev` (`dev validate`,
 - [Portability Model](docs/portability.md): Default host-native execution, data redirection, and optional runtime isolation.
 - [Sandboxing](docs/sandbox.md): Per-package bwrap execution with isolated, ephemeral, or clean home state, built-in/custom profiles, path masks, network modes, and the hardened boundary.
 - [Configuration](docs/config.md): `config.yaml` reference, custom install roots, data redirection, and sandbox activation.
-- [Per-project Pinning](docs/pinning.md): `.bunny-version`, format interoperability, and IDE setup.
+- [Per-project Pinning](docs/pinning.md): `.bunny-version`, exact release checks, and IDE setup.
 - [Team Deployment](docs/teams.md): Forking catalogs, private hosting, and reproducible environments.
 - [Corporate Environments](docs/corporate.md): Proxies, custom CA roots, Maven settings, and air-gapped workflows.
 - [Architecture](docs/architecture.md): Package boundaries, state management, and transactional mutations.
@@ -182,17 +199,31 @@ make install    # Install binary to ~/.local/bin/bunny
 
 ## Comparison
 
-| Feature | Bunny | SDKMAN | mise | Homebrew (Linux) | Nix |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Primary Scope** | Java + Node workstation | JVM only | Polyglot runtime | General packages | System / package manager |
-| **GUI Editors & IDEs** | Yes | No | No | Partial | Yes |
-| **Per-Version Isolation** | Opt-in via config | No | Per-project `[env]` | No | Partial |
-| **Per-Package Runtime Sandbox** | Opt-in (bubblewrap) | No | No | No | Yes |
-| **Project Pinning** | `.bunny-version` (version or exact package) | `.sdkmanrc` | `mise.toml`, `.tool-versions` | No | `flake.nix` |
-| **Shell Overhead** | None (symlinks) | Shell functions | Shim binary | None | None |
-| **Container Friendly** | Yes | Shell-dependent | Yes | Yes | Yes |
-| **Single Binary** | Yes | No | Yes | No | No |
-| **Forkable Catalog** | Yes (HTTPS / local) | No | Yes | Tap system | Yes |
+Bunny focuses on a curated Linux Java/Node workstation: toolchains, editors,
+internal catalogs, and optional per-package application isolation. Choose it
+when those integrations reduce your setup work.
+
+| Alternative | What it already provides | Where Bunny differs |
+| :--- | :--- | :--- |
+| [SDKMAN](https://sdkman.io/usage/) | JVM SDK versions, vendor selection, `.sdkmanrc`, project SDK installation | Adds Node, editors, and per-package sandbox policies; uses executable shims instead of shell functions |
+| [mise](https://mise.jdx.dev/) | Polyglot tools, project-aware shims, lockfiles, environment and task management | Concentrates on Java workstation configuration and persistent package-specific application state |
+| [Volta](https://docs.volta.sh/guide/understanding) | Automatic Node/package-manager selection and exact project versions in `package.json` | Covers Java and editors as well as Node; Node-only projects may need no more than Volta |
+
+No shell hooks does not mean zero dispatch cost: Bunny runs its resolver on
+shim invocation. [mise also supports shims without directory-change hooks](https://mise.jdx.dev/dev-tools/shims.html).
+
+[mise supports command sandboxing](https://mise.jdx.dev/sandboxing.html) through
+`mise exec` and `mise run`. Bunny's distinction is policy attached to installed
+package IDs, including normal shim launches, with isolated/ephemeral home state,
+namespace boundaries, and desktop integration controls. These are different
+policy models, not a claim that competitors lack sandboxing.
+
+Bunny's exact pins check the installed release; they are not artifact lockfiles.
+Unlike [mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html), they do not
+record download URLs or checksums, fetch historical releases, or install two
+patch versions of one package ID side by side. For repeatable provisioning,
+pin your catalog to a Git commit and retain its artifacts. See
+[Team deployment](docs/teams.md#lockfiles-and-reproducibility).
 
 ## License
 
