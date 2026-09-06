@@ -4,6 +4,7 @@
 package toolchains
 
 import (
+	"encoding/xml"
 	"fmt"
 	"slices"
 	"strings"
@@ -73,13 +74,19 @@ func MavenToolchainsXML(jdks []JDK) string {
 		b.WriteString("    <type>jdk</type>\n")
 		var vendor string
 		if j.Vendor != "" {
-			vendor = "<vendor>" + j.Vendor + "</vendor>"
+			vendor = "<vendor>" + xmlText(j.Vendor) + "</vendor>"
 		}
-		fmt.Fprintf(&b, "    <provides><version>%s</version>%s</provides>\n", mavenVersion(j.Major), vendor)
-		fmt.Fprintf(&b, "    <configuration><jdkHome>%s</jdkHome></configuration>\n", j.Home)
+		fmt.Fprintf(&b, "    <provides><version>%s</version>%s</provides>\n", xmlText(mavenVersion(j.Major)), vendor)
+		fmt.Fprintf(&b, "    <configuration><jdkHome>%s</jdkHome></configuration>\n", xmlText(j.Home))
 		b.WriteString("  </toolchain>\n")
 	}
 	b.WriteString("</toolchains>\n")
+	return b.String()
+}
+
+func xmlText(value string) string {
+	var b strings.Builder
+	_ = xml.EscapeText(&b, []byte(value)) // strings.Builder writes cannot fail.
 	return b.String()
 }
 

@@ -1,6 +1,7 @@
 package toolchains
 
 import (
+	"encoding/xml"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,22 @@ func TestMavenToolchainsXML(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMavenToolchainsXMLRoundTripsSpecialCharacters(t *testing.T) {
+	jdk := JDK{Home: "/opt/Research & Development/<jdk>/\"21\"", Major: "21", Vendor: "company & <vendor>"}
+	document := MavenToolchainsXML([]JDK{jdk})
+	var decoded struct {
+		Entries []struct {
+			Home   string `xml:"configuration>jdkHome"`
+			Vendor string `xml:"provides>vendor"`
+		} `xml:"toolchain"`
+	}
+	if err := xml.Unmarshal([]byte(document), &decoded); err != nil {
+		t.Fatalf("invalid XML: %v\n%s", err, document)
+	}
+	if len(decoded.Entries) != 1 || decoded.Entries[0].Home != jdk.Home || decoded.Entries[0].Vendor != jdk.Vendor {
+		t.Fatalf("values did not round trip: %+v", decoded)
 	}
 }

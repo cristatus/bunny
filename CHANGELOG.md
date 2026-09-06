@@ -112,6 +112,8 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
 
 ### Fixed
 
+- Maven toolchain XML escapes installation paths, vendor names, and versions.
+
 - A hardened sandbox with `net: host` could not resolve DNS. The baseline's
   private `/run` masked `/run/systemd/resolve`, and `/etc/resolv.conf` is a
   symlink into it, so every name lookup failed with the network otherwise
