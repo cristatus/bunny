@@ -32,7 +32,7 @@ func (m *Manifest) Validate() error {
 	if m.Name == "" {
 		return vErr("name", "required")
 	}
-	if err := validateVersion(m.Version); err != nil {
+	if err := ValidateVersion(m.Version); err != nil {
 		return vErr("version", err.Error())
 	}
 	if m.Provides != "" {
@@ -457,7 +457,8 @@ func ValidateID(id string) error {
 	return nil
 }
 
-func validateVersion(v string) error {
+// ValidateVersion checks the release spelling used by manifests and exact pins.
+func ValidateVersion(v string) error {
 	if v == "" || len(v) > 64 {
 		return fmt.Errorf("must be 1-64 chars")
 	}

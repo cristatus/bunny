@@ -35,7 +35,10 @@ alone.
 
 ## Runtime execution
 
-`runtime.Launcher` layers environment variables in a fixed precedence order
+`runtime.Launcher` resolves project pins for required capabilities and checks
+minimum versions before launch. An explicit incompatible pin is an error; no
+other installed provider silently replaces it. Exact pins also check the
+installed release. The launcher layers environment variables in a fixed precedence order
 (host, dependency env, manifest env, config env). Normal execution ends in a
 direct `execve` unless the exact package is listed under sandbox.packages or
 the user invoked `bunny run --sandbox`.

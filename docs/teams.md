@@ -133,9 +133,11 @@ bin:
   - { name: keytool, path: "{app}/bin/keytool" }
 ```
 
-Because it declares `provides: jdk`, it occupies the standard Java capability
-slot, so any project `.bunny-version` pinning `jdk 21` resolves to it
-automatically.
+Because it declares `provides: jdk`, it can occupy the standard Java capability
+slot. Select it globally with `bunny use jdk-21-corp`, or write
+`jdk jdk-21-corp` in a project's `.bunny-version`. A bare `jdk 21` always selects
+`jdk-21`; it does not search vendors. Use `bunny pin --exact jdk jdk-21-corp` to
+also record the installed release.
 
 ## Pre-configured tools (Maven, Gradle)
 
@@ -169,11 +171,26 @@ for whatever aggregation your existing tooling already does.
 
 ## Lockfiles and reproducibility
 
-The catalog repository functions as a lockfile. Pinning a catalog's `remote` to a
-specific Git commit SHA guarantees reproducible toolchains across the entire team:
+A catalog pinned to a Git commit fixes manifest versions, artifact URLs,
+checksums, and preparation instructions. It provides a shared source snapshot,
+not a complete environment lock: artifacts must remain available, preparation
+can depend on host utilities, and host libraries still affect execution.
+Pin every configured catalog (or distribute immutable local checkouts), including
+higher-priority overrides:
+
 
 ```yaml
 catalogs:
   - name: your-org
     remote: https://raw.githubusercontent.com/your-org/bunny-catalog/<sha>
 ```
+
+Keep the downloaded artifacts in a durable internal mirror when upstream
+retention is uncertain. A `.bunny-version` line such as `jdk 21` selects a
+package ID, so it can follow updates in a moving catalog. An exact pin such as
+`jdk jdk-21@21.0.4+7` rejects release drift at launch time, but does not download
+that historical release automatically. Restore it from the pinned catalog with
+`bunny install --force jdk-21`, or deliberately update the project's pin.
+
+Only one release per package ID can be installed at a time. Teams needing two
+patch releases simultaneously must publish them under distinct package IDs.

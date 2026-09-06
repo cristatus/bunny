@@ -22,9 +22,20 @@ func requireBwrap(t *testing.T) {
 	}
 }
 
-type stubPinState struct{ installed map[string]bool }
+type stubPinState struct {
+	installed map[string]bool
+	provides  map[string]string
+	versions  map[string]string
+}
 
 func (s *stubPinState) IsInstalled(id string) bool { return s.installed[id] }
+func (s *stubPinState) VersionOf(id string) string { return s.versions[id] }
+func (s *stubPinState) ProvidesOf(id string) string {
+	if v, ok := s.provides[id]; ok {
+		return v
+	}
+	return strings.Split(id, "-")[0]
+}
 
 func TestLayoutCheckOK(t *testing.T) {
 	r := layoutCheck(paths.At(t.TempDir()))
@@ -306,5 +317,30 @@ func TestCatalogChecksWarnWhenNothingCanServe(t *testing.T) {
 	results := catalogChecks([]CatalogSource{{Name: "axelor", Location: absent, Checkout: true}})
 	if len(results) != 1 || results[0].Severity != Warn {
 		t.Errorf("expected a warning, got %+v", results)
+	}
+}
+
+func TestPinResolutionVendorAndReleaseDrift(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, shim.ProjectVersionFile), []byte("jdk corretto-21@21.0.4+7\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	st := &stubPinState{installed: map[string]bool{"corretto-21": true}, provides: map[string]string{"corretto-21": "jdk"}, versions: map[string]string{"corretto-21": "21.0.4+7"}}
+	if got := PinResolution(st, dir); len(got) != 2 || got[1].Severity != OK {
+		t.Fatalf("vendor pin not recognized: %+v", got)
+	}
+	st.versions["corretto-21"] = "21.0.5+11"
+	if got := PinResolution(st, dir); len(got) != 2 || got[1].Severity != Fail || !strings.Contains(got[1].Detail, "installed version 21.0.5+11") {
+		t.Fatalf("doctor missed version drift: %+v", got)
+	}
+}
+
+func TestPinResolutionReportsInvalidFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, shim.ProjectVersionFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if got := PinResolution(&stubPinState{}, dir); len(got) != 1 || got[0].Severity != Fail {
+		t.Fatalf("invalid file hidden: %+v", got)
 	}
 }

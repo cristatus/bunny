@@ -1,14 +1,13 @@
 # First-class Java
 
 Bunny is built around the Java workstation. That means multi-vendor JDK support,
-automated build toolchains, runtime version constraints, and pin file
-interoperability.
+automated build toolchains, runtime version constraints, and project pins.
 
 ## Multiple JDKs, multiple vendors
 
 Every JDK package in the catalog declares `provides: jdk`. They share the same
-capability slot, so a project pin (`jdk 21`) matches whichever vendor you have
-installed:
+capability slot, but a bare project pin (`jdk 21`) selects the literal package `jdk-21`.
+Use `jdk corretto-21` to select Corretto:
 
 ```bash
 bunny install jdk-21        # Eclipse Temurin (default)
@@ -23,7 +22,7 @@ bunny run zulu-21 -- -version        # one-off execution without changing the de
 JDK manifests update through the vendor-neutral
 [Foojay Disco API](https://api.foojay.io/). Adding a new vendor or major line
 is a simple manifest entry (`update: {type: foojay, distribution: <vendor>}`).
-All downloads are verified end-to-end with SHA-256 checksums.
+Package sources require SHA-256 or SHA-512 checksums.
 
 ## Build toolchains (Gradle and Maven)
 
@@ -82,12 +81,15 @@ requires: ["jdk>=17"]
 ```
 
 Bunny enforces constraints at two points:
+
 - **Install time**: Refuses installation unless a satisfying JDK is present.
 - **Run time**: Dynamically sets `JAVA_HOME` to a qualifying JDK (preferring the
-  active default, or the newest installed satisfying version).
+  project pin when present, otherwise the active default or the newest installed
+  satisfying version). A missing, incompatible, or changed exact pin fails
+  instead of silently choosing another JDK.
 
 This is not theoretical: the Micronaut CLI ships class files compiled for Java
-25, so its manifest declares `jdk>=25`. With JDK 21 as your default and JDK 25
+25, so its manifest declares `jdk>=25`. Outside a project with a JDK pin, with JDK 21 as your default and JDK 25
 also installed, `mn --version` still runs correctly because bunny launches it
 under 25.
 
@@ -102,3 +104,13 @@ jdk corretto-21     # Amazon Corretto for this tree
 ```
 
 See [Per-project pinning](pinning.md).
+
+A pin applies to the Java environment of Bunny-managed Maven and Gradle as
+well as the direct `java` shim. A tool requiring `jdk>=21` cannot run under a
+project pin for JDK 17: update that project's pin or invoke it from a compatible
+project. Explicit user configuration for `JAVA_HOME` still takes precedence.
+Scripts or IDEs using absolute JDK paths bypass Bunny's shim resolution.
+
+Use `bunny pin --exact jdk corretto-21` to write the installed release, for
+example `jdk corretto-21@21.0.4+7`. The launch fails if that package is upgraded
+to a different release. See [pinning limits](pinning.md#exact-release-pins).

@@ -12,7 +12,9 @@ import (
 	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
+	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/state"
+	"github.com/cristatus/bunny/internal/verparse"
 )
 
 // Prepared captures everything needed to launch a binary. Built by Prepare,
@@ -161,15 +163,32 @@ func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) ([]str
 // package's env (with placeholder expansion). A missing or unreadable
 // dependency is a warning, not a hard stop: launching degraded (against
 // whatever the host provides) is preferable to refusing to run the program at
-// all. `bunny doctor` surfaces unmet requirements for the user to fix.
+// all. Explicit project pins instead fail closed on missing, incompatible, or
+// changed providers. `bunny doctor` surfaces unmet requirements for the user.
 func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string, error) {
 	builder := newEnvBuilder(env)
 	var depRoots []string
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve dependencies: %w", err)
+	}
 	for _, req := range reqs {
 		capability, minMajor, hasMin := manifest.ParseRequirement(req)
 
 		var providerID string
-		if hasMin {
+		pin, err := shim.ResolveProjectVersion(cwd, capability)
+		if err != nil {
+			return nil, nil, err
+		}
+		if pin != nil {
+			if err := pin.CheckInstalled(l.State); err != nil {
+				return nil, nil, err
+			}
+			providerID = pin.PackageID()
+			if hasMin && verparse.MajorInt(l.State.VersionOf(providerID)) < minMajor {
+				return nil, nil, fmt.Errorf("%s %s pinned in %s does not satisfy %s; update the project pin to a compatible provider", capability, pin.Value, pin.Source, req)
+			}
+		} else if hasMin {
 			providerID = l.State.ResolveProviderMin(capability, minMajor)
 		} else {
 			providerID = l.State.ResolveProvider(req)
@@ -181,6 +200,9 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string,
 
 		dep, err := l.Catalog.Load(providerID)
 		if err != nil {
+			if pin != nil {
+				return nil, nil, fmt.Errorf("load pinned dependency %s: %w", providerID, err)
+			}
 			log.Debug("Launching without required dependency env (manifest unavailable)", "requires", req, "provider", providerID, "error", err)
 			continue
 		}

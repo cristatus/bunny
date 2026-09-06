@@ -309,6 +309,7 @@ const bashCompletion = `_bunny() {
     if [[ "$cur" == -* ]]; then
         local flags="__GLOBALS__"
         case "$sub" in
+            pin)          flags="$flags --exact" ;;
             install)      flags="$flags --force -f" ;;
             uninstall)    flags="$flags --purge --yes -y" ;;
             list)         flags="$flags __FILTERS__ --active" ;;
@@ -407,6 +408,7 @@ if [[ $cur == -* ]]; then
     local -a flags
     flags=(__GLOBALS__)
     case $sub in
+        pin) flags+=(--exact) ;;
         install) flags+=(--force -f) ;;
         uninstall) flags+=(--purge --yes -y) ;;
         list) flags+=(__FILTERS__ --active) ;;
@@ -519,6 +521,7 @@ complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcom
 complete -c bunny -f -n '__fish_seen_subcommand_from sandbox; and not __fish_seen_subcommand_from check' -a 'check'
 complete -c bunny -f -n '__fish_seen_subcommand_from sandbox; and __fish_seen_subcommand_from check' -a '(__bunny_installed_ids)'
 # per-subcommand flags
+complete -c bunny -n '__fish_seen_subcommand_from pin' -l exact -d 'Pin the installed exact release'
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d "Also remove the package's data dir"
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -s y -l yes -d 'Skip the --purge confirmation prompt'

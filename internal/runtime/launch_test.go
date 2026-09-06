@@ -339,3 +339,62 @@ func TestMergeDepEnvAppliesConfig(t *testing.T) {
 		t.Errorf("dependency manifest env lost: %v", env)
 	}
 }
+
+// A project pin must govern both the direct JDK shim and tools requiring Java.
+func TestPrepareDependencyHonorsProjectPin(t *testing.T) {
+	for _, tc := range []struct{ name, pin, req, want, err string }{
+		{name: "bare pin", pin: "17", req: "jdk", want: "jdk-17"},
+		{name: "vendor pin", pin: "corretto-17", req: "jdk>=11", want: "corretto-17"},
+		{name: "exact pin", pin: "corretto-17@17.0.12+7", req: "jdk>=17", want: "corretto-17"},
+		{name: "missing pin", pin: "19", req: "jdk", err: "not installed"},
+		{name: "wrong capability", pin: "node-22", req: "jdk", err: "does not provide jdk"},
+		{name: "incompatible minimum", pin: "17", req: "jdk>=21", err: "does not satisfy jdk>=21"},
+		{name: "upgraded release", pin: "corretto-17@17.0.11+9", req: "jdk", err: "installed version 17.0.12+7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			project := t.TempDir()
+			if err := os.WriteFile(filepath.Join(project, ".bunny-version"), []byte("jdk "+tc.pin+"\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			child := filepath.Join(project, "subproject")
+			if err := os.Mkdir(child, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(child, ".bunny-version"), []byte("node 22\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			t.Chdir(child)
+			st := state.Empty()
+			st.SetInstalled("jdk-17", "17.0.12+7", "jdk", "sdk", "")
+			st.SetInstalled("corretto-17", "17.0.12+7", "jdk", "sdk", "")
+			st.SetInstalled("jdk-21", "21.0.4+7", "jdk", "sdk", "")
+			st.SetInstalled("node-22", "22.0.0", "node", "sdk", "")
+			if err := st.SetProvider("jdk", "jdk-21"); err != nil {
+				t.Fatal(err)
+			}
+			l := &Launcher{Paths: paths.At(root).WithLayout(nil, st.Location), State: st, Catalog: reqCat{envs: map[string]map[string]string{
+				"jdk-17": {"JAVA_HOME": "{app}"}, "corretto-17": {"JAVA_HOME": "{app}"}, "jdk-21": {"JAVA_HOME": "{app}"},
+			}}}
+			for _, tool := range []string{"maven", "gradle"} {
+				prep, err := l.Prepare(&manifest.Manifest{ID: tool, Version: "1.0", Requires: []string{tc.req}, Bin: []manifest.Binary{{Name: tool, Path: "{app}/bin/tool"}}}, "", nil)
+				if tc.err != "" {
+					if err == nil || !strings.Contains(err.Error(), tc.err) {
+						t.Fatalf("%s: expected %q, got %v", tool, tc.err, err)
+					}
+					continue
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantHome := filepath.Join(root, "sdk", tc.want)
+				if !envHas(prep.Env, "JAVA_HOME="+wantHome) {
+					t.Fatalf("%s did not use pinned JAVA_HOME %s", tool, wantHome)
+				}
+				if len(prep.DepRoots) != 1 || prep.DepRoots[0] != wantHome {
+					t.Fatalf("sandbox dependency roots = %v", prep.DepRoots)
+				}
+			}
+		})
+	}
+}

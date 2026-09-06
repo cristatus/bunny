@@ -130,16 +130,15 @@ func TestResolveProjectVersionNoFile(t *testing.T) {
 	}
 }
 
-func TestResolveProjectVersionSkipsUnreadablePin(t *testing.T) {
+func TestResolveProjectVersionRejectsUnreadablePin(t *testing.T) {
 	dir := t.TempDir()
-	// A .bunny-version that is a directory can't be read as a file. It must be
-	// skipped rather than breaking every shimmed command run from here.
+	// An unreadable pin must never silently fall back to the global toolchain.
 	if err := os.Mkdir(filepath.Join(dir, ProjectVersionFile), 0755); err != nil {
 		t.Fatal(err)
 	}
 	r, err := ResolveProjectVersion(dir, "node")
-	if err != nil {
-		t.Fatalf("unreadable pin should be skipped, not error: %v", err)
+	if err == nil {
+		t.Fatal("unreadable pin must fail")
 	}
 	if r != nil {
 		t.Errorf("expected no pin, got %+v", r)
@@ -237,8 +236,41 @@ func TestPinPackageID(t *testing.T) {
 }
 
 func TestParseBunnyVersionLiteral(t *testing.T) {
-	got := parseBunnyVersion("jdk 21\nnode 20\n# c\n")
+	got, err := parseBunnyVersion("jdk 21\nnode 20\n# c\n")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got["jdk"] != "21" || got["node"] != "20" {
 		t.Errorf("got %v, want jdk=21 node=20", got)
+	}
+}
+
+func TestInvalidProjectPinsFailClosed(t *testing.T) {
+	for _, content := range []string{"jdk\n", "jdk 17 extra\n", "jdk 17\njdk 21\n", "jdk corretto-21@\n", "jdk corretto-21@21@22\n", "jdk ../escape\n"} {
+		t.Run(content, func(t *testing.T) {
+			dir := t.TempDir()
+			writeFile(t, dir, ProjectVersionFile, content)
+			if _, err := ResolveProjectVersion(dir, "jdk"); err == nil {
+				t.Fatal("malformed pin must not fall back")
+			}
+		})
+	}
+}
+
+func TestExactPinRoundTripPreservesOtherPins(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ProjectVersionFile, "# tools\nnode 22 # shared\njdk 21\n")
+	if err := WriteProjectVersion(dir, "jdk", "corretto-21@21.0.4+7"); err != nil {
+		t.Fatal(err)
+	}
+	pin, err := ResolveProjectVersion(dir, "jdk")
+	if err != nil || pin.PackageID() != "corretto-21" || pin.ExactVersion() != "21.0.4+7" {
+		t.Fatalf("exact pin: %+v, %v", pin, err)
+	}
+	if data := readFile(t, filepath.Join(dir, ProjectVersionFile)); !strings.Contains(data, "node 22 # shared") || !strings.Contains(data, "# tools") {
+		t.Fatalf("lost unrelated content: %s", data)
+	}
+	if err := WriteProjectVersion(dir, "jdk", "21\nnode 24"); err == nil {
+		t.Fatal("newline injection must fail")
 	}
 }

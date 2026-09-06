@@ -27,7 +27,7 @@ var executable = os.Executable
 
 // PinState is the slice of state.State PinResolution needs.
 type PinState interface {
-	IsInstalled(id string) bool
+	shim.PinState
 }
 
 // Severity classifies a check outcome.
@@ -380,7 +380,10 @@ func gpuCheck() Result {
 // when no pin file is found — `bunny doctor` then stays silent on pinning.
 func PinResolution(state PinState, cwd string) []Result {
 	pins, source, err := shim.ResolveAllPins(cwd)
-	if err != nil || pins == nil {
+	if err != nil {
+		return []Result{{Name: ".bunny-version", Detail: err.Error(), Severity: Fail}}
+	}
+	if pins == nil {
 		return nil
 	}
 	out := []Result{
@@ -389,16 +392,21 @@ func PinResolution(state PinState, cwd string) []Result {
 	caps := slices.Sorted(maps.Keys(pins))
 	for _, cap := range caps {
 		ver := pins[cap]
-		candidate := cap + "-" + ver
+		pin := shim.ProjectPin{Capability: cap, Value: ver, Source: source}
+		candidate := pin.PackageID()
 		name := "Pin (" + cap + ")"
-		if state.IsInstalled(candidate) {
+		if err := pin.CheckInstalled(state); err == nil {
 			out = append(out, Result{Name: name, Detail: fmt.Sprintf("%s → %s", ver, candidate), Severity: OK})
 		} else {
+			fix := "update the project pin or restore the requested release"
+			if !state.IsInstalled(candidate) {
+				fix = "bunny install " + candidate
+			}
 			out = append(out, Result{
 				Name:     name,
-				Detail:   fmt.Sprintf("%s → %s not installed", ver, candidate),
+				Detail:   err.Error(),
 				Severity: Fail,
-				Fix:      "bunny install " + candidate,
+				Fix:      fix,
 			})
 		}
 	}

@@ -8,9 +8,15 @@ import (
 
 // State is the small slice of state.State the resolver needs.
 type State interface {
+	PinState
 	CommandOwner(name string) (string, bool)
+}
+
+// PinState is the installed package metadata needed to enforce a project pin.
+type PinState interface {
 	IsInstalled(id string) bool
 	ProvidesOf(id string) string
+	VersionOf(id string) string
 }
 
 // Catalog is the small slice of catalog.Loader the resolver needs.
@@ -65,21 +71,11 @@ func (r *Resolver) Resolve(name, cwd string) (*Resolved, error) {
 		return &Resolved{PackageID: owner, Source: "default"}, nil
 	}
 
-	candidate := pinned.PackageID()
-	switch {
-	case !r.State.IsInstalled(candidate):
-		return nil, fmt.Errorf(
-			"%s %s pinned in %s, but %s is not installed\nhint: bunny install %s",
-			m.Provides, pinned.Value, pinned.Source, candidate, candidate,
-		)
-	case r.State.ProvidesOf(candidate) != m.Provides:
-		return nil, fmt.Errorf(
-			"%s %s pinned in %s, but %s does not provide %s\nhint: pin a package that does, or a bare version",
-			m.Provides, pinned.Value, pinned.Source, candidate, m.Provides,
-		)
+	if err := pinned.CheckInstalled(r.State); err != nil {
+		return nil, err
 	}
 	return &Resolved{
-		PackageID: candidate,
+		PackageID: pinned.PackageID(),
 		Source:    fmt.Sprintf(".bunny-version (%s)", pinned.Source),
 	}, nil
 }

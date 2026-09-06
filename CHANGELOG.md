@@ -9,6 +9,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `bunny pin --exact` records an installed release as `package@version`.
+  Direct shims, dependent tools, and global commands reject release drift.
+  Exact pins guard launches; they do not fetch historical releases or add
+  side-by-side patch installations.
 - Dedicated sandbox acceptance CI and `make test-sandbox`, with mandatory
   helpers, a private session bus, and real namespace/network/overlay tests.
 - Hardened sandbox boundary (`boundary: hardened`): a deny-by-default,
@@ -114,9 +118,13 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
 
 ### Fixed
 
+- Maven, Gradle, and other packages resolve project pins for their runtime
+  dependencies. Incompatible pinned JDKs fail instead of using a global JDK.
 - Sandbox acceptance probes use the current CLI and require payload execution
   when testing D-Bus filtering; home-isolation tests use an actual secret marker.
 - Maven toolchain XML escapes installation paths, vendor names, and versions.
+- Pin creation and doctor diagnostics honor vendor package IDs and exact
+  releases. Malformed/unreadable pins fail closed; pin writes are atomic.
 
 - A hardened sandbox with `net: host` could not resolve DNS. The baseline's
   private `/run` masked `/run/systemd/resolve`, and `/etc/resolv.conf` is a

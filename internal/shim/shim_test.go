@@ -92,6 +92,7 @@ type stubState struct {
 	owner     map[string]string
 	installed map[string]bool
 	provides  map[string]string // package id -> capability
+	versions  map[string]string
 }
 
 func (s *stubState) CommandOwner(name string) (string, bool) {
@@ -99,6 +100,7 @@ func (s *stubState) CommandOwner(name string) (string, bool) {
 	return v, ok
 }
 func (s *stubState) IsInstalled(id string) bool { return s.installed[id] }
+func (s *stubState) VersionOf(id string) string { return s.versions[id] }
 
 // ProvidesOf defaults to the `<capability>-<version>` convention when the test
 // does not say otherwise, so existing cases keep their meaning.
@@ -338,5 +340,21 @@ func TestShimsStayOwnedWhenRunFromAnotherBinary(t *testing.T) {
 	}
 	if err := Remove(binDir, []string{"node"}, running); err != nil {
 		t.Fatalf("removing shims from another binary should work: %v", err)
+	}
+}
+
+func TestResolverExactPinRejectsVersionDrift(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteProjectVersion(dir, "jdk", "corretto-21@21.0.4+7"); err != nil {
+		t.Fatal(err)
+	}
+	st := &stubState{owner: map[string]string{"java": "jdk-21"}, installed: map[string]bool{"corretto-21": true}, provides: map[string]string{"corretto-21": "jdk"}, versions: map[string]string{"corretto-21": "21.0.4+7"}}
+	r := &Resolver{State: st, Catalog: &stubCatalog{manifests: map[string]*manifest.Manifest{"jdk-21": {ID: "jdk-21", Provides: "jdk"}}}}
+	if got, err := r.Resolve("java", dir); err != nil || got.PackageID != "corretto-21" {
+		t.Fatalf("matching exact pin: %+v, %v", got, err)
+	}
+	st.versions["corretto-21"] = "21.0.5+11"
+	if _, err := r.Resolve("java", dir); err == nil || !strings.Contains(err.Error(), "installed version 21.0.5+11") {
+		t.Fatalf("upgrade must invalidate exact pin: %v", err)
 	}
 }

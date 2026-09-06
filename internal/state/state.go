@@ -420,6 +420,9 @@ func (s *State) GlobalCommandNames() []string {
 // the package is absent or declares none.
 func (s *State) ProvidesOf(id string) string { return s.Packages[id].Provides }
 
+// VersionOf returns the installed release, not a catalog's potentially newer version.
+func (s *State) VersionOf(id string) string { return s.Packages[id].Version }
+
 func (s *State) IsInstalled(id string) bool {
 	_, ok := s.Packages[id]
 	return ok

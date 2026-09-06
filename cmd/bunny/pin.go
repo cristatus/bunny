@@ -14,7 +14,8 @@ import (
 // capability resolves to a specific version in this directory tree.
 type PinCmd struct {
 	Capability string `arg:"" help:"Capability to pin (e.g. node, jdk)"`
-	Version    string `arg:"" help:"Version (e.g. 22) or a package id (e.g. corretto-21)"`
+	Version    string `arg:"" help:"Version (22) or package ID (corretto-21), optionally with @release"`
+	Exact      bool   `help:"Pin the installed package's exact release; fail on version drift"`
 }
 
 func (c *PinCmd) Run(a *App) error {
@@ -22,16 +23,29 @@ func (c *PinCmd) Run(a *App) error {
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
-	if err := shim.WriteProjectVersion(cwd, c.Capability, c.Version); err != nil {
+	pin := shim.ProjectPin{Capability: c.Capability, Value: c.Version, Source: filepath.Join(cwd, shim.ProjectVersionFile)}
+	if err := pin.Validate(); err != nil {
+		return err
+	}
+	if c.Exact {
+		if err := pin.CheckInstalled(a.State); err != nil {
+			return err
+		}
+		pin.Value = pin.PackageID() + "@" + a.State.VersionOf(pin.PackageID())
+	} else if a.State.IsInstalled(pin.PackageID()) {
+		if err := pin.CheckInstalled(a.State); err != nil {
+			return err
+		}
+	}
+	if err := shim.WriteProjectVersion(cwd, c.Capability, pin.Value); err != nil {
 		return fmt.Errorf("write pin: %w", err)
 	}
-	log.Info("Pinned", "capability", c.Capability, "version", c.Version,
+	log.Info("Pinned", "capability", c.Capability, "version", pin.Value,
 		"file", filepath.Join(cwd, shim.ProjectVersionFile))
 	p := a.status()
 	p.Println()
-	p.Print(pinConfirmation(c.Capability, c.Version))
-	// The pin resolves to "<capability>-<version>"; warn if it isn't installed.
-	if candidate := c.Capability + "-" + c.Version; !a.State.IsInstalled(candidate) {
+	p.Print(pinConfirmation(c.Capability, pin.Value))
+	if candidate := pin.PackageID(); !a.State.IsInstalled(candidate) {
 		log.Warn("pinned version is not installed", "package", candidate)
 	}
 	return nil
