@@ -18,8 +18,13 @@ tarball**, downloaded once and run directly:
   (currently pnpm). npm comes with Node and is managed through it.
 - **Editors / IDEs targeting the above**: IntelliJ IDEA, Eclipse, NetBeans,
   VS Code, Cursor, Zed, and Neovim.
-- **General-purpose CLI tools**: Ubiquitous utilities including ripgrep, fd, bat,
-  fzf, jq, gh, lazygit, delta, and eza.
+- **General-purpose CLI tools**: Ubiquitous single-binary utilities — search and
+  file navigation (ripgrep, fd, fzf, bat, eza, broot), Git and forge clients
+  (lazygit, delta, difftastic, gh, glab), text and data wrangling (jq, yq, sd),
+  system inspection (bottom, procs, duf, dust, hyperfine), shell linters
+  (shellcheck, shfmt), command runners and docs (just, tealdeer), and terminal
+  environment tools (starship, zoxide, atuin, zellij). A prompt or a
+  multiplexer is a binary bunny installs, not a shell bunny manages.
 - **AI coding agents**: Terminal agents (Claude Code, Codex CLI, opencode, pi,
   Antigravity) and the desktop apps that drive them (Claude Desktop, ChatGPT,
   GitHub Copilot, Antigravity) — tools pointed at a project, the same grounds
@@ -31,13 +36,18 @@ tarball**, downloaded once and run directly:
 
 - **npm-installed JS tooling**: Prettier, ESLint, TypeScript, Biome, Vite,
   webpack. These belong in `package.json` and run via `npx` or package scripts.
-- **Yarn standalone**: Corepack (shipped with Node) handles Yarn versioning.
+- **Yarn standalone**: Yarn publishes no standalone binary; its releases are
+  JavaScript bundles that need a Node runtime. Yarn also versions itself per
+  project — `yarn set version` writes `.yarn/releases` and pins it in
+  `.yarnrc.yml` — so a bunny-managed Yarn would compete with the project's own.
 - **Desktop applications**: Browsers, media players, and chat apps that aren't
   a coding assistant belong in Flatpak or distribution packages. AI coding
   agents (terminal and desktop) are the exception — see above.
 - **Toolchains outside JVM/Node**: Polyglot ecosystems outside JVM and Node are
   already well-served by mise, asdf, and language-specific tools.
-- **Operating systems other than Linux**: Bunny is built for Linux (`x86_64`).
+- **Operating systems other than Linux**: macOS and Windows ports are not
+  planned. Linux releases are built for `x86_64`; another Linux architecture
+  is a build target rather than a change of scope.
 - **Replacing system package managers**: `apt`, `dnf`, and `pacman` continue to
   manage system packages and libraries.
 - **VM-equivalent isolation**: the opt-in [per-package sandbox](docs/sandbox.md)
@@ -59,6 +69,13 @@ Explicit architectural non-goals:
   their own modules.
 - **Fleet management, telemetry, and signed catalog servers**: Out of scope for
   a workstation tool.
+- **Reading other tools' pin files**: `.tool-versions`, `.sdkmanrc`, and
+  `.java-version` encode a vendor and patch level bunny cannot honor, so a
+  shared pin file silently diverges from what it asked for. `.bunny-version`
+  is the only format read, and `bunny pin` writes it.
+- **Unofficial upstream sources**: update checks follow the project's own
+  releases, checksums, and metadata endpoints. Community redistributions such
+  as the AUR are not consulted, however convenient their version feeds are.
 
 ## How to influence this
 
