@@ -7,6 +7,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-08
+
 ### Added
 
 - `bunny pin --exact` records an installed release as `package@version`.
@@ -94,6 +96,10 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
   inherited restrictions.
 - A `hide` path that does not exist is now a launch error rather than being
   silently skipped.
+- `bunny sandbox check`, `bunny run --explain`, and `bunny dev validate` print
+  through the same renderer as every other result: color on a terminal, none
+  in a pipe, columns sized to their contents, and the check glyphs
+  `bunny doctor` uses.
 - **Breaking:** the `online-cli` profile is gone and `offline-cli` is now
   `offline`. The built-ins each cover one axis — `desktop` for device
   integration, `offline` for the network, `ephemeral`/`clean` for the home,
@@ -127,7 +133,12 @@ See [Sandboxing](docs/sandbox.md) for the full model and trust boundary.
   releases. Malformed/unreadable pins fail closed; pin writes are atomic.
 - Installer version-selection example passes `BUNNY_VERSION` to the installer
   shell. Java/vendor guidance and competitor comparisons reflect actual behavior.
-
+- `bunny update --apply` with nothing to install now answers that the packages
+  are up to date instead of reporting "updated 0 packages", and naming a
+  package that is not installed prints only the error.
+- Shell completion: `bunny search` completes past its first term in bash and
+  zsh, the short flags complete alongside their long forms, and
+  `--sandbox-profile` and `--command` complete their values.
 - A hardened sandbox with `net: host` could not resolve DNS. The baseline's
   private `/run` masked `/run/systemd/resolve`, and `/etc/resolv.conf` is a
   symlink into it, so every name lookup failed with the network otherwise
@@ -399,7 +410,8 @@ Initial public release.
   validation.
 - Install-time `prepare:` steps isolated via Bubblewrap where required.
 
-[Unreleased]: https://github.com/cristatus/bunny/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/cristatus/bunny/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/cristatus/bunny/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/cristatus/bunny/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cristatus/bunny/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/cristatus/bunny/compare/v0.2.0...v0.3.0

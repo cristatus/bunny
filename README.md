@@ -53,7 +53,7 @@ code .
 To install a specific version of Bunny, pass the version to the shell running the installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | BUNNY_VERSION=v0.5.0 sh
+curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | BUNNY_VERSION=v0.6.0 sh
 ```
 
 Bunny itself is a single binary. Package preparation requires **bubblewrap**
