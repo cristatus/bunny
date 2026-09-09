@@ -415,6 +415,11 @@ func (s *State) GlobalCommandNames() []string {
 	return slices.Sorted(maps.Keys(s.GlobalCommands))
 }
 
+// CommandNames returns sorted manifest-declared (bin:) command names.
+func (s *State) CommandNames() []string {
+	return slices.Sorted(maps.Keys(s.Commands))
+}
+
 // IsInstalled returns true if the package is recorded as installed.
 // ProvidesOf returns the capability an installed package declares, or "" when
 // the package is absent or declares none.

@@ -413,6 +413,47 @@ func PinResolution(state PinState, cwd string) []Result {
 	return out
 }
 
+// ShimOwnershipState is the slice of state.State ShimOwnershipCheck needs.
+type ShimOwnershipState interface {
+	CommandNames() []string
+	GlobalCommandNames() []string
+}
+
+// ShimOwnershipCheck reports command names bunny's state says it manages
+// that are actually occupied by a file it cannot prove it created — another
+// tool's install script (e.g. corepack) having overwritten the shim being
+// the common case. Unlike shimsCheck, which only catches a shim that
+// vanished, this catches one that is still present but foreign, which is
+// exactly what makes `bunny update`/`bunny reshim` keep failing on it until
+// the user manually clears the name.
+func ShimOwnershipCheck(p *paths.Paths, s ShimOwnershipState) Result {
+	const name = "Shim ownership"
+	bunnyPath, err := shim.BunnyBinaryPath(p.Bin())
+	if err != nil {
+		return Result{Name: name, Detail: "cannot determine the running binary: " + err.Error(), Severity: Warn}
+	}
+	names := slices.Concat(s.CommandNames(), s.GlobalCommandNames())
+	if len(names) == 0 {
+		return Result{Name: name, Detail: "no managed commands yet", Severity: OK}
+	}
+	slices.Sort(names)
+	var conflicts []string
+	for _, n := range slices.Compact(names) {
+		if err := shim.CheckOwnership(p.Bin(), n, bunnyPath); err != nil {
+			conflicts = append(conflicts, n)
+		}
+	}
+	if len(conflicts) == 0 {
+		return Result{Name: name, Detail: fmt.Sprintf("%d managed command(s) resolve to bunny", len(names)), Severity: OK}
+	}
+	return Result{
+		Name:     name,
+		Detail:   fmt.Sprintf("%d occupied by another tool: %s", len(conflicts), strings.Join(conflicts, ", ")),
+		Severity: Fail,
+		Fix:      "remove or rename the listed file(s) in " + tilde(p.Bin()) + ", then re-run bunny update or bunny reshim",
+	}
+}
+
 func shimsCheck(p *paths.Paths) Result {
 	entries, err := os.ReadDir(p.Bin())
 	if err != nil {

@@ -110,7 +110,7 @@ func ownedTarget(path, bunnyPath string) (string, error) {
 		return "", fmt.Errorf("inspect %s: %w", path, err)
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
-		return "", fmt.Errorf("%s is not a bunny shim (regular file)", path)
+		return "", notOwnedErr(path, "regular file")
 	}
 	target, err := os.Readlink(path)
 	if err != nil {
@@ -129,12 +129,30 @@ func ownedTarget(path, bunnyPath string) (string, error) {
 		if bunnyResolved, err := filepath.EvalSymlinks(bunnyPath); err == nil && resolved == bunnyResolved {
 			return target, nil
 		}
-		return "", fmt.Errorf("%s is not a bunny shim (points to %s)", path, resolved)
+		return "", notOwnedErr(path, "points to "+resolved)
 	}
 	if filepath.Base(target) == ReservedName {
 		return target, nil
 	}
-	return "", fmt.Errorf("%s is not a bunny shim (dangling link to %s)", path, target)
+	return "", notOwnedErr(path, "dangling link to "+target)
+}
+
+// notOwnedErr reports a file at path that Bunny cannot prove it owns, with
+// the reason and the remedy every caller (an Install/Remove refusal, or
+// doctor's CheckOwnership) should surface identically.
+func notOwnedErr(path, reason string) error {
+	return fmt.Errorf("%s is not a bunny shim (%s); remove or rename it, then retry", path, reason)
+}
+
+// CheckOwnership reports whether binDir/name is either absent or a shim
+// Bunny can prove it owns. It returns the same descriptive error ownedTarget
+// would raise on an Install/Remove for a foreign file at that name, without
+// touching the filesystem — used by `bunny doctor` to surface a name
+// conflict (e.g. another tool's install script overwriting a shim) before it
+// next breaks an update or reshim.
+func CheckOwnership(binDir, name, bunnyPath string) error {
+	_, err := ownedTarget(filepath.Join(binDir, name), bunnyPath)
+	return err
 }
 
 // Difference returns the names in `from` that are not in `keep`. It computes

@@ -114,6 +114,59 @@ func TestShimsCheck(t *testing.T) {
 	}
 }
 
+type stubShimState struct {
+	commands, global []string
+}
+
+func (s *stubShimState) CommandNames() []string       { return s.commands }
+func (s *stubShimState) GlobalCommandNames() []string { return s.global }
+
+func TestShimOwnershipCheckAllOwnedIsOK(t *testing.T) {
+	root := t.TempDir()
+	p := paths.At(root)
+	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	bunny := filepath.Join(p.Bin(), "bunny")
+	os.WriteFile(bunny, []byte{}, 0755)
+	os.Symlink(bunny, filepath.Join(p.Bin(), "node"))
+
+	r := ShimOwnershipCheck(p, &stubShimState{commands: []string{"node"}})
+	if r.Severity != OK {
+		t.Errorf("expected OK, got %+v", r)
+	}
+}
+
+// A foreign symlink occupying a name Bunny's state says it manages — e.g.
+// corepack's own install script overwriting the pnpm shim — is exactly the
+// case shimsCheck cannot see, since the name still resolves; it's just not
+// resolving to Bunny.
+func TestShimOwnershipCheckDetectsForeignFile(t *testing.T) {
+	root := t.TempDir()
+	p := paths.At(root)
+	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	bunny := filepath.Join(p.Bin(), "bunny")
+	os.WriteFile(bunny, []byte{}, 0755)
+	os.Symlink(bunny, filepath.Join(p.Bin(), "node"))
+
+	foreign := filepath.Join(root, "corepack-pnpm")
+	os.WriteFile(foreign, []byte{}, 0755)
+	os.Symlink(foreign, filepath.Join(p.Bin(), "pnpm"))
+
+	r := ShimOwnershipCheck(p, &stubShimState{commands: []string{"node"}, global: []string{"pnpm"}})
+	if r.Severity != Fail {
+		t.Fatalf("expected Fail, got %+v", r)
+	}
+	if !strings.Contains(r.Detail, "pnpm") {
+		t.Errorf("expected detail to name pnpm, got %q", r.Detail)
+	}
+	if r.Fix == "" {
+		t.Error("expected a Fix suggestion")
+	}
+}
+
 // withExecutable points the check at a binary of the test's choosing.
 func withExecutable(t *testing.T, path string) {
 	t.Helper()
