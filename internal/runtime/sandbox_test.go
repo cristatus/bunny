@@ -500,7 +500,7 @@ func TestExplainReportsDirectRunWhenNotSandboxed(t *testing.T) {
 		Vars:     map[string]string{"data": t.TempDir()},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
-	out, err := Explain(p, &config.Config{}, false, "", plainPrinter())
+	out, err := Explain(p, &config.Config{}, ActivationDefault, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +518,7 @@ func TestExplainReportsSandboxPlanWhenForced(t *testing.T) {
 		Vars:     map[string]string{"data": t.TempDir()},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
-	out, err := Explain(p, &config.Config{}, true, "", plainPrinter())
+	out, err := Explain(p, &config.Config{}, ActivationForced, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -540,12 +540,40 @@ func TestExplainReportsSandboxPlanWhenAlwaysActivated(t *testing.T) {
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{"claude": {}}}}
-	out, err := Explain(p, cfg, false, "", plainPrinter())
+	out, err := Explain(p, cfg, ActivationDefault, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out, "runs directly") {
 		t.Errorf("always-activated package must report the full plan, got: %s", out)
+	}
+}
+
+// --no-sandbox has to report itself honestly in both directions: it skipped
+// a real policy, or the package had none and the flag changed nothing. A
+// reader debugging a launch needs to know which of the two happened.
+func TestExplainReportsTheBypass(t *testing.T) {
+	p := &Prepared{
+		Manifest: &manifest.Manifest{ID: "code"},
+		BinPath:  "/opt/vscode/code",
+		Vars:     map[string]string{"data": t.TempDir()},
+		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
+	}
+	armed := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{"code": {}}}}
+	out, err := Explain(p, armed, ActivationBypassed, "", plainPrinter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "runs directly") || !strings.Contains(out, "skips its configured policy") {
+		t.Errorf("a bypassed policy must be reported as skipped: %s", out)
+	}
+
+	out, err = Explain(p, &config.Config{}, ActivationBypassed, "", plainPrinter())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "changes nothing") {
+		t.Errorf("a bypass with no policy to skip must say so: %s", out)
 	}
 }
 

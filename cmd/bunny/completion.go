@@ -314,7 +314,7 @@ const bashCompletion = `_bunny() {
             uninstall)    flags="$flags --purge --yes -y" ;;
             list)         flags="$flags __FILTERS__ --active" ;;
             search)       flags="$flags __FILTERS__ --installed --available" ;;
-			run)          flags="$flags --command -c --sandbox --sandbox-profile --explain" ;;
+			run)          flags="$flags --command -c --sandbox --no-sandbox --sandbox-profile --explain" ;;
 			sandbox)      flags="$flags --command -c --profile" ;;
             setup)        flags="$flags --shell" ;;
             update)       flags="$flags --apply" ;;
@@ -413,7 +413,7 @@ if [[ $cur == -* ]]; then
         uninstall) flags+=(--purge --yes -y) ;;
         list) flags+=(__FILTERS__ --active) ;;
         search) flags+=(__FILTERS__ --installed --available) ;;
-		run) flags+=(--command -c --sandbox --sandbox-profile --explain) ;;
+		run) flags+=(--command -c --sandbox --no-sandbox --sandbox-profile --explain) ;;
 		sandbox) flags+=(--command -c --profile) ;;
         setup) flags+=(--shell) ;;
         update) flags+=(--apply) ;;
@@ -533,6 +533,7 @@ complete -c bunny -n '__fish_seen_subcommand_from search' -l installed -d 'Show 
 complete -c bunny -n '__fish_seen_subcommand_from search' -l available -d 'Show only packages that are not installed'
 complete -c bunny -n '__fish_seen_subcommand_from run' -s c -l command -r -f -a '(__bunny_run_binaries)' -d 'Specific command to run'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox -d 'Force the sandbox policy for this launch even if not configured'
+complete -c bunny -n '__fish_seen_subcommand_from run' -l no-sandbox -d 'Skip the configured sandbox policy for this launch'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox-profile -r -f -a '(__bunny_profiles)' -d 'Override the configured sandbox profile for this launch'
 complete -c bunny -n '__fish_seen_subcommand_from run' -l explain -d 'Print what this launch would do without launching'
 complete -c bunny -n '__fish_seen_subcommand_from sandbox; and __fish_seen_subcommand_from check' -s c -l command -r -f -d 'Specific command to resolve'

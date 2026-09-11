@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/alecthomas/kong"
+
+	"github.com/cristatus/bunny/internal/runtime"
 )
 
 func TestRunCommandParsesPackageCommandAndArgs(t *testing.T) {
@@ -117,6 +119,64 @@ func TestRunCommandForcesSandboxAndExplain(t *testing.T) {
 	}
 	if !cli.Run.Sandbox || cli.Run.SandboxProfile != "offline" || !cli.Run.Explain || cli.Run.ID != "node" {
 		t.Fatalf("unexpected run command: %+v", cli.Run)
+	}
+}
+
+// The point of --no-sandbox is answering "is the sandbox what broke this?"
+// without editing config.yaml, so it has to resolve to the direct path even
+// for a package sandbox.packages arms.
+func TestRunCommandBypassesTheSandbox(t *testing.T) {
+	var cli CLI
+	parser, err := kong.New(&cli, kong.Name("bunny"), kong.Exit(func(int) {}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse([]string{"run", "--no-sandbox", "code"}); err != nil {
+		t.Fatal(err)
+	}
+	activation, err := cli.Run.activation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activation != runtime.ActivationBypassed {
+		t.Fatalf("--no-sandbox must bypass the policy, got %v", activation)
+	}
+}
+
+// Asking for the policy and for no policy at once has no defensible reading;
+// resolving it by precedence would mean one of the two flags silently does
+// nothing.
+func TestRunCommandRejectsConflictingSandboxFlags(t *testing.T) {
+	for _, args := range [][]string{
+		{"run", "--no-sandbox", "--sandbox", "code"},
+		{"run", "--no-sandbox", "--sandbox-profile", "offline", "code"},
+	} {
+		var cli CLI
+		parser, err := kong.New(&cli, kong.Name("bunny"), kong.Exit(func(int) {}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := parser.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := cli.Run.activation(); err == nil {
+			t.Errorf("%v must be refused", args)
+		}
+	}
+}
+
+// Without the flag nothing changes: the package's own entry decides.
+func TestRunCommandDefaultsToConfiguredActivation(t *testing.T) {
+	var cli CLI
+	parser, err := kong.New(&cli, kong.Name("bunny"), kong.Exit(func(int) {}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse([]string{"run", "code"}); err != nil {
+		t.Fatal(err)
+	}
+	if activation, err := cli.Run.activation(); err != nil || activation != runtime.ActivationDefault {
+		t.Fatalf("plain run must leave activation to the config: %v, %v", activation, err)
 	}
 }
 

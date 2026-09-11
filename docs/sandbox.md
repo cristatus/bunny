@@ -93,14 +93,22 @@ That one sentence is the whole activation model. There is no global enable
 switch and no activation field: presence under `packages:` is what makes the
 sandbox apply to ordinary launches.
 
-| Package configuration | Normal shim / `bunny run` | `bunny run --sandbox <id>` |
-| --- | --- | --- |
-| No `packages:` entry | Direct | Sandboxed |
-| `<id>: {}` | Sandboxed | Sandboxed |
-| `<id>: {profile: ...}` | Sandboxed | Sandboxed |
+| Package configuration | Normal shim / `bunny run` | `bunny run --sandbox <id>` | `bunny run --no-sandbox <id>` |
+| --- | --- | --- | --- |
+| No `packages:` entry | Direct | Sandboxed | Direct |
+| `<id>: {}` | Sandboxed | Sandboxed | Direct |
+| `<id>: {profile: ...}` | Sandboxed | Sandboxed | Direct |
 
 An empty package entry is useful on its own: it accepts the built-in defaults
 without copying them into your config.
+
+`--no-sandbox` is the counterpart to `--sandbox`, and the first thing to
+reach for when a sandboxed package misbehaves: it skips the policy for one
+launch, so "is the sandbox what broke this?" is one command rather than an
+edit to `config.yaml` and an edit back. It removes bunny's own layer only —
+a launch inside an enclosing sandbox stays inside it, because that boundary
+belongs to the process, not to this flag. Combining it with `--sandbox` or
+`--sandbox-profile` is refused rather than resolved by precedence.
 
 `profiles:` exists for the policy you do *not* want automatic. A named profile
 that no package selects is inert until you ask for it:

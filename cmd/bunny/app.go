@@ -298,16 +298,16 @@ func (a *App) installedCatalog() catalog.Loader {
 // run executes a package's binary. command="" runs the first one. Used by
 // both `bunny run` and the shim dispatch path.
 func (a *App) run(id, command string, args []string) error {
-	return a.runPackage(id, command, args, false, "", false)
+	return a.runPackage(id, command, args, runtime.ActivationDefault, "", false)
 }
 
 // runPackage prepares and launches a package, or explains what that launch
-// would do instead. forceSandbox and profile, from `bunny run --sandbox
-// [--sandbox-profile name]`, override normal activation and the configured
-// profile for this invocation only; explain, from `bunny run --explain`,
-// reports the resolved plan (direct or sandboxed, matching forceSandbox and
-// the package's configured activation) without touching the host.
-func (a *App) runPackage(id, command string, args []string, forceSandbox bool, profile string, explain bool) error {
+// would do instead. activation and profile, from `bunny run --sandbox
+// [--sandbox-profile name]` and `--no-sandbox`, override normal activation
+// and the configured profile for this invocation only; explain, from `bunny
+// run --explain`, reports the resolved plan (direct or sandboxed, matching
+// activation and the package's configured entry) without touching the host.
+func (a *App) runPackage(id, command string, args []string, activation runtime.Activation, profile string, explain bool) error {
 	prep, err := a.preparePackage(id, command, args)
 	if err != nil {
 		return err
@@ -317,15 +317,18 @@ func (a *App) runPackage(id, command string, args []string, forceSandbox bool, p
 		// cannot be built here still has something to report, and the error
 		// keeps the exit status honest.
 		p := ui.New(os.Stdout)
-		out, err := runtime.Explain(prep, a.Config, forceSandbox, profile, p)
+		out, err := runtime.Explain(prep, a.Config, activation, profile, p)
 		if out != "" {
 			p.Println()
 			p.Print(out)
 		}
 		return err
 	}
-	if forceSandbox {
+	switch activation {
+	case runtime.ActivationForced:
 		return runtime.ExecPackageSandboxed(prep, a.Config, profile)
+	case runtime.ActivationBypassed:
+		return runtime.ExecPackageDirect(prep)
 	}
 	return runtime.ExecPackage(prep, a.Config)
 }

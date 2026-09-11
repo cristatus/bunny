@@ -15,9 +15,16 @@ import (
 // directly (no forced sandbox and no configured "always" activation) reports
 // that fact instead of the plan a forced launch would produce, so --explain
 // without --sandbox shows exactly what a plain `bunny run` does.
-func Explain(p *Prepared, cfg *config.Config, forceSandbox bool, profileOverride string, out *ui.Printer) (string, error) {
-	if !forceSandbox && !sandboxActivated(cfg, p.Manifest.ID) {
-		return fmt.Sprintf("%s runs directly: no sandbox policy is active for this launch (add it to sandbox.packages, or pass --sandbox for this launch only)\n", p.Manifest.ID), nil
+func Explain(p *Prepared, cfg *config.Config, activation Activation, profileOverride string, out *ui.Printer) (string, error) {
+	id := p.Manifest.ID
+	activated := sandboxActivated(cfg, id)
+	switch {
+	case activation == ActivationBypassed && activated:
+		return fmt.Sprintf("%s runs directly: --no-sandbox skips its configured policy for this launch; an enclosing sandbox, if any, still applies\n", id), nil
+	case activation == ActivationBypassed:
+		return fmt.Sprintf("%s runs directly: no sandbox policy is active for it, so --no-sandbox changes nothing\n", id), nil
+	case activation != ActivationForced && !activated:
+		return fmt.Sprintf("%s runs directly: no sandbox policy is active for this launch (add it to sandbox.packages, or pass --sandbox for this launch only)\n", id), nil
 	}
 	return ExplainSandbox(p, cfg, profileOverride, out)
 }

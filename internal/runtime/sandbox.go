@@ -1036,6 +1036,29 @@ func inheritedSandboxEnv(env []string, context sandboxContext) []string {
 	return sandboxEnv(env, nil, stringSet(context.DisabledFeatures))
 }
 
+// Activation is what one launch asks of the sandbox before the package's
+// configured activation is consulted. The three states are the whole
+// vocabulary: `bunny run` leaves the config in charge, --sandbox and
+// --sandbox-profile force a policy on, and --no-sandbox forces it off for
+// that launch alone.
+type Activation int
+
+const (
+	ActivationDefault  Activation = iota // sandbox.packages decides
+	ActivationForced                     // --sandbox / --sandbox-profile
+	ActivationBypassed                   // --no-sandbox
+)
+
+// ExecPackageDirect runs a prepared package with no policy of bunny's,
+// whatever sandbox.packages says. It exists so a user can answer "is the
+// sandbox what broke this?" in one command instead of editing the config and
+// putting it back. It leaves no boundary out of an existing one: a launch
+// inside an enclosing sandbox stays inside it, because that boundary belongs
+// to the process, not to this decision.
+func ExecPackageDirect(p *Prepared) error {
+	return directExec(p)
+}
+
 // ExecPackage runs a prepared package directly unless the user explicitly
 // enabled it in sandbox.packages. Sandboxed launches still use syscall.Exec,
 // preserving normal signals and exit status exactly like the direct path.
