@@ -92,8 +92,21 @@ func (p *Printer) Fatal(err error) {
 	os.Exit(1)
 }
 
+// Notice reports something the user needs to know about a command that still
+// succeeded — a policy bunny could not apply as written, say. It goes to the
+// bound writer, and to stderr through the package-level form, because the
+// logger the diagnostics use is silent unless --log-level asks for it: a
+// message the user never sees is the same as no message.
+func (p *Printer) Notice(msg string) {
+	fmt.Fprintln(p.w, p.paint("warning: ", Bold)+msg)
+}
+
 // Fatal is the package-level convenience: report err on stderr and exit 1.
 func Fatal(err error) { New(os.Stderr).Fatal(err) }
+
+// Notice is the package-level convenience: report msg on stderr, without
+// touching stdout, so a report or a piped payload stays clean.
+func Notice(msg string) { New(os.Stderr).Notice(msg) }
 
 // TermWidth returns w's terminal column count, or 0 when w is not a terminal
 // or cannot report a width. Callers treat 0 as "lay out unbounded".

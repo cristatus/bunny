@@ -47,6 +47,10 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 		return explainBlocked(policy, out), err
 	}
 
+	// The same notices a real launch prints: --explain must not be quieter
+	// than the thing it describes.
+	emitNotices(plan)
+
 	hardened := plan.context.Boundary == "hardened"
 	var rows [][3]string
 	add := func(name, level, detail string) { rows = append(rows, [3]string{name, level, detail}) }

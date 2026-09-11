@@ -398,3 +398,37 @@ func TestHardenedWritableCwdJoinsTheWritableRoots(t *testing.T) {
 		t.Error("child home was refused although the project is writable")
 	}
 }
+
+// A hardened launch from the host home drops the default cwd bind, which is
+// correct — binding it back would undo the emptied home — but silent: the
+// package starts with no view of where it was launched and the user only
+// sees whatever the package makes of that. fs.cwd: write refuses the same
+// launch out loud, so the default must at least say something.
+func TestHardenedMaskedCwdIsReported(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	policy := finalized(t, &PackageSandbox{Boundary: "hardened"})
+
+	plan, err := buildSandboxPlan(p, policy, hostHome, hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.notices) != 1 || !strings.Contains(plan.notices[0], hostHome) {
+		t.Fatalf("a working directory left unbound must be reported: %v", plan.notices)
+	}
+	if !strings.Contains(plan.notices[0], "not visible inside the sandbox") {
+		t.Errorf("the notice must say what the user will observe: %q", plan.notices[0])
+	}
+
+	// An ordinary project directory is bound as usual and says nothing.
+	project := filepath.Join(hostHome, "Projects", "app")
+	if err := os.MkdirAll(project, 0755); err != nil {
+		t.Fatal(err)
+	}
+	quiet, err := buildSandboxPlan(p, policy, project, hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quiet.notices) != 0 {
+		t.Errorf("a bound working directory needs no notice: %v", quiet.notices)
+	}
+}

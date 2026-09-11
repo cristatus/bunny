@@ -75,8 +75,17 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	// baseline hid, so the default read simply leaves it masked rather than
 	// binding it back.
 	cwdEscapes := grantEscapesBaseline(resolveReal(env.cwd), roots)
-	if policy.FS.Cwd == "read" && !cwdEscapes {
+	switch {
+	case policy.FS.Cwd == "read" && !cwdEscapes:
 		args = append(args, "--ro-bind", env.cwd, env.cwd)
+	case policy.FS.Cwd == "read":
+		// Dropping the default cwd bind is correct here but invisible: the
+		// package starts with no view of where it was launched, and its own
+		// error is all the user gets. fs.cwd: write refuses the same launch
+		// out loud; the default must not stay quiet about it.
+		plan.notices = append(plan.notices, fmt.Sprintf(
+			"%s: the working directory %s is a protected root, so it is not visible inside the sandbox; launch from a project directory instead",
+			p.Manifest.ID, env.cwd))
 	}
 
 	// Writable state: the package's own data tree (which contains its

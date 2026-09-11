@@ -31,3 +31,13 @@ func TestPaintColorWrapsBadInRed(t *testing.T) {
 		t.Fatalf("bad paint = %q, want red-wrapped", got)
 	}
 }
+
+// A notice has to reach the user without stdout: the payload owns stdout,
+// and the logger is silent unless --log-level asks for it.
+func TestNoticeIsPrefixedAndPlainWithoutColor(t *testing.T) {
+	var buf bytes.Buffer
+	NewWithColor(&buf, false).Notice("policy not applied")
+	if buf.String() != "warning: policy not applied\n" {
+		t.Fatalf("unexpected notice: %q", buf.String())
+	}
+}

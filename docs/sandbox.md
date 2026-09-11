@@ -812,6 +812,13 @@ path runs under a small supervisor that owns the proxy lifecycle and
 preserves the package's exit status. A non-host network mode excludes the
 proxy too, because portals execute on the host side with host network access.
 
+A hardened launch from `$HOME` (or any other protected root) keeps the
+default `fs.cwd: read` but does not bind the directory back — that would undo
+the emptied host home — so the package sees nothing of where it was launched.
+Because the package's own error is all you would otherwise get, bunny prints
+a warning on stderr naming the directory and saying it is not visible.
+`fs.cwd: write` refuses the same launch outright.
+
 A hardened child inside a hardened parent can only remove access: revoked
 grants are masked, revoked write access is demoted to read-only, and a child
 policy can never add a grant absent from its parent. A scoped child of a

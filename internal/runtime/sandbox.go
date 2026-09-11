@@ -23,6 +23,7 @@ import (
 	"github.com/cristatus/bunny/internal/config"
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/manifest"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // legacySandboxContextEnv carried the inherited sandbox context before the
@@ -97,6 +98,11 @@ type sandboxPlan struct {
 	// forcedDBus records D-Bus cut off by a non-host network mode rather than
 	// by policy, for --explain.
 	forcedDBus bool
+	// notices are things the user must hear about this launch even though it
+	// proceeds: a part of the policy bunny resolved but could not apply as
+	// written. They are collected during planning, which stays pure, and
+	// printed by whoever runs or explains the plan.
+	notices []string
 	// nestedUnder names the enclosing sandbox when this launch runs inside one,
 	// and ignored lists the restrictions its policy asked for that only a new
 	// layer could apply. Both are reported rather than applied.
@@ -1094,6 +1100,14 @@ const (
 	ActivationBypassed                   // --no-sandbox
 )
 
+// emitNotices reports what this launch could not apply as written. stderr,
+// because the payload owns stdout the moment it execs.
+func emitNotices(plan sandboxPlan) {
+	for _, notice := range plan.notices {
+		ui.Notice(notice)
+	}
+}
+
 // ExecPackageDirect runs a prepared package with no policy of bunny's,
 // whatever sandbox.packages says. It exists so a user can answer "is the
 // sandbox what broke this?" in one command instead of editing the config and
@@ -1128,6 +1142,7 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 	if err != nil {
 		return err
 	}
+	emitNotices(plan)
 	// Unprivileged overlayfs is not universal; a silent fallback to isolated
 	// would persist what the user asked to discard, so an ephemeral launch
 	// fails closed here rather than degrading.
