@@ -32,7 +32,9 @@ the answer when the host kernel itself is outside the trust boundary.
 `bunny run --explain <id>` prints a risk summary followed by the effective
 policy and each control's enforcement level, without launching anything.
 `bunny sandbox check <id>` additionally probes the helpers and kernel
-facilities required by that package's exact policy.
+facilities required by that package's exact policy, and `bunny doctor`
+validates every armed policy at once — a `hide` path that was deleted or a
+grant that moved otherwise stays silent until that package is next launched.
 
 ## Quick start
 

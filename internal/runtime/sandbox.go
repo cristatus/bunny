@@ -373,6 +373,51 @@ func globPaths(pattern string) []string {
 	return matches
 }
 
+// missingHidePath is the one wording for a hide target bunny cannot mask.
+// Planning and the doctor check share it so a launch and a health check
+// cannot describe the same broken config two different ways.
+func missingHidePath(path string) error {
+	return fmt.Errorf("sandbox hide path %s does not exist: create the intended file or directory first, or remove it from hide", path)
+}
+
+// CheckPackagePolicy verifies one configured package's sandbox policy the way
+// a launch will: the profile resolves, the combination is legal, and every
+// host path the policy names still exists. It touches nothing and launches
+// nothing, so `bunny doctor` can run it over every armed package.
+//
+// It exists because these failures are latent. A hide path deleted or a
+// grant moved after the policy was written breaks nothing until the next
+// launch of that package, which may be weeks later and in the middle of
+// something else. (An unknown profile name is caught when the config loads,
+// so it never reaches here.)
+func CheckPackagePolicy(cfg *config.Config, id string) error {
+	policy, err := ResolvePackageSandbox(cfg, id, "")
+	if err != nil {
+		return err
+	}
+	hostHome, err := realUserHomeDir()
+	if err != nil {
+		return err
+	}
+	for _, raw := range policy.Hide {
+		path := expandHome(raw, hostHome)
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return missingHidePath(path)
+			}
+			return fmt.Errorf("inspect sandbox hide path %s: %w", path, err)
+		}
+	}
+	if policy.Boundary == "hardened" {
+		// Grants are checked by the same function planning uses, so a grant
+		// that would be refused at launch is refused here in the same words.
+		if _, _, err := effectiveGrants(policy, hostHome); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // maskEntry is one path to hide, pre-stat'd so emission needs no I/O.
 type maskEntry struct {
 	path string
@@ -682,7 +727,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		if err != nil {
 			if os.IsNotExist(err) {
 				if required {
-					return fmt.Errorf("sandbox hide path %s does not exist: create the intended file or directory first, or remove it from hide", path)
+					return missingHidePath(path)
 				}
 				return nil
 			}

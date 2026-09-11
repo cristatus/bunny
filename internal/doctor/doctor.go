@@ -245,6 +245,67 @@ func SandboxNeedsFrom(cfg *config.Config) SandboxNeeds {
 	return needs
 }
 
+// InstalledState is the installed-package lookup the sandbox policy check
+// needs: a config can arm a package that was later uninstalled, and that
+// entry is dead weight the user should hear about once rather than discover
+// as a launch error.
+type InstalledState interface {
+	IsInstalled(id string) bool
+}
+
+// SandboxPolicyChecks validates every armed package's policy the way a launch
+// resolves it. Nothing else does this ahead of time: a hide path that was
+// deleted or a grant that moved stays silent until the next launch of that
+// package fails.
+func SandboxPolicyChecks(cfg *config.Config, state InstalledState) []Result {
+	const name = "Sandbox policies"
+	if cfg == nil || len(cfg.Sandbox.Packages) == 0 {
+		return []Result{{Name: name, Detail: "no packages armed", Severity: OK}}
+	}
+	ids := slices.Sorted(maps.Keys(cfg.Sandbox.Packages))
+
+	var broken, missing []string
+	var firstBroken string
+	for _, id := range ids {
+		if state != nil && !state.IsInstalled(id) {
+			missing = append(missing, id)
+			continue
+		}
+		if err := runtime.CheckPackagePolicy(cfg, id); err != nil {
+			broken = append(broken, id)
+			if firstBroken == "" {
+				firstBroken = id + ": " + err.Error()
+			}
+		}
+	}
+
+	results := []Result{policyResult(name, len(ids)-len(missing), broken, firstBroken)}
+	if len(missing) > 0 {
+		results = append(results, Result{
+			Name:     "Sandbox arming",
+			Detail:   fmt.Sprintf("%d armed package(s) not installed: %s", len(missing), strings.Join(missing, ", ")),
+			Severity: Warn,
+			Fix:      "bunny install " + missing[0],
+		})
+	}
+	return results
+}
+
+func policyResult(name string, checked int, broken []string, firstBroken string) Result {
+	switch {
+	case len(broken) > 0:
+		detail := firstBroken
+		if len(broken) > 1 {
+			detail += fmt.Sprintf(" (and %d more: %s)", len(broken)-1, strings.Join(broken[1:], ", "))
+		}
+		return Result{Name: name, Detail: detail, Severity: Fail, Fix: "bunny sandbox check " + broken[0]}
+	case checked == 0:
+		return Result{Name: name, Detail: "no armed package is installed", Severity: OK}
+	default:
+		return Result{Name: name, Detail: fmt.Sprintf("%d armed policy(ies) resolve", checked), Severity: OK}
+	}
+}
+
 // SandboxToolingChecks reports on pasta, nft, and xdg-dbus-proxy for the
 // policies that need them. Execution fails closed with the same hints; these
 // rows let the user fix the host before a launch trips over it.

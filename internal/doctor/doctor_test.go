@@ -397,3 +397,68 @@ func TestPinResolutionReportsInvalidFile(t *testing.T) {
 		t.Fatalf("invalid file hidden: %+v", got)
 	}
 }
+
+type stubInstalled map[string]bool
+
+func (s stubInstalled) IsInstalled(id string) bool { return s[id] }
+
+// A policy only fails when the package is next launched, which can be weeks
+// after the config or the filesystem changed underneath it. Doctor exists to
+// pull that failure forward.
+func TestSandboxPolicyChecksCatchAMissingHidePath(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "credentials")
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"code": {SandboxPolicy: config.SandboxPolicy{Hide: []string{gone}}},
+	}}}
+
+	results := SandboxPolicyChecks(cfg, stubInstalled{"code": true})
+	if len(results) != 1 || results[0].Severity != Fail {
+		t.Fatalf("a hide path that no longer exists must fail: %+v", results)
+	}
+	if !strings.Contains(results[0].Detail, gone) {
+		t.Errorf("the row must name the path: %+v", results[0])
+	}
+	if results[0].Fix != "bunny sandbox check code" {
+		t.Errorf("the fix must reproduce the failure in full: %+v", results[0])
+	}
+}
+
+func TestSandboxPolicyChecksPassAResolvablePolicy(t *testing.T) {
+	present := t.TempDir()
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"code":   {SandboxPolicy: config.SandboxPolicy{Hide: []string{present}}},
+		"claude": {},
+	}}}
+
+	results := SandboxPolicyChecks(cfg, stubInstalled{"code": true, "claude": true})
+	if len(results) != 1 || results[0].Severity != OK {
+		t.Fatalf("resolvable policies must pass: %+v", results)
+	}
+	if !strings.Contains(results[0].Detail, "2 armed") {
+		t.Errorf("the row must count what it checked: %+v", results[0])
+	}
+}
+
+// An entry for a package that was uninstalled is dead config: it arms
+// nothing, and the user should hear it once rather than wonder why the
+// policy never applies.
+func TestSandboxPolicyChecksReportAnUninstalledArmedPackage(t *testing.T) {
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"ghost": {},
+	}}}
+
+	results := SandboxPolicyChecks(cfg, stubInstalled{})
+	if len(results) != 2 || results[1].Severity != Warn {
+		t.Fatalf("an uninstalled armed package must warn: %+v", results)
+	}
+	if !strings.Contains(results[1].Detail, "ghost") || results[0].Severity != OK {
+		t.Errorf("unexpected rows: %+v", results)
+	}
+}
+
+func TestSandboxPolicyChecksSayWhenNothingIsArmed(t *testing.T) {
+	results := SandboxPolicyChecks(&config.Config{}, stubInstalled{})
+	if len(results) != 1 || results[0].Severity != OK || !strings.Contains(results[0].Detail, "no packages armed") {
+		t.Fatalf("an unarmed config must say so plainly: %+v", results)
+	}
+}
