@@ -114,6 +114,10 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 		add("layout", "mount", "read-only: shims, state, manifests, install roots")
 	}
 
+	if policy.Env.active() {
+		add("env", "env", envPolicyDetail(policy.Env))
+	}
+
 	switch plan.context.NetMode {
 	case "host":
 		add("network", "none", "host namespace, unrestricted")
@@ -181,6 +185,25 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 	add("context", level, detail)
 
 	return renderExplainReport(out, plan, policy, rows), nil
+}
+
+// envPolicyDetail describes an environment policy in the terms it is
+// enforced in: what still crosses from the host, and what no longer does.
+// Only reported when a policy is set — without one the payload inherits the
+// host environment, which is the documented default rather than a control.
+func envPolicyDetail(policy EnvPolicy) string {
+	var parts []string
+	if policy.KeepSet {
+		kept := "nothing but " + envAlwaysKept
+		if len(policy.Keep) > 0 {
+			kept = strings.Join(policy.Keep, ", ") + " (and " + envAlwaysKept + ")"
+		}
+		parts = append(parts, "host variables kept: "+kept)
+	}
+	if len(policy.Hide) > 0 {
+		parts = append(parts, "dropped: "+strings.Join(policy.Hide, ", "))
+	}
+	return strings.Join(parts, "; ") + "; bunny's own launch variables always apply"
 }
 
 func renderExplainReport(p *ui.Printer, plan sandboxPlan, policy *PackageSandbox, rows [][3]string) string {

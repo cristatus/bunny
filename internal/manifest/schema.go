@@ -87,6 +87,24 @@ type SandboxPolicy struct {
 	Features map[string]bool `yaml:"features,omitempty"`
 	FS       *SandboxFS      `yaml:"fs,omitempty"`
 	Net      *SandboxNet     `yaml:"net,omitempty"`
+	Env      *SandboxEnv     `yaml:"env,omitempty"`
+}
+
+// SandboxEnv is the policy for the host environment the payload inherits.
+// The filesystem boundary says nothing about it: a hardened package cannot
+// read ~/.aws and is still handed AWS_SECRET_ACCESS_KEY, because bunny builds
+// the launch environment from the host's own.
+//
+// Keep is an allowlist and Hide a denylist, matching how fs grants and hide
+// paths already read: a present Keep replaces an inherited one, because
+// appending is wrong for permissions, while Hide appends across layers.
+// Both name variables, exactly or by a trailing "*" prefix, and both govern
+// inherited host variables only — what bunny itself sets for the launch
+// (a manifest env:, a dependency's, the redirected HOME) is not host state
+// and always applies, or the package could not run.
+type SandboxEnv struct {
+	Keep *[]string `yaml:"keep,omitempty"` // nil inherits; [] passes nothing through
+	Hide []string  `yaml:"hide,omitempty"` // additive across layers
 }
 
 // SandboxFS is the hardened boundary's filesystem grant set. The

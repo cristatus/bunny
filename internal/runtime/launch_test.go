@@ -218,10 +218,12 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 	}}
 
 	l := &Launcher{Paths: p, Catalog: cat, State: st}
-	env, _, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
+	builder := newEnvBuilder(nil)
+	_, err := l.mergeDepEnv(builder, []string{"jdk>=17"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	env := builder.List()
 	want := "JAVA_HOME=" + filepath.Join(root, "cli", "jdk-21")
 	if !envHas(env, want) {
 		t.Errorf("want %q in %v", want, env)
@@ -239,22 +241,24 @@ func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 	st.SetInstalled("jdk-11", "11.0.0", "jdk", "", "")
 	_ = st.SetProvider("jdk", "jdk-11")
 	l := &Launcher{Paths: p, Catalog: reqCat{}, State: st}
-	env, _, err := l.mergeDepEnv(nil, []string{"jdk>=17"})
+	builder := newEnvBuilder(nil)
+	_, err := l.mergeDepEnv(builder, []string{"jdk>=17"})
 	if err != nil {
 		t.Fatalf("unsatisfiable requirement should degrade, not error: %v", err)
 	}
-	if len(env) != 0 {
+	if env := builder.List(); len(env) != 0 {
 		t.Errorf("no dep env should be applied, got %v", env)
 	}
 }
 
 func TestMergeDepEnvMissingBareRequirementDegrades(t *testing.T) {
 	l := &Launcher{Paths: paths.At(t.TempDir()), Catalog: reqCat{}, State: state.Empty()}
-	env, _, err := l.mergeDepEnv(nil, []string{"jdk"})
+	builder := newEnvBuilder(nil)
+	_, err := l.mergeDepEnv(builder, []string{"jdk"})
 	if err != nil {
 		t.Fatalf("missing bare requirement should degrade, not error: %v", err)
 	}
-	if len(env) != 0 {
+	if env := builder.List(); len(env) != 0 {
 		t.Errorf("no dep env should be applied, got %v", env)
 	}
 }
@@ -328,10 +332,12 @@ func TestMergeDepEnvAppliesConfig(t *testing.T) {
 	}}
 
 	l := &Launcher{Paths: paths.At(root), Catalog: cat, State: st, Config: cfg}
-	env, _, err := l.mergeDepEnv(nil, []string{"jdk"})
+	builder := newEnvBuilder(nil)
+	_, err := l.mergeDepEnv(builder, []string{"jdk"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	env := builder.List()
 	if !envHas(env, "JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8") {
 		t.Errorf("dependency config env not applied: %v", env)
 	}

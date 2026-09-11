@@ -752,6 +752,52 @@ correct. You never list them under `fs.read`. The tradeoff is that a hardened
 package can read every toolchain you have installed; what stays hidden is the
 rest of the host home, which is where credentials and documents live.
 
+### Environment variables
+
+Hiding `~/.aws` says nothing about `AWS_SECRET_ACCESS_KEY`. Bunny builds the
+launch environment from the host's own, so without a policy every variable
+you have exported crosses the boundary — including the tokens a hardened
+package was sandboxed to keep away from. `env` governs that channel:
+
+```yaml
+sandbox:
+  packages:
+    claude:
+      env:
+        hide: [AWS_*, GH_TOKEN]   # these never cross
+    ci-tool:
+      env:
+        keep: [CI, BUILD_ID]      # only these do
+```
+
+`hide` is a denylist and appends across layers, like `hide` for paths.
+`keep` is an allowlist and replaces an inherited one, like `fs` grants:
+with it set, a host variable crosses only if it is named. Entries are exact
+names or a single trailing `*` as a prefix — nothing richer, because a
+pattern language over names you cannot enumerate would read as a guarantee
+this cannot give. An invalid name is a config error rather than a rule that
+silently matches nothing.
+
+Two rules keep it usable:
+
+- **Bunny's own launch variables always apply.** A manifest `env:`, a
+  dependency's `JAVA_HOME`, your config `env:` overlay, the redirected
+  `HOME` and `XDG_*` — none of that is host state, and filtering it out
+  would break the package rather than protect you.
+- **`PATH` crosses every `keep` list.** A package that cannot find another
+  program looks broken rather than restricted. An explicit `hide: [PATH]`
+  still drops it: naming it exactly is a decision, while a prefix sweep like
+  `PA*` is not and leaves it alone.
+
+This is name-based and only that: it cannot know which of your variables
+hold secrets, only which names you named. `keep` is the side that fails
+closed, and the one to reach for when a package should see none of your
+environment.
+
+Note the interaction with token-based logins. A package authenticated by an
+environment variable — `CLAUDE_CODE_OAUTH_TOKEN`, say — needs that variable
+to cross, so a `keep` list must name it.
+
 ### The hardened boundary
 
 `boundary: hardened` switches the filesystem model from a blacklist to an

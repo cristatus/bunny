@@ -227,7 +227,40 @@ func ValidateSandboxPolicy(field string, policy *SandboxPolicy) error {
 	if err := validateSandboxFS(field, policy); err != nil {
 		return err
 	}
+	if err := validateSandboxEnv(field, policy); err != nil {
+		return err
+	}
 	return validateSandboxNet(field, policy)
+}
+
+// envNamePattern is a variable name, optionally ending in "*" to match every
+// name with that prefix. Nothing richer: a glob or a regexp over names the
+// user cannot enumerate would read as a guarantee the mechanism cannot give.
+var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\*?$`)
+
+// validateSandboxEnv checks the environment policy names look like
+// environment variables. A typo'd name is silence in both directions — a
+// variable that keeps crossing, or one that stops — so it fails at load.
+func validateSandboxEnv(field string, policy *SandboxPolicy) error {
+	env := policy.Env
+	if env == nil {
+		return nil
+	}
+	check := func(key string, names []string) error {
+		for i, name := range names {
+			if !envNamePattern.MatchString(name) {
+				return vErr(fmt.Sprintf("%s.env.%s[%d]", field, key, i),
+					fmt.Sprintf("invalid environment variable name %q: use a name like AWS_PROFILE, or a prefix like AWS_*", name))
+			}
+		}
+		return nil
+	}
+	if env.Keep != nil {
+		if err := check("keep", *env.Keep); err != nil {
+			return err
+		}
+	}
+	return check("hide", env.Hide)
 }
 
 // validateSandboxPersist checks each persist entry is a home-relative path

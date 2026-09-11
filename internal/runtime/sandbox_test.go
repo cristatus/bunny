@@ -1121,3 +1121,116 @@ func TestExplainSandboxReturnsOutputWithTheError(t *testing.T) {
 		t.Errorf("the error must name the profile too: %v", err)
 	}
 }
+
+// The filesystem boundary says nothing about the environment: a hardened
+// package cannot read ~/.aws and, before this policy existed, was still
+// handed AWS_SECRET_ACCESS_KEY, because the launch environment starts from
+// the host's own.
+func TestEnvPolicyDropsHiddenHostVariables(t *testing.T) {
+	p := &Prepared{
+		Manifest: &manifest.Manifest{ID: "claude"},
+		BinPath:  "/opt/claude/claude",
+		Vars:     map[string]string{"data": t.TempDir()},
+		Env: []string{
+			"XDG_RUNTIME_DIR=" + t.TempDir(),
+			"AWS_SECRET_ACCESS_KEY=leak", "AWS_PROFILE=work",
+			"GH_TOKEN=leak", "EDITOR=vi", "PATH=/usr/bin",
+		},
+	}
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"claude": {SandboxPolicy: config.SandboxPolicy{
+			Boundary: "hardened",
+			Net:      &manifest.SandboxNet{Mode: "host"},
+			Env:      &manifest.SandboxEnv{Hide: []string{"AWS_*", "GH_TOKEN"}},
+		}},
+	}}}
+	plan, _, err := planPackageSandbox(p, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envMap(plan.env)
+	for _, gone := range []string{"AWS_SECRET_ACCESS_KEY", "AWS_PROFILE", "GH_TOKEN"} {
+		if _, ok := env[gone]; ok {
+			t.Errorf("%s must not cross the boundary: %v", gone, plan.env)
+		}
+	}
+	for _, kept := range []string{"EDITOR", "PATH"} {
+		if _, ok := env[kept]; !ok {
+			t.Errorf("%s was not hidden and must still cross: %v", kept, plan.env)
+		}
+	}
+}
+
+// keep is deny-by-default for the host environment, matching what the
+// hardened boundary does with the filesystem. What bunny set for the launch
+// is not host state and is never filtered out from under the package —
+// without that rule the package loses its own JAVA_HOME and its HOME.
+func TestEnvPolicyKeepListAdmitsOnlyWhatItNames(t *testing.T) {
+	kept := []string{"KEEPME"}
+	p := &Prepared{
+		Manifest: &manifest.Manifest{ID: "claude"},
+		BinPath:  "/opt/claude/claude",
+		Vars:     map[string]string{"data": t.TempDir()},
+		Injected: []string{"JAVA_HOME"},
+		Env: []string{
+			"XDG_RUNTIME_DIR=" + t.TempDir(), "JAVA_HOME=/opt/jdk",
+			"KEEPME=yes", "SECRET_TOKEN=leak", "PATH=/usr/bin",
+		},
+	}
+	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
+		"claude": {SandboxPolicy: config.SandboxPolicy{Env: &manifest.SandboxEnv{Keep: &kept}}},
+	}}}
+	plan, _, err := planPackageSandbox(p, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envMap(plan.env)
+	if _, ok := env["SECRET_TOKEN"]; ok {
+		t.Errorf("an unlisted host variable must not cross: %v", plan.env)
+	}
+	for _, want := range []string{"KEEPME", "JAVA_HOME", "PATH", "HOME"} {
+		if _, ok := env[want]; !ok {
+			t.Errorf("%s must survive a keep list: %v", want, plan.env)
+		}
+	}
+}
+
+// A package that cannot exec a child looks broken rather than restricted, so
+// PATH crosses every keep list — but hide names it explicitly, and an
+// explicit name is a decision.
+func TestEnvPolicyPathSurvivesKeepButNotAnExplicitHide(t *testing.T) {
+	none := []string{}
+	filter := newEnvFilter(EnvPolicy{Keep: none, KeepSet: true}, nil)
+	values := map[string]string{"PATH": "/usr/bin", "OTHER": "x"}
+	filter.apply(values)
+	if _, ok := values["PATH"]; !ok || len(values) != 1 {
+		t.Fatalf("keep must not drop PATH: %v", values)
+	}
+
+	explicit := newEnvFilter(EnvPolicy{Hide: []string{"PATH"}}, nil)
+	values = map[string]string{"PATH": "/usr/bin"}
+	explicit.apply(values)
+	if _, ok := values["PATH"]; ok {
+		t.Error("an exact hide names PATH on purpose and must be obeyed")
+	}
+
+	sweep := newEnvFilter(EnvPolicy{Hide: []string{"PA*"}}, nil)
+	values = map[string]string{"PATH": "/usr/bin", "PAGER": "less"}
+	sweep.apply(values)
+	if _, ok := values["PATH"]; !ok {
+		t.Error("a prefix sweep must not take PATH out from under a package")
+	}
+	if _, ok := values["PAGER"]; ok {
+		t.Error("the sweep must still apply to everything else")
+	}
+}
+
+// An absent policy is not an empty one: the payload inherits the host
+// environment, which is what every launch did before the key existed.
+func TestEnvPolicyAbsentPassesEverything(t *testing.T) {
+	values := map[string]string{"AWS_SECRET_ACCESS_KEY": "x", "EDITOR": "vi"}
+	newEnvFilter(EnvPolicy{}, nil).apply(values)
+	if len(values) != 2 {
+		t.Fatalf("no policy must change nothing: %v", values)
+	}
+}

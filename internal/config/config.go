@@ -76,6 +76,7 @@ type SandboxPolicy struct {
 	Features map[string]bool      `yaml:"features,omitempty"`
 	FS       *manifest.SandboxFS  `yaml:"fs,omitempty"`
 	Net      *manifest.SandboxNet `yaml:"net,omitempty"`
+	Env      *manifest.SandboxEnv `yaml:"env,omitempty"`
 }
 
 // SandboxPackage is one package's activated policy. Presence here activates
@@ -194,6 +195,12 @@ func cloneSandboxPolicy(policy SandboxPolicy) SandboxPolicy {
 		net.Egress = cloneStringListPtr(policy.Net.Egress)
 		policy.Net = &net
 	}
+	if policy.Env != nil {
+		env := *policy.Env
+		env.Keep = cloneStringListPtr(policy.Env.Keep)
+		env.Hide = slices.Clone(policy.Env.Hide)
+		policy.Env = &env
+	}
 	return policy
 }
 
@@ -210,7 +217,7 @@ func cloneStringListPtr(list *[]string) *[]string {
 func (p SandboxPolicy) AsManifest() *manifest.SandboxPolicy {
 	return &manifest.SandboxPolicy{
 		Boundary: p.Boundary, Home: p.Home, Hide: p.Hide, Persist: p.Persist,
-		Features: p.Features, FS: p.FS, Net: p.Net,
+		Features: p.Features, FS: p.FS, Net: p.Net, Env: p.Env,
 	}
 }
 

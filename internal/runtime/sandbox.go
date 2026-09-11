@@ -126,7 +126,22 @@ type PackageSandbox struct {
 	Features map[string]bool
 	FS       FSPolicy
 	Net      NetPolicy
+	Env      EnvPolicy
 }
+
+// EnvPolicy is the resolved environment policy. KeepSet distinguishes an
+// absent keep list (inherit the host environment) from an explicit empty one
+// (inherit nothing), the same way FSPolicy's Set flags do.
+type EnvPolicy struct {
+	Keep    []string
+	KeepSet bool
+	Hide    []string
+}
+
+// active reports whether the policy governs the environment at all. An
+// absent policy is not an empty one: it passes the host environment through
+// untouched, which is what every launch did before the key existed.
+func (e EnvPolicy) active() bool { return e.KeepSet || len(e.Hide) > 0 }
 
 // FSPolicy is the resolved hardened filesystem grant set. The Set flags keep
 // the difference between an absent field (inherit) and an explicit empty list
@@ -195,6 +210,7 @@ func ResolvePackageSandbox(cfg *config.Config, id string, profileOverride string
 	effective.Profile = profile
 	effective.Hide = dedupSorted(effective.Hide)
 	effective.Persist = dedupSorted(effective.Persist)
+	effective.Env.Hide = dedupSorted(effective.Env.Hide)
 	if err := effective.finalize(id); err != nil {
 		return nil, err
 	}
@@ -230,6 +246,13 @@ func (dst *PackageSandbox) mergeLayer(src *manifest.SandboxPolicy) {
 			dst.Net.Egress = slices.Clone(*src.Net.Egress)
 			dst.Net.EgressSet = true
 		}
+	}
+	if src.Env != nil {
+		if src.Env.Keep != nil {
+			dst.Env.Keep = slices.Clone(*src.Env.Keep)
+			dst.Env.KeepSet = true
+		}
+		dst.Env.Hide = append(dst.Env.Hide, src.Env.Hide...)
 	}
 	if src.FS != nil {
 		if src.FS.Read != nil {
@@ -447,6 +470,79 @@ func maskMountArgs(masks []maskEntry) []string {
 	return args
 }
 
+// envFilter applies an EnvPolicy to the inherited host environment. It is
+// built per launch because it needs one fact planning has and the policy does
+// not: which variables bunny itself set.
+//
+// This is the environment counterpart to the filesystem boundary, and it
+// closes a real hole rather than describing one: a hardened package cannot
+// read ~/.aws, and without a policy it still receives AWS_SECRET_ACCESS_KEY,
+// because the launch environment starts from the host's own. It is name-based
+// and says so — it cannot know which of your variables hold secrets, only
+// which names you named.
+type envFilter struct {
+	policy   EnvPolicy
+	injected map[string]bool
+}
+
+func newEnvFilter(policy EnvPolicy, injected []string) envFilter {
+	return envFilter{policy: policy, injected: stringSet(injected)}
+}
+
+// apply removes the host variables the policy does not admit. An inactive
+// policy is not an empty one: it passes everything, which is what every
+// launch did before the key existed.
+func (f envFilter) apply(values map[string]string) {
+	if !f.policy.active() {
+		return
+	}
+	for name := range values {
+		if f.injected[name] || f.admits(name) {
+			continue
+		}
+		delete(values, name)
+	}
+}
+
+func (f envFilter) admits(name string) bool {
+	for _, pattern := range f.policy.Hide {
+		// An exact name is a deliberate choice and is obeyed even for PATH;
+		// a prefix is a sweep, and must not take PATH out from under a
+		// package by accident.
+		if pattern == name || (name != envAlwaysKept && envNameMatches(pattern, name)) {
+			return false
+		}
+	}
+	if !f.policy.KeepSet {
+		return true
+	}
+	if name == envAlwaysKept {
+		// A keep list is written to name what a package needs on top of
+		// working, not to remember that a program needs to find programs.
+		return true
+	}
+	for _, pattern := range f.policy.Keep {
+		if envNameMatches(pattern, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// envAlwaysKept crosses every keep list. Without it exec of any child fails
+// and the package looks broken rather than restricted; an explicit
+// hide: [PATH] still drops it, because that one names it on purpose.
+const envAlwaysKept = "PATH"
+
+// envNameMatches compares a policy entry with a variable name: exact, or a
+// trailing "*" as a prefix.
+func envNameMatches(pattern, name string) bool {
+	if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
+		return strings.HasPrefix(name, prefix)
+	}
+	return pattern == name
+}
+
 // payloadEnvArgs delivers the sandboxed process's environment through
 // bubblewrap rather than through the helper's own process environment: the
 // helper (bwrap, pasta, the proxy) runs with a trusted, loader-sanitized
@@ -586,7 +682,7 @@ func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContex
 	context.Boundary = facts.boundary
 	context.DisabledFeatures = sortedMapKeys(disabled)
 	return sandboxPlan{
-		env:          sandboxEnv(p.Env, overrides, disabled),
+		env:          sandboxEnv(p.Env, overrides, disabled, newEnvFilter(policy.Env, p.Injected)),
 		isolatedHome: isolatedHome,
 		nestedUnder:  strings.Join(current.Packages, ", "),
 		ignored:      ignored,
@@ -808,7 +904,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		})
 	}
 
-	plan.env = sandboxEnv(p.Env, overrides, disabled)
+	plan.env = sandboxEnv(p.Env, overrides, disabled, newEnvFilter(policy.Env, p.Injected))
 
 	args := []string{"--dev-bind", "/", "/", "--die-with-parent"}
 	args = append(args, ephemeralOverlayArgs(policy, isolatedHome)...)
@@ -911,8 +1007,11 @@ func resolveNetwork(policy *PackageSandbox) netPlan {
 	return out
 }
 
-func sandboxEnv(base []string, overrides map[string]string, disabled map[string]bool) []string {
+func sandboxEnv(base []string, overrides map[string]string, disabled map[string]bool, filter envFilter) []string {
 	values := envMap(base)
+	// Before the overrides: what bunny computed for this launch is not host
+	// state and is never filtered out from under the package.
+	filter.apply(values)
 	maps.Copy(values, overrides)
 	delete(values, legacySandboxContextEnv)
 	for _, feature := range featureEndpoints {
@@ -1084,7 +1183,7 @@ func inheritedSandboxEnv(env []string, context sandboxContext) []string {
 	if len(context.Packages) == 0 {
 		return env
 	}
-	return sandboxEnv(env, nil, stringSet(context.DisabledFeatures))
+	return sandboxEnv(env, nil, stringSet(context.DisabledFeatures), envFilter{})
 }
 
 // Activation is what one launch asks of the sandbox before the package's

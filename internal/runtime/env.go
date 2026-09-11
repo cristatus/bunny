@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,10 +15,15 @@ import (
 type envBuilder struct {
 	order  []string
 	values map[string]string
+	// injected names the variables bunny set for this launch rather than
+	// inherited from the host: a dependency's env, the package's manifest
+	// env, the user's config overlay. A sandbox environment policy governs
+	// inherited variables only, so it has to be able to tell them apart.
+	injected map[string]bool
 }
 
 func newEnvBuilder(base []string) *envBuilder {
-	b := &envBuilder{values: make(map[string]string, len(base))}
+	b := &envBuilder{values: make(map[string]string, len(base)), injected: map[string]bool{}}
 	for _, entry := range base {
 		key, value, ok := strings.Cut(entry, "=")
 		if !ok || key == "" {
@@ -42,8 +49,12 @@ func (b *envBuilder) Overlay(values map[string]string, vars map[string]string) {
 	sort.Strings(keys)
 	for _, key := range keys {
 		b.Set(key, manifest.Expand(values[key], vars))
+		b.injected[key] = true
 	}
 }
+
+// Injected lists the names bunny set, sorted.
+func (b *envBuilder) Injected() []string { return slices.Sorted(maps.Keys(b.injected)) }
 
 func (b *envBuilder) List() []string {
 	out := make([]string, 0, len(b.order))

@@ -25,6 +25,10 @@ type Prepared struct {
 	BinPath  string
 	CmdArgs  []string
 	Env      []string
+	// Injected names the variables bunny set for this launch rather than
+	// inherited from the host, so a sandbox environment policy can filter
+	// what the host contributed without stripping what the package needs.
+	Injected []string
 	Vars     map[string]string
 	// BunnyEnv anchors Bunny's own resolved layout for shim re-entry after a
 	// sandbox redirects HOME and XDG directories.
@@ -103,7 +107,7 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 	}
 	cmdArgs = append(cmdArgs, userArgs...)
 
-	env, depRoots, err := l.buildEnv(m, vars)
+	env, depRoots, injected, err := l.buildEnv(m, vars)
 	if err != nil {
 		return nil, err
 	}
@@ -114,6 +118,7 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 		BinPath:     binPath,
 		CmdArgs:     cmdArgs,
 		Env:         env,
+		Injected:    injected,
 		Vars:        vars,
 		BunnyEnv:    l.Paths.RuntimeEnv(),
 		ConfigFile:  l.Paths.UserConfigFile(),
@@ -128,7 +133,7 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 // bin: lookup, since the executable was installed at runtime, not by bunny.
 func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs []string) (*Prepared, error) {
 	vars := l.Paths.Vars(m.ID, m.Version)
-	env, depRoots, err := l.buildEnv(m, vars)
+	env, depRoots, injected, err := l.buildEnv(m, vars)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +142,7 @@ func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs 
 		BinPath:     exePath,
 		CmdArgs:     slices.Clone(userArgs),
 		Env:         env,
+		Injected:    injected,
 		Vars:        vars,
 		BunnyEnv:    l.Paths.RuntimeEnv(),
 		ConfigFile:  l.Paths.UserConfigFile(),
@@ -149,14 +155,14 @@ func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs 
 // `requires:` chain, then the package's own manifest env with the user's
 // config env on top. It also reports the resolved providers' install trees,
 // which the hardened sandbox binds back read-only.
-func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) ([]string, []string, error) {
-	env, depRoots, err := l.mergeDepEnv(os.Environ(), m.Requires)
+func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) (env, depRoots, injected []string, err error) {
+	builder := newEnvBuilder(os.Environ())
+	depRoots, err = l.mergeDepEnv(builder, m.Requires)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	builder := newEnvBuilder(env)
 	builder.Overlay(l.Config.OverlayEnv(m.Env, m.ID, m.Provides), vars)
-	return builder.List(), depRoots, nil
+	return builder.List(), depRoots, builder.Injected(), nil
 }
 
 // mergeDepEnv resolves each requirement to a provider package and appends that
@@ -165,12 +171,11 @@ func (l *Launcher) buildEnv(m *manifest.Manifest, vars map[string]string) ([]str
 // whatever the host provides) is preferable to refusing to run the program at
 // all. Explicit project pins instead fail closed on missing, incompatible, or
 // changed providers. `bunny doctor` surfaces unmet requirements for the user.
-func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string, error) {
-	builder := newEnvBuilder(env)
+func (l *Launcher) mergeDepEnv(builder *envBuilder, reqs []string) ([]string, error) {
 	var depRoots []string
 	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, nil, fmt.Errorf("resolve dependencies: %w", err)
+		return nil, fmt.Errorf("resolve dependencies: %w", err)
 	}
 	for _, req := range reqs {
 		capability, minMajor, hasMin := manifest.ParseRequirement(req)
@@ -178,15 +183,15 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string,
 		var providerID string
 		pin, err := shim.ResolveProjectVersion(cwd, capability)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if pin != nil {
 			if err := pin.CheckInstalled(l.State); err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			providerID = pin.PackageID()
 			if hasMin && verparse.MajorInt(l.State.VersionOf(providerID)) < minMajor {
-				return nil, nil, fmt.Errorf("%s %s pinned in %s does not satisfy %s; update the project pin to a compatible provider", capability, pin.Value, pin.Source, req)
+				return nil, fmt.Errorf("%s %s pinned in %s does not satisfy %s; update the project pin to a compatible provider", capability, pin.Value, pin.Source, req)
 			}
 		} else if hasMin {
 			providerID = l.State.ResolveProviderMin(capability, minMajor)
@@ -201,7 +206,7 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string,
 		dep, err := l.Catalog.Load(providerID)
 		if err != nil {
 			if pin != nil {
-				return nil, nil, fmt.Errorf("load pinned dependency %s: %w", providerID, err)
+				return nil, fmt.Errorf("load pinned dependency %s: %w", providerID, err)
 			}
 			log.Debug("Launching without required dependency env (manifest unavailable)", "requires", req, "provider", providerID, "error", err)
 			continue
@@ -221,7 +226,7 @@ func (l *Launcher) mergeDepEnv(env []string, reqs []string) ([]string, []string,
 		}
 		builder.Overlay(l.Config.OverlayEnv(dep.Env, providerID, depCapability), depVars)
 	}
-	return builder.List(), depRoots, nil
+	return depRoots, nil
 }
 
 func directExec(p *Prepared) error {

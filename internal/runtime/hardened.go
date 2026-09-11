@@ -167,7 +167,7 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	// Compute the payload env last: hardenedIntegrationBinds and the proxy
 	// block above may have added XAUTHORITY, XDG_RUNTIME_DIR, or the bus
 	// address to env.overrides.
-	plan.env = sandboxEnv(p.Env, env.overrides, env.disabled)
+	plan.env = sandboxEnv(p.Env, env.overrides, env.disabled, newEnvFilter(policy.Env, p.Injected))
 	args = append(args, payloadEnvArgs(plan.env)...)
 
 	plan.args = args
