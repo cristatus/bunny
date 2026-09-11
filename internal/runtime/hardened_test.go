@@ -361,3 +361,40 @@ func TestHardenedHostNetworkKeepsResolverReachable(t *testing.T) {
 		t.Errorf("a restricted network mode must keep the resolver masked: %v", plan.args)
 	}
 }
+
+// fs.cwd: write binds the project read-write, so it belongs in the effective
+// writable roots. Those are not a description: a nested child reads them to
+// decide whether its redirected home is available, and --explain reads them
+// to describe the project. Leaving the cwd out refused a child whose home
+// lives under a directory the parent had made writable.
+func TestHardenedWritableCwdJoinsTheWritableRoots(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	project := filepath.Join(hostHome, "Projects", "app")
+	if err := os.MkdirAll(project, 0755); err != nil {
+		t.Fatal(err)
+	}
+	policy := finalized(t, &PackageSandbox{Boundary: "hardened", FS: FSPolicy{Cwd: "write"}})
+	plan, err := buildSandboxPlan(p, policy, project, hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(plan.context.WritableRoots, project) {
+		t.Fatalf("a writable cwd must be an effective writable root: %v", plan.context.WritableRoots)
+	}
+
+	// The consequence a reader cares about: a child launched inside this
+	// sandbox, whose package data lives under the project, keeps its own home.
+	child := &Prepared{
+		Manifest: &manifest.Manifest{ID: "child"},
+		BinPath:  "/opt/child/child",
+		Vars:     map[string]string{"data": filepath.Join(project, "child-data")},
+		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
+	}
+	nested, err := buildSandboxPlan(child, finalized(t, &PackageSandbox{Home: "isolated"}), project, hostHome, plan.context)
+	if err != nil {
+		t.Fatalf("a child home under the writable project must be available: %v", err)
+	}
+	if nested.isolatedHome == "" {
+		t.Error("child home was refused although the project is writable")
+	}
+}

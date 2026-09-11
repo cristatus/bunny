@@ -115,6 +115,10 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 				env.cwd, policySource(policy))
 		}
 		args = append(args, "--bind", env.cwd, env.cwd)
+		// The bind makes it a writable root like any other, and the effective
+		// list is what a nested child consults for a redirected home and what
+		// --explain reads to describe the project.
+		plan.context.WritableRoots = dedupSorted(append(plan.context.WritableRoots, env.cwd))
 	case "hidden":
 		args = append(args, "--tmpfs", env.cwd)
 	}
