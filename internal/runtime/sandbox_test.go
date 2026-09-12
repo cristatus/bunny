@@ -1234,3 +1234,51 @@ func TestEnvPolicyAbsentPassesEverything(t *testing.T) {
 		t.Fatalf("no policy must change nothing: %v", values)
 	}
 }
+
+// The abstract X11 socket lives in the network namespace, so no filesystem
+// control reaches it while the host namespace is shared — verified against a
+// real launch: a hardened package with x11 off and net: host connects to
+// @/tmp/.X11-unix/X0, and the same package under net: none cannot. The row
+// must not claim an exclusion the launch does not have, under either
+// boundary, and must not carry the caveat once the namespace is its own.
+func TestExplainX11CaveatFollowsTheNetworkNamespace(t *testing.T) {
+	newPrepared := func() *Prepared {
+		return &Prepared{
+			Manifest: &manifest.Manifest{ID: "claude"},
+			BinPath:  "/opt/claude/claude",
+			Vars:     map[string]string{"data": t.TempDir()},
+			Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
+		}
+	}
+	policy := func(boundary, mode string) config.SandboxPackage {
+		return config.SandboxPackage{SandboxPolicy: config.SandboxPolicy{
+			Boundary: boundary,
+			Net:      &manifest.SandboxNet{Mode: mode},
+			Features: map[string]bool{"x11": false},
+		}}
+	}
+	for _, tc := range []struct {
+		name     string
+		boundary string
+		mode     string
+		reaches  bool
+	}{
+		{"hardened on the host namespace", "hardened", "host", true},
+		{"hardened with its own namespace", "hardened", "none", false},
+		{"scoped on the host namespace", "scoped", "host", true},
+		{"scoped with its own namespace", "scoped", "none", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{Sandbox: config.Sandbox{
+				Packages: map[string]config.SandboxPackage{"claude": policy(tc.boundary, tc.mode)},
+			}}
+			out, err := ExplainSandbox(newPrepared(), cfg, "", plainPrinter())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := strings.Contains(out, "abstract X11 socket still reachable"); got != tc.reaches {
+				t.Errorf("caveat present = %v, want %v:\n%s", got, tc.reaches, out)
+			}
+		})
+	}
+}

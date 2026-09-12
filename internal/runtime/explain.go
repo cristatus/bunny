@@ -157,13 +157,21 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 		switch {
 		case policy.feature(name):
 			add(name, "none", "enabled")
+		case name == "x11" && sharesHostNetns(plan.context.NetMode):
+			// X clients prefer the abstract socket @/tmp/.X11-unix/X0, which
+			// lives in the network namespace, not the filesystem. Neither a
+			// mask nor the hardened baseline reaches it while the host
+			// namespace is shared, and an X client that gets there can read
+			// other windows' input and take the screen — so the row says so
+			// under both boundaries rather than claiming an exclusion the
+			// launch does not have.
+			detail := "variable removed, filesystem socket masked"
+			if hardened {
+				detail = "endpoints excluded by the boundary"
+			}
+			add(name, "env+mount", detail+"; abstract X11 socket still reachable (host networking)")
 		case hardened:
 			add(name, "mount", "excluded by the boundary: private /run and /tmp, hidden home")
-		case name == "x11" && plan.context.NetMode == "host":
-			// X clients prefer the abstract socket @/tmp/.X11-unix/X0, which
-			// lives in the network namespace, not the filesystem; masking the
-			// filesystem socket does not reach it under host networking.
-			add(name, "env+mount", "variable removed, filesystem socket masked; abstract X11 socket still reachable (host networking)")
 		default:
 			add(name, "env+mount", "variables removed, documented endpoints masked")
 		}
@@ -205,6 +213,11 @@ func envPolicyDetail(policy EnvPolicy) string {
 	}
 	return strings.Join(parts, "; ") + "; bunny's own launch variables always apply"
 }
+
+// sharesHostNetns reports whether this launch keeps the host network
+// namespace, where abstract unix sockets stay reachable however much of the
+// filesystem the boundary hides. An unset mode is the host namespace.
+func sharesHostNetns(mode string) bool { return mode == "" || mode == "host" }
 
 func renderExplainReport(p *ui.Printer, plan sandboxPlan, policy *PackageSandbox, rows [][3]string) string {
 	hardened := plan.context.Boundary == "hardened"
