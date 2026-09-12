@@ -7,6 +7,53 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `bunny run --no-sandbox <id>` skips the policy a `sandbox.packages` entry
+  applies, for one launch, so "is the sandbox what broke this?" costs one
+  command rather than an edit to `config.yaml` and an edit back. It removes
+  Bunny's own layer only: a launch inside an enclosing sandbox stays inside
+  it. Combining it with `--sandbox` or `--sandbox-profile` is refused rather
+  than resolved by precedence.
+- Sandbox `env:` policy over the host environment the payload inherits.
+  `hide` drops the variables it names and appends across layers; `keep`
+  admits only what it names and replaces an inherited list. Entries are exact
+  names or one trailing `*` as a prefix. The filesystem boundary never
+  covered this channel: a hardened package that cannot read `~/.aws` was
+  still handed `AWS_SECRET_ACCESS_KEY`, because the launch environment starts
+  from the host's own. What Bunny sets for the launch — a manifest `env:`, a
+  dependency's `JAVA_HOME`, the redirected `HOME` — is not host state and
+  always applies, and `PATH` crosses every `keep` list so the package can
+  still exec a child.
+- `bunny doctor` resolves every armed sandbox policy and checks the host
+  paths it names, so a deleted `hide` path or a moved grant surfaces on
+  demand instead of at the next launch of that package, which may be weeks
+  away. An armed package that is no longer installed is reported too: the
+  entry arms nothing.
+- `bunny doctor` names command shims occupied by a file it cannot prove it
+  created — another tool's install script having overwritten one is the
+  common case — which `bunny update` and `bunny reshim` otherwise keep
+  failing on with no guided fix.
+
+### Fixed
+
+- A policy a nested launch cannot apply is reported where the user sees it.
+  Inside an existing sandbox the child adds no layer, and the report naming
+  what was dropped went only to the logger, which the CLI silences unless
+  `--log-level` asks for it.
+- A hardened launch from the host home, or another protected root, keeps the
+  default `fs.cwd: read` but cannot bind the directory back without undoing
+  the emptied home. It now says so, instead of leaving the package with no
+  view of where it was launched and its own error as the only signal.
+- `fs.cwd: write` counts as an effective writable root. A package launched
+  inside such a sandbox is no longer refused a redirected home under the very
+  project the enclosing policy made writable.
+- `bunny run --explain` no longer reports a hardened boundary as excluding
+  X11 while the launch shares the host network namespace. X clients reach the
+  server through the abstract socket `@/tmp/.X11-unix/X0`, which lives in the
+  network namespace rather than the filesystem, so no mask and no baseline
+  reaches it; `net: private` or `net: none` is the only lever.
+
 ## [0.6.0] - 2026-09-08
 
 ### Added
