@@ -117,6 +117,36 @@ func TestNestedRedirectedHomeUsesEffectiveWritableRoots(t *testing.T) {
 	}
 }
 
+// Reported to the user, not only to a logger the CLI silences: a policy the
+// user wrote and bunny did not apply is one they believe they have.
+func TestNestedIgnoredPolicyIsANotice(t *testing.T) {
+	p, _ := hardenedPrepared(t)
+	parent := outerContext()
+	policy := finalized(t, &PackageSandbox{Home: "isolated", Net: NetPolicy{Mode: "none"}})
+
+	plan, err := buildSandboxPlan(p, policy, "/work", "/home/u", parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.notices) != 1 {
+		t.Fatalf("an unapplied policy must be reported: %v", plan.notices)
+	}
+	for _, want := range []string{p.Manifest.ID, "not applied", "net: none", "enclosing boundary still holds"} {
+		if !strings.Contains(plan.notices[0], want) {
+			t.Errorf("notice %q missing %q", plan.notices[0], want)
+		}
+	}
+
+	// A nested policy that asks for nothing the parent lacks is not news.
+	quiet, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Home: "isolated"}), "/work", "/home/u", parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(quiet.notices) != 0 {
+		t.Errorf("nothing was dropped, so nothing should be reported: %v", quiet.notices)
+	}
+}
+
 // What a nested policy asked for and cannot get is named, so it is reported
 // rather than silently dropped.
 func TestNestedIgnoredNamesWhatCannotApply(t *testing.T) {

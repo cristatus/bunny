@@ -667,10 +667,15 @@ func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContex
 	}
 	overrides, isolatedHome := homeOverrides(p, policy, facts.cwd)
 	ignored := nestedIgnored(policy, current, facts.disabled)
+	var notices []string
 	if len(ignored) > 0 {
-		log.Warn("Sandbox policy not applied: already inside a sandbox",
-			"package", p.Manifest.ID, "enclosing", strings.Join(current.Packages, ","),
-			"ignored", strings.Join(ignored, ", "))
+		// The user wrote restrictions that this launch does not apply, and
+		// only they can decide whether that is acceptable. It has to reach
+		// them: the enclosing boundary is the one in force either way, but a
+		// policy silently not applied is a policy they think they have.
+		notices = append(notices, fmt.Sprintf(
+			"%s: already inside the %s sandbox, so its own policy is not applied (%s); the enclosing boundary still holds",
+			p.Manifest.ID, strings.Join(current.Packages, ", "), strings.Join(ignored, ", ")))
 	}
 	// Everything the parent enforced still holds, so the reported context is
 	// the parent's with this launch's identity written over it. Copying the
@@ -683,6 +688,7 @@ func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContex
 	context.DisabledFeatures = sortedMapKeys(disabled)
 	return sandboxPlan{
 		env:          sandboxEnv(p.Env, overrides, disabled, newEnvFilter(policy.Env, p.Injected)),
+		notices:      notices,
 		isolatedHome: isolatedHome,
 		nestedUnder:  strings.Join(current.Packages, ", "),
 		ignored:      ignored,
