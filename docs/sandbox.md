@@ -104,13 +104,12 @@ sandbox apply to ordinary launches.
 An empty package entry is useful on its own: it accepts the built-in defaults
 without copying them into your config.
 
-`--no-sandbox` is the counterpart to `--sandbox`, and the first thing to
-reach for when a sandboxed package misbehaves: it skips the policy for one
-launch, so "is the sandbox what broke this?" is one command rather than an
-edit to `config.yaml` and an edit back. It removes bunny's own layer only —
-a launch inside an enclosing sandbox stays inside it, because that boundary
-belongs to the process, not to this flag. Combining it with `--sandbox` or
-`--sandbox-profile` is refused rather than resolved by precedence.
+`--no-sandbox` skips the policy for one launch, so "is the sandbox what broke
+this?" is one command rather than an edit to `config.yaml` and an edit back.
+It removes bunny's own layer only — a launch inside an enclosing sandbox
+stays inside it, because that boundary belongs to the process, not to this
+flag. Combining it with `--sandbox` or `--sandbox-profile` is refused rather
+than resolved by precedence.
 
 `profiles:` exists for the policy you do *not* want automatic. A named profile
 that no package selects is inert until you ask for it:
@@ -773,10 +772,10 @@ sandbox:
 `hide` is a denylist and appends across layers, like `hide` for paths.
 `keep` is an allowlist and replaces an inherited one, like `fs` grants:
 with it set, a host variable crosses only if it is named. Entries are exact
-names or a single trailing `*` as a prefix — nothing richer, because a
-pattern language over names you cannot enumerate would read as a guarantee
-this cannot give. An invalid name is a config error rather than a rule that
-silently matches nothing.
+names or a single trailing `*` as a prefix — nothing richer, because this is
+a check on names, not on secrets, and a pattern language would read as a
+guarantee it cannot give. An invalid name is a config error rather than a
+rule that silently matches nothing.
 
 Two rules keep it usable:
 
@@ -789,14 +788,10 @@ Two rules keep it usable:
   still drops it: naming it exactly is a decision, while a prefix sweep like
   `PA*` is not and leaves it alone.
 
-This is name-based and only that: it cannot know which of your variables
-hold secrets, only which names you named. `keep` is the side that fails
-closed, and the one to reach for when a package should see none of your
-environment.
-
-Note the interaction with token-based logins. A package authenticated by an
-environment variable — `CLAUDE_CODE_OAUTH_TOKEN`, say — needs that variable
-to cross, so a `keep` list must name it.
+`keep` is the side that fails closed, and the one to reach for when a package
+should see none of your environment — including a package authenticated by
+an environment variable, where the token (`CLAUDE_CODE_OAUTH_TOKEN`, say) has
+to be named or the login goes with everything else.
 
 ### The hardened boundary
 

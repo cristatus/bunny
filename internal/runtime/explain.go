@@ -23,7 +23,7 @@ func Explain(p *Prepared, cfg *config.Config, activation Activation, profileOver
 		return fmt.Sprintf("%s runs directly: --no-sandbox skips its configured policy for this launch; an enclosing sandbox, if any, still applies\n", id), nil
 	case activation == ActivationBypassed:
 		return fmt.Sprintf("%s runs directly: no sandbox policy is active for it, so --no-sandbox changes nothing\n", id), nil
-	case activation != ActivationForced && !activated:
+	case activation == ActivationDefault && !activated:
 		return fmt.Sprintf("%s runs directly: no sandbox policy is active for this launch (add it to sandbox.packages, or pass --sandbox for this launch only)\n", id), nil
 	}
 	return ExplainSandbox(p, cfg, profileOverride, out)
@@ -159,12 +159,11 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 			add(name, "none", "enabled")
 		case name == "x11" && sharesHostNetns(plan.context.NetMode):
 			// X clients prefer the abstract socket @/tmp/.X11-unix/X0, which
-			// lives in the network namespace, not the filesystem. Neither a
+			// lives in the network namespace, not the filesystem: neither a
 			// mask nor the hardened baseline reaches it while the host
-			// namespace is shared, and an X client that gets there can read
-			// other windows' input and take the screen — so the row says so
-			// under both boundaries rather than claiming an exclusion the
-			// launch does not have.
+			// namespace is shared. A client that gets there reads other
+			// windows' input and takes the screen, so both boundaries report
+			// it rather than claiming an exclusion the launch lacks.
 			detail := "variable removed, filesystem socket masked"
 			if hardened {
 				detail = "endpoints excluded by the boundary"

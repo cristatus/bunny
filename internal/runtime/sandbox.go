@@ -506,10 +506,12 @@ func (f envFilter) apply(values map[string]string) {
 
 func (f envFilter) admits(name string) bool {
 	for _, pattern := range f.policy.Hide {
-		// An exact name is a deliberate choice and is obeyed even for PATH;
-		// a prefix is a sweep, and must not take PATH out from under a
-		// package by accident.
-		if pattern == name || (name != envAlwaysKept && envNameMatches(pattern, name)) {
+		if pattern == name {
+			return false // named exactly, so even PATH goes
+		}
+		// A prefix is a sweep rather than a decision about any one variable,
+		// and must not take PATH out from under a package by accident.
+		if name != envAlwaysKept && envNameMatches(pattern, name) {
 			return false
 		}
 	}

@@ -264,22 +264,19 @@ func SandboxPolicyChecks(cfg *config.Config, state InstalledState) []Result {
 	}
 	ids := slices.Sorted(maps.Keys(cfg.Sandbox.Packages))
 
-	var broken, missing []string
-	var firstBroken string
+	var broken []brokenPolicy
+	var missing []string
 	for _, id := range ids {
 		if state != nil && !state.IsInstalled(id) {
 			missing = append(missing, id)
 			continue
 		}
 		if err := runtime.CheckPackagePolicy(cfg, id); err != nil {
-			broken = append(broken, id)
-			if firstBroken == "" {
-				firstBroken = id + ": " + err.Error()
-			}
+			broken = append(broken, brokenPolicy{id: id, reason: err.Error()})
 		}
 	}
 
-	results := []Result{policyResult(name, len(ids)-len(missing), broken, firstBroken)}
+	results := []Result{policyResult(name, len(ids)-len(missing), broken)}
 	if len(missing) > 0 {
 		results = append(results, Result{
 			Name:     "Sandbox arming",
@@ -291,14 +288,25 @@ func SandboxPolicyChecks(cfg *config.Config, state InstalledState) []Result {
 	return results
 }
 
-func policyResult(name string, checked int, broken []string, firstBroken string) Result {
+// brokenPolicy is one armed package whose policy will not resolve, with the
+// reason a launch would print.
+type brokenPolicy struct{ id, reason string }
+
+// policyResult reports the first failure in full — the reason is the value,
+// and one row cannot carry several — and names the rest so nothing is
+// hidden behind a count.
+func policyResult(name string, checked int, broken []brokenPolicy) Result {
 	switch {
 	case len(broken) > 0:
-		detail := firstBroken
-		if len(broken) > 1 {
-			detail += fmt.Sprintf(" (and %d more: %s)", len(broken)-1, strings.Join(broken[1:], ", "))
+		detail := broken[0].id + ": " + broken[0].reason
+		if rest := broken[1:]; len(rest) > 0 {
+			ids := make([]string, len(rest))
+			for i, p := range rest {
+				ids[i] = p.id
+			}
+			detail += fmt.Sprintf(" (and %d more: %s)", len(rest), strings.Join(ids, ", "))
 		}
-		return Result{Name: name, Detail: detail, Severity: Fail, Fix: "bunny sandbox check " + broken[0]}
+		return Result{Name: name, Detail: detail, Severity: Fail, Fix: "bunny sandbox check " + broken[0].id}
 	case checked == 0:
 		return Result{Name: name, Detail: "no armed package is installed", Severity: OK}
 	default:

@@ -58,7 +58,7 @@ func (c *RunCmd) activation() (runtime.Activation, error) {
 	forced := c.Sandbox || c.SandboxProfile != ""
 	switch {
 	case c.NoSandbox && forced:
-		return 0, errors.New("--no-sandbox cannot be combined with --sandbox or --sandbox-profile")
+		return runtime.ActivationDefault, errors.New("--no-sandbox cannot be combined with --sandbox or --sandbox-profile")
 	case c.NoSandbox:
 		return runtime.ActivationBypassed, nil
 	case forced:
