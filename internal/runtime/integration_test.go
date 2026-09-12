@@ -287,3 +287,60 @@ func TestPrivateEgressRulesetIsTamperProof(t *testing.T) {
 		t.Errorf("payload must not be able to flush the egress ruleset:\n%s", out)
 	}
 }
+
+// The environment is the other way into a sandbox, and the one the
+// filesystem boundary says nothing about: bunny builds the launch
+// environment from the host's own. A hidden variable must be absent from the
+// payload's real environment, not merely absent from a report.
+func TestEnvPolicyHidesHostVariablesFromThePayload(t *testing.T) {
+	have(t, "bwrap")
+	script := `echo "aws: ${AWS_SECRET_ACCESS_KEY:-absent}"
+echo "token: ${GH_TOKEN:-absent}"
+echo "editor: ${EDITOR:-absent}"`
+	config := "sandbox:\n  packages:\n    probe:\n      boundary: hardened\n" +
+		"      env:\n        hide: [AWS_*, GH_TOKEN]\n"
+
+	out, code := probe(t, config, script,
+		"AWS_SECRET_ACCESS_KEY=leak", "GH_TOKEN=leak", "EDITOR=vi")
+	if code != 0 {
+		t.Fatalf("launch failed (%d):\n%s", code, out)
+	}
+	if !strings.Contains(out, "aws: absent") || !strings.Contains(out, "token: absent") {
+		t.Errorf("hidden variables reached the payload:\n%s", out)
+	}
+	if !strings.Contains(out, "editor: vi") {
+		t.Errorf("an unhidden variable must still cross:\n%s", out)
+	}
+}
+
+// keep is deny-by-default: only what it names crosses. PATH is the exception
+// the policy cannot afford to drop — a package that cannot exec a child looks
+// broken rather than restricted — and what bunny set for the launch is not
+// host state and survives regardless.
+func TestEnvPolicyKeepListAppliesToTheRealPayload(t *testing.T) {
+	have(t, "bwrap")
+	script := `echo "kept: ${KEEPME:-absent}"
+echo "secret: ${SECRET_TOKEN:-absent}"
+echo "path: $(test -n "$PATH" && echo set || echo absent)"
+echo "home-is-data: $(case "$HOME" in *sandbox-probe-data*|*/data/probe/home) echo yes ;; *) echo "$HOME" ;; esac)"
+echo "exec-child: $(env true >/dev/null 2>&1 && echo ok || echo broken)"`
+	config := "sandbox:\n  packages:\n    probe:\n      boundary: hardened\n" +
+		"      env:\n        keep: [KEEPME]\n"
+
+	out, code := probe(t, config, script, "KEEPME=yes", "SECRET_TOKEN=leak")
+	if code != 0 {
+		t.Fatalf("launch failed (%d):\n%s", code, out)
+	}
+	if !strings.Contains(out, "kept: yes") {
+		t.Errorf("a kept variable must cross:\n%s", out)
+	}
+	if !strings.Contains(out, "secret: absent") {
+		t.Errorf("an unlisted variable must not cross:\n%s", out)
+	}
+	if !strings.Contains(out, "path: set") || !strings.Contains(out, "exec-child: ok") {
+		t.Errorf("PATH must survive a keep list so the payload can exec:\n%s", out)
+	}
+	if !strings.Contains(out, "home-is-data: yes") {
+		t.Errorf("bunny's own launch variables must survive a keep list:\n%s", out)
+	}
+}
