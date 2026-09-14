@@ -9,6 +9,18 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A `man:` manifest field installs man pages into a shared XDG man root
+  (`~/.local/share/man` under XDG, `$BUNNY_HOME/share/man` under a single
+  root), sectioned by each page's own filename. `bunny init`/`bunny setup`
+  now export `MANPATH` for it in bash, zsh, and fish, unconditionally: unlike
+  desktop entries and icons, `man` implementations do not search the XDG
+  data dirs on their own. An entry can name one file or a directory of them
+  — the latter for a tool like `gh` that ships one page per subcommand,
+  where listing each individually would not be reasonable; directory entries
+  are symlinked rather than copied so a reinstall can find exactly what the
+  previous version installed without re-reading a source tree that, by the
+  time the old integration is torn down, may already hold the new version's
+  files.
 - `bunny run --no-sandbox <id>` skips the policy a `sandbox.packages` entry
   applies, for one launch, so "is the sandbox what broke this?" costs one
   command rather than an edit to `config.yaml` and an edit back. It removes

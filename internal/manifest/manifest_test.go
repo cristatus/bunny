@@ -313,6 +313,38 @@ icons: [{src: "{app}/foo.png", name: foo, size: "../../bin"}]
 	}
 }
 
+func TestValidateRejectsManPageWithNUL(t *testing.T) {
+	src := "id: foo\nname: Foo\nversion: \"1.0\"\n" +
+		"sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]\n" +
+		"bin: [{name: foo, path: \"{app}/foo\"}]\n" +
+		"man: [\"{app}/share/man/man1/foo\x001\"]\n"
+	if _, err := ParseBytes([]byte(src)); err == nil {
+		t.Fatal("expected man page path with a NUL byte to be rejected")
+	}
+}
+
+// A man: entry may name either one page file or a directory of them (for a
+// tool like gh that ships hundreds), so parsing must accept both shapes —
+// nothing here can be validated structurally beyond "non-empty, no NUL".
+func TestParseAllowsManPageFileOrDirectory(t *testing.T) {
+	src := `
+id: foo
+name: Foo
+version: "1.0"
+sources: [{url: x, sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}]
+bin: [{name: foo, path: "{app}/foo"}]
+man: ["{app}/share/man/man1/foo.1", "{app}/share/man/man1"]
+`
+	m, err := ParseBytes([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"{app}/share/man/man1/foo.1", "{app}/share/man/man1"}
+	if len(m.Man) != len(want) || m.Man[0] != want[0] || m.Man[1] != want[1] {
+		t.Errorf("got %+v, want %+v", m.Man, want)
+	}
+}
+
 func TestParseToolchains(t *testing.T) {
 	src := `
 id: gradle

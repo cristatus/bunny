@@ -572,6 +572,19 @@ func integrationDestinations(m *manifest.Manifest, vars map[string]string) map[s
 			}
 		}
 	}
+	for _, entry := range m.Man {
+		expanded := manifest.Expand(entry, vars)
+		if section := manifest.ManSection(expanded); section != "" {
+			out["man/"+section+"/"+filepath.Base(expanded)] = true
+			continue
+		}
+		// A directory entry's page names aren't known until install (they
+		// come from whatever prepare: extracts), so this can only register
+		// the directory itself: it catches two manifests declaring the exact
+		// same directory, not two directories that happen to produce the
+		// same filename.
+		out["man-dir/"+expanded] = true
+	}
 	return out
 }
 
@@ -768,6 +781,9 @@ func (i *Installer) installDesktopIntegration(m *manifest.Manifest, prev *manife
 	if err := desktop.InstallCompletions(i.Paths, m.Completions, finalVars, owned); err != nil {
 		return err
 	}
+	if err := desktop.InstallMan(i.Paths, m.Man, finalVars, owned); err != nil {
+		return err
+	}
 	if len(m.Icons) > 0 {
 		desktop.RefreshIconCache(i.Paths) // so new icons show without a re-login
 	}
@@ -787,6 +803,9 @@ func (i *Installer) removeDesktopIntegration(m *manifest.Manifest, id string) er
 		errs = append(errs, err)
 	}
 	if err := desktop.RemoveCompletions(i.Paths, m.Completions, vars); err != nil {
+		errs = append(errs, err)
+	}
+	if err := desktop.RemoveMan(i.Paths, m.Man, vars); err != nil {
 		errs = append(errs, err)
 	}
 	if len(m.Icons) > 0 {

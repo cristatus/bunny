@@ -68,6 +68,15 @@ type Manifest struct {
 	Desktop     []DesktopEntry `yaml:"desktop,omitempty"`
 	Icons       []Icon         `yaml:"icons,omitempty"`
 	Completions *Completions   `yaml:"completions,omitempty"`
+	// Man lists man pages this package installs. Most entries name one file,
+	// e.g. "{app}/share/man/man1/foo.1" or "{app}/share/man/man1/foo.1.gz";
+	// its section (man1, man3, ...) is read from its own filename rather than
+	// declared separately, since that is already how the file has to be named
+	// for `man` itself to accept it. An entry may instead name a directory
+	// (e.g. "{app}/share/man/man1") to install every page inside it, still
+	// sectioned by each page's own name — for a tool like `gh` that ships one
+	// page per subcommand, listing hundreds individually is not reasonable.
+	Man []string `yaml:"man,omitempty"`
 }
 
 // SandboxPolicy is the shared shape of one run-time sandbox policy layer:

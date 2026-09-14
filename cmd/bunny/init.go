@@ -30,8 +30,9 @@ func initSnippet(p *paths.Paths, shell string) string {
 	switch shell {
 	case "fish":
 		pathGuard := fmt.Sprintf("contains -- %[1]s $PATH; or set -gx PATH %[1]s $PATH\n", bin)
+		manGuard := fishManGuard(p)
 		if p.XDG() {
-			return pathGuard
+			return pathGuard + manGuard
 		}
 		return rootExport(p, "test -n \"$%[1]s\"; or set -gx %[1]s %[2]s\n") +
 			pathGuard +
@@ -39,7 +40,8 @@ func initSnippet(p *paths.Paths, shell string) string {
 if not string match -q -- "*:%[1]s:*" ":$XDG_DATA_DIRS:"
     set -gx XDG_DATA_DIRS %[1]s:$XDG_DATA_DIRS
 end
-`, share)
+`, share) +
+			manGuard
 	case "zsh":
 		// Add bunny's completions dir to fpath. If compinit already ran (say
 		// oh-my-zsh ran it before this snippet), re-run it so it scans the new
@@ -63,8 +65,9 @@ func posixGuards(p *paths.Paths) string {
     *) export PATH="%[1]s:$PATH" ;;
 esac
 `, p.Bin())
+	manGuard := posixManGuard(p)
 	if p.XDG() {
-		return pathGuard
+		return pathGuard + manGuard
 	}
 	return rootExport(p, "export %[1]s=\"${%[1]s:-%[2]s}\"\n") +
 		pathGuard +
@@ -72,7 +75,35 @@ esac
     *":%[1]s:"*) ;;
     *) export XDG_DATA_DIRS="%[1]s:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
 esac
-`, p.Share())
+`, p.Share()) +
+		manGuard
+}
+
+// posixManGuard prepends bunny's man root to $MANPATH, in bash/zsh. man(1)
+// treats a MANPATH that begins or ends with a colon (or was unset, since
+// ${MANPATH:-} then expands to "") as "also search the system defaults here",
+// so this never hides pages outside bunny's own — unlike XDG_DATA_DIRS, man
+// implementations do not search the XDG data dirs on their own, MANPATH is
+// the only lever.
+func posixManGuard(p *paths.Paths) string {
+	return fmt.Sprintf(`case ":${MANPATH:-}:" in
+    *":%[1]s:"*) ;;
+    *) export MANPATH="%[1]s:${MANPATH:-}" ;;
+esac
+`, p.ManPages())
+}
+
+// fishManGuard is posixManGuard's fish equivalent. fish treats MANPATH as a
+// path variable it joins with ':' on export, so appending "" as the final
+// element reproduces the trailing-colon-means-defaults form when MANPATH was
+// previously unset.
+func fishManGuard(p *paths.Paths) string {
+	return fmt.Sprintf(`if set -q MANPATH[1]
+    contains -- %[1]s $MANPATH; or set -gx MANPATH %[1]s $MANPATH
+else
+    set -gx MANPATH %[1]s ""
+end
+`, p.ManPages())
 }
 
 // rootExport formats the assignment that re-establishes $BUNNY_HOME, given a

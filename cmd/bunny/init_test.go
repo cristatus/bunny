@@ -109,3 +109,37 @@ func TestInitSnippetXDGDropsDataDirs(t *testing.T) {
 		t.Error("bash: completions are discovered natively under XDG")
 	}
 }
+
+// Unlike desktop entries and icons, man implementations do not search the
+// XDG data dirs on their own — MANPATH is the only lever, so the guard must
+// be present under both layouts, not gated on single-root the way
+// XDG_DATA_DIRS is.
+func TestInitSnippetSetsManpathInEveryLayout(t *testing.T) {
+	for _, p := range []*paths.Paths{
+		paths.At("/h/.bunny"),
+		func() *paths.Paths {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv(paths.EnvHome, "")
+			for _, v := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+				t.Setenv(v, "")
+			}
+			p, err := paths.Resolve()
+			if err != nil {
+				t.Fatal(err)
+			}
+			return p
+		}(),
+	} {
+		man := p.ManPages()
+		if bash := initSnippet(p, "bash"); !strings.Contains(bash, `case ":${MANPATH:-}:" in`) || !strings.Contains(bash, man) {
+			t.Errorf("bash: missing MANPATH dedup guard for %s:\n%s", man, bash)
+		}
+		if zsh := initSnippet(p, "zsh"); !strings.Contains(zsh, `case ":${MANPATH:-}:" in`) || !strings.Contains(zsh, man) {
+			t.Errorf("zsh: missing MANPATH dedup guard for %s:\n%s", man, zsh)
+		}
+		if fish := initSnippet(p, "fish"); !strings.Contains(fish, "set -gx MANPATH "+man) {
+			t.Errorf("fish: missing MANPATH guard for %s:\n%s", man, fish)
+		}
+	}
+}

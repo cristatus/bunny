@@ -230,6 +230,157 @@ func TestInstallCompletionsLeavesAForeignFileAlone(t *testing.T) {
 	}
 }
 
+func TestInstallMan(t *testing.T) {
+	root := t.TempDir()
+	p := paths.At(root)
+	srcDir := t.TempDir()
+
+	page1 := filepath.Join(srcDir, "bunnytool.1")
+	pageGz := filepath.Join(srcDir, "bunnytool.3p.gz")
+	os.WriteFile(page1, []byte(".TH BUNNYTOOL 1"), 0644)
+	os.WriteFile(pageGz, []byte("not really gzipped, doesn't matter here"), 0644)
+
+	man := []string{page1, pageGz}
+	if err := InstallMan(p, man, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(p.ManPages(), "man1", "bunnytool.1")); err != nil {
+		t.Errorf("section 1 page missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(p.ManPages(), "man3p", "bunnytool.3p.gz")); err != nil {
+		t.Errorf("section 3p page missing: %v", err)
+	}
+}
+
+func TestInstallManLeavesAForeignFileAlone(t *testing.T) {
+	p := paths.At(t.TempDir())
+	src := filepath.Join(t.TempDir(), "ls.1")
+	os.WriteFile(src, []byte("bunny's page"), 0644)
+
+	dst := filepath.Join(p.ManPages(), "man1", "ls.1")
+	os.MkdirAll(filepath.Dir(dst), 0755)
+	os.WriteFile(dst, []byte("the distro's page"), 0644)
+
+	if err := InstallMan(p, []string{src}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(dst); string(data) != "the distro's page" {
+		t.Errorf("overwrote a foreign man page: %q", data)
+	}
+}
+
+func TestRemoveMan(t *testing.T) {
+	p := paths.At(t.TempDir())
+	src := filepath.Join(t.TempDir(), "bunnytool.1")
+	os.WriteFile(src, []byte(".TH BUNNYTOOL 1"), 0644)
+
+	man := []string{src}
+	if err := InstallMan(p, man, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(p.ManPages(), "man1", "bunnytool.1")
+	if _, err := os.Stat(dst); err != nil {
+		t.Fatalf("setup: page missing: %v", err)
+	}
+	if err := RemoveMan(p, man, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("page still present after removal: %v", err)
+	}
+}
+
+// A directory entry (for a tool like gh that ships one page per subcommand)
+// symlinks every recognizable page inside it, mixed sections included, and
+// skips anything that isn't one.
+func TestInstallManDirectory(t *testing.T) {
+	p := paths.At(t.TempDir())
+	srcDir := t.TempDir()
+	os.WriteFile(filepath.Join(srcDir, "bunnytool.1"), []byte(".TH BUNNYTOOL 1"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "bunnytool-config.5"), []byte(".TH BUNNYTOOL-CONFIG 5"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "README.md"), []byte("not a man page"), 0644)
+
+	if err := InstallMan(p, []string{srcDir}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	page1 := filepath.Join(p.ManPages(), "man1", "bunnytool.1")
+	page5 := filepath.Join(p.ManPages(), "man5", "bunnytool-config.5")
+	if _, err := os.Lstat(page1); err != nil {
+		t.Errorf("section 1 page missing: %v", err)
+	}
+	if _, err := os.Lstat(page5); err != nil {
+		t.Errorf("section 5 page missing: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(p.ManPages(), "man1", "README.md")); !os.IsNotExist(err) {
+		t.Error("README.md should not have been installed as a man page")
+	}
+	if target, err := os.Readlink(page1); err != nil || target != filepath.Join(srcDir, "bunnytool.1") {
+		t.Errorf("expected a symlink to the source page, got target %q, err %v", target, err)
+	}
+
+	if err := RemoveMan(p, []string{srcDir}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(page1); !os.IsNotExist(err) {
+		t.Error("section 1 page still present after removal")
+	}
+	if _, err := os.Lstat(page5); !os.IsNotExist(err) {
+		t.Error("section 5 page still present after removal")
+	}
+}
+
+// The reinstall path removes the *old* manifest's integration after {app}
+// already holds the *new* version's files (see installer.replaceDesktopIntegration).
+// For a directory entry that means, by the time RemoveMan runs for the old
+// manifest, re-reading srcDir would see the new files, not the old ones — so
+// this simulates exactly that ordering and checks removal still targets only
+// the pages the old install actually created.
+func TestManDirectoryReinstallSurvivesAppSwap(t *testing.T) {
+	p := paths.At(t.TempDir())
+	appDir := t.TempDir()
+	manDir := filepath.Join(appDir, "share", "man", "man1")
+	os.MkdirAll(manDir, 0755)
+	os.WriteFile(filepath.Join(manDir, "old-cmd.1"), []byte(".TH OLD-CMD 1"), 0644)
+	os.WriteFile(filepath.Join(manDir, "shared-cmd.1"), []byte(".TH SHARED-CMD 1 (old)"), 0644)
+
+	entry := []string{manDir}
+	if err := InstallMan(p, entry, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate installer.place(): the staged new version's tree replaces
+	// {app} in full before the old manifest's integration is torn down.
+	os.RemoveAll(appDir)
+	os.MkdirAll(manDir, 0755)
+	os.WriteFile(filepath.Join(manDir, "new-cmd.1"), []byte(".TH NEW-CMD 1"), 0644)
+	os.WriteFile(filepath.Join(manDir, "shared-cmd.1"), []byte(".TH SHARED-CMD 1 (new)"), 0644)
+
+	// Same entry string (same directory path) as the old manifest declared —
+	// removal must still find the *old* symlinks, not the now-live new files.
+	if err := RemoveMan(p, entry, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(p.ManPages(), "man1", "old-cmd.1")); !os.IsNotExist(err) {
+		t.Error("old-cmd.1 should have been removed")
+	}
+	if _, err := os.Lstat(filepath.Join(p.ManPages(), "man1", "shared-cmd.1")); !os.IsNotExist(err) {
+		t.Error("shared-cmd.1 should have been removed along with the rest of the old install")
+	}
+
+	// The new manifest's install then runs against the now-live new tree.
+	if err := InstallMan(p, entry, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	newCmd := filepath.Join(p.ManPages(), "man1", "new-cmd.1")
+	shared := filepath.Join(p.ManPages(), "man1", "shared-cmd.1")
+	if target, err := os.Readlink(newCmd); err != nil || target != filepath.Join(manDir, "new-cmd.1") {
+		t.Errorf("new-cmd.1: got target %q, err %v", target, err)
+	}
+	if target, err := os.Readlink(shared); err != nil || target != filepath.Join(manDir, "shared-cmd.1") {
+		t.Errorf("shared-cmd.1: expected it repointed at the new version's page, got target %q, err %v", target, err)
+	}
+}
+
 // Removal used to sweep .png/.svg/.xpm for the icon's name, taking out
 // variants bunny never installed.
 func TestRemoveIconsOnlyTouchesTheDeclaredExtension(t *testing.T) {

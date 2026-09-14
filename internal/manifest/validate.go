@@ -162,6 +162,14 @@ func (m *Manifest) Validate() error {
 			seenActions[action.ID] = true
 		}
 	}
+	for i, path := range m.Man {
+		if path == "" {
+			return vErr(fmt.Sprintf("man[%d]", i), "required")
+		}
+		if strings.ContainsRune(path, '\x00') {
+			return vErr(fmt.Sprintf("man[%d]", i), "contains NUL")
+		}
+	}
 	seenIcons := map[string]bool{}
 	for i, ic := range m.Icons {
 		if err := validateIconName(ic.Name); err != nil {

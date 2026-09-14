@@ -327,6 +327,11 @@ func (p *Paths) ZshCompletions() string {
 }
 func (p *Paths) FishCompletions() string { return p.fish }
 
+// ManPages is the root bunny installs man pages under; each section gets its
+// own man{N} subdirectory, so `man` finds them once MANPATH includes this
+// root (see the MANPATH guard in cmd/bunny/init.go).
+func (p *Paths) ManPages() string { return filepath.Join(p.Share(), "man") }
+
 // VarsAt is Vars with {app} pinned to a known directory. Integration expands
 // placeholders before state records where the package went, so a lookup would
 // return the fallback root rather than the truth.

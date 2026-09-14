@@ -132,7 +132,65 @@ func ManagedFiles(p *paths.Paths, m *manifest.Manifest, vars map[string]string) 
 	for _, path := range CompletionPaths(p, m.Completions, vars) {
 		owned[path] = true
 	}
+	for _, path := range ManPaths(p, m.Man, vars) {
+		owned[path] = true
+	}
 	return owned
+}
+
+// ManPaths are the destination files a man block installs, one per entry in
+// man (a page file, or a directory of them).
+//
+// A directory entry is resolved by reading the symlinks InstallMan already
+// left in bunny's man root for it, rather than the directory's current
+// contents: on a reinstall this runs for the *old* manifest after the new
+// version's files have already been placed at {app}, so the old directory no
+// longer holds what it held when it was installed. A plain file entry needs
+// no such care — its destination is a pure function of its own name — which
+// is also why InstallMan copies those instead of symlinking them.
+func ManPaths(p *paths.Paths, man []string, vars map[string]string) []string {
+	var out []string
+	for _, entry := range man {
+		expanded := runtime.Expand(entry, vars)
+		if section := manifest.ManSection(expanded); section != "" {
+			out = append(out, filepath.Join(p.ManPages(), "man"+section, filepath.Base(expanded)))
+			continue
+		}
+		out = append(out, symlinkedManPages(p, expanded)...)
+	}
+	return out
+}
+
+// symlinkedManPages finds the pages InstallMan symlinked from srcDir by
+// reading bunny's own man root, not srcDir itself. See ManPaths.
+func symlinkedManPages(p *paths.Paths, srcDir string) []string {
+	sections, err := os.ReadDir(p.ManPages())
+	if err != nil {
+		return nil
+	}
+	prefix := srcDir + string(filepath.Separator)
+	var out []string
+	for _, section := range sections {
+		if !section.IsDir() {
+			continue
+		}
+		dir := filepath.Join(p.ManPages(), section.Name())
+		pages, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, page := range pages {
+			link := filepath.Join(dir, page.Name())
+			target, err := os.Readlink(link)
+			if err != nil {
+				continue // a real file, from some file entry — not this directory's link
+			}
+			if strings.HasPrefix(target, prefix) {
+				out = append(out, link)
+			}
+		}
+	}
+	return out
 }
 
 // InstallIcons copies icons into the XDG icons hierarchy, leaving alone any
@@ -254,6 +312,88 @@ func RemoveCompletions(p *paths.Paths, comps *manifest.Completions, vars map[str
 	for _, path := range CompletionPaths(p, comps, vars) {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("remove completion %s: %w", filepath.Base(path), err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// InstallMan copies man pages into bunny's XDG man root, sectioned by each
+// file's own name.
+func InstallMan(p *paths.Paths, man []string, vars map[string]string, owned map[string]bool) error {
+	for _, entry := range man {
+		expanded := runtime.Expand(entry, vars)
+		if section := manifest.ManSection(expanded); section != "" {
+			if err := installManFile(p, expanded, section, owned); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := installManDir(p, expanded, owned); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func installManFile(p *paths.Paths, src, section string, owned map[string]bool) error {
+	dir := filepath.Join(p.ManPages(), "man"+section)
+	dst := filepath.Join(dir, filepath.Base(src))
+	if !claimable(dst, owned) {
+		log.Warn("Leaving man page alone", "path", dst, "reason", "not installed by bunny")
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	if err := fsutil.CopyFile(src, dst, 0644); err != nil {
+		return fmt.Errorf("install man page %s: %w", filepath.Base(src), err)
+	}
+	return nil
+}
+
+// installManDir symlinks every page directly inside srcDir into bunny's man
+// root — a symlink, not a copy, so ManPaths can later find exactly these
+// pages by their link target instead of re-reading srcDir, which a reinstall
+// may have already replaced with the next version's files by then.
+func installManDir(p *paths.Paths, srcDir string, owned map[string]bool) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("read man directory %s: %w", srcDir, err)
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		src := filepath.Join(srcDir, e.Name())
+		section := manifest.ManSection(src)
+		if section == "" {
+			continue
+		}
+		dir := filepath.Join(p.ManPages(), "man"+section)
+		dst := filepath.Join(dir, e.Name())
+		if !claimable(dst, owned) {
+			log.Warn("Leaving man page alone", "path", dst, "reason", "not installed by bunny")
+			continue
+		}
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("replace man page %s: %w", e.Name(), err)
+		}
+		if err := os.Symlink(src, dst); err != nil {
+			return fmt.Errorf("link man page %s: %w", e.Name(), err)
+		}
+	}
+	return nil
+}
+
+// RemoveMan deletes installed man pages referenced by the manifest.
+func RemoveMan(p *paths.Paths, man []string, vars map[string]string) error {
+	var errs []error
+	for _, path := range ManPaths(p, man, vars) {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("remove man page %s: %w", filepath.Base(path), err))
 		}
 	}
 	return errors.Join(errs...)
