@@ -222,7 +222,7 @@ func (c *CompletionCmd) Run(_ *App) error {
 // complete-ids command is intentionally excluded.
 var completionSubcommands = []string{
 	"install", "uninstall", "list", "info", "search", "use", "pin", "unpin", "run",
-	"sandbox", "update", "doctor", "init", "setup", "clean", "reshim",
+	"sandbox", "update", "self-update", "doctor", "init", "setup", "clean", "reshim",
 	"toolchains", "dev", "completion",
 }
 

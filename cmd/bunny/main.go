@@ -33,6 +33,7 @@ type CLI struct {
 	Search     SearchCmd     `cmd:"" help:"Search the catalog"`
 	Info       InfoCmd       `cmd:"" help:"Show package details"`
 	Update     UpdateCmd     `cmd:"" help:"Check for updates; use --apply to install them"`
+	SelfUpdate SelfUpdateCmd `cmd:"" help:"Check GitHub for a newer bunny release and install it"`
 	Use        UseCmd        `cmd:"" help:"Switch active provider for a capability"`
 	Pin        PinCmd        `cmd:"" help:"Pin a capability to a version in ./.bunny-version"`
 	Unpin      UnpinCmd      `cmd:"" help:"Remove a capability's pin from ./.bunny-version"`

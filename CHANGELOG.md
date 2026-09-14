@@ -9,6 +9,11 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `bunny self-update` checks GitHub for a newer bunny release and replaces the
+  running binary in place. It is independent of the catalog/install
+  machinery every other package goes through — bunny is not a catalog
+  package, has no `state.json` entry, and is the one file every shim already
+  resolves to — so plain `bunny update` never mentions it.
 - A `man:` manifest field installs man pages into a shared XDG man root
   (`~/.local/share/man` under XDG, `$BUNNY_HOME/share/man` under a single
   root), sectioned by each page's own filename. `bunny init`/`bunny setup`
