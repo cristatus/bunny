@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"slices"
@@ -44,7 +45,8 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 		if policy == nil {
 			return "", err
 		}
-		return explainBlocked(policy, out), err
+		readiness := renderReadiness(out, []preflightRow{{statusFail, "policy", err.Error()}})
+		return explainBlocked(policy, out) + "\n" + readiness, err
 	}
 
 	// The same notices a real launch prints: --explain must not be quieter
@@ -76,7 +78,7 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 		if len(plan.ignored) > 0 {
 			add("ignored", "none", strings.Join(plan.ignored, ", "))
 		}
-		return renderExplainReport(out, plan, policy, rows), nil
+		return finishExplain(out, plan, policy, rows)
 	}
 
 	if hardened {
@@ -191,7 +193,19 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 	level, detail := contextRow(contextAvailable(plan))
 	add("context", level, detail)
 
-	return renderExplainReport(out, plan, policy, rows), nil
+	return finishExplain(out, plan, policy, rows)
+}
+
+// finishExplain appends the host-readiness section — whether the components
+// this exact plan needs (bwrap, pasta, nft, xdg-dbus-proxy, an ephemeral
+// overlay, nested-context propagation) are actually available — after the
+// enforcement report, and folds any missing one into the returned error so
+// the exit status reflects whether the launch would actually succeed, not
+// just what it asks for.
+func finishExplain(out *ui.Printer, plan sandboxPlan, policy *PackageSandbox, rows [][3]string) (string, error) {
+	readinessRows, failures := probeReadiness(plan, policy)
+	report := renderExplainReport(out, plan, policy, rows) + "\n" + renderReadiness(out, readinessRows)
+	return report, errors.Join(failures...)
 }
 
 // envPolicyDetail describes an environment policy in the terms it is
@@ -283,6 +297,44 @@ func pathCoveredBy(path string, roots []string) bool {
 		}
 	}
 	return false
+}
+
+// renderReadiness lays the host-readiness rows out the way `bunny doctor`
+// lays its checks out — status glyph, name padded to the widest, detail —
+// and closes with the one-line verdict.
+func renderReadiness(p *ui.Printer, rows []preflightRow) string {
+	nameW, failures := 0, 0
+	for _, r := range rows {
+		nameW = max(nameW, len(r.name))
+		if r.status == statusFail {
+			failures++
+		}
+	}
+	var b strings.Builder
+	b.WriteString(p.Faint(readinessHeading) + "\n")
+	for _, r := range rows {
+		glyph, style := preflightGlyph(r.status)
+		fmt.Fprintf(&b, "%s %-*s  %s\n", p.PaintStatus(glyph, style), nameW, r.name, r.detail)
+	}
+	if failures == 0 {
+		b.WriteString("\nready to launch\n")
+	} else {
+		fmt.Fprintf(&b, "\n%d required check(s) failed\n", failures)
+	}
+	return b.String()
+}
+
+func preflightGlyph(status string) (string, ui.Style) {
+	switch status {
+	case statusSkip:
+		return "·", ui.Faint
+	case statusWarn:
+		return "⚠", ui.Plain
+	case statusFail:
+		return "✗", ui.Bad
+	default:
+		return "✓", ui.Good
+	}
 }
 
 // renderExplain aligns the rows into the name/level/detail columns.

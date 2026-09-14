@@ -446,9 +446,13 @@ func TestExplainSandboxReportsEphemeralHomeAndPersist(t *testing.T) {
 		Vars:     map[string]string{"data": root},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
+	// A returned error here can legitimately be this host's readiness section
+	// (e.g. no bwrap installed) rather than a policy problem — go test ./...
+	// must not depend on real sandbox tooling — so the assertions below check
+	// the rendered content, not err.
 	out, err := ExplainSandbox(p, cfg, "", plainPrinter())
 	if err != nil {
-		t.Fatal(err)
+		t.Logf("host readiness (environment-dependent, not under test): %v", err)
 	}
 	if !strings.Contains(out, "ephemeral") {
 		t.Errorf("--explain must report the ephemeral home mode: %s", out)
@@ -518,9 +522,12 @@ func TestExplainReportsSandboxPlanWhenForced(t *testing.T) {
 		Vars:     map[string]string{"data": t.TempDir()},
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
+	// See the comment in TestExplainSandboxReportsEphemeralHomeAndPersist: a
+	// returned error may just be this host's readiness section, not a policy
+	// problem.
 	out, err := Explain(p, &config.Config{}, ActivationForced, "", plainPrinter())
 	if err != nil {
-		t.Fatal(err)
+		t.Logf("host readiness (environment-dependent, not under test): %v", err)
 	}
 	if strings.Contains(out, "runs directly") {
 		t.Errorf("--sandbox must force the full plan, got: %s", out)
@@ -540,9 +547,12 @@ func TestExplainReportsSandboxPlanWhenAlwaysActivated(t *testing.T) {
 		Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
 	}
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{"claude": {}}}}
+	// See the comment in TestExplainSandboxReportsEphemeralHomeAndPersist: a
+	// returned error may just be this host's readiness section, not a policy
+	// problem.
 	out, err := Explain(p, cfg, ActivationDefault, "", plainPrinter())
 	if err != nil {
-		t.Fatal(err)
+		t.Logf("host readiness (environment-dependent, not under test): %v", err)
 	}
 	if strings.Contains(out, "runs directly") {
 		t.Errorf("always-activated package must report the full plan, got: %s", out)
@@ -903,7 +913,10 @@ func TestRealUserHomeIgnoresRedirectedEnvironment(t *testing.T) {
 	}
 }
 
-func TestSandboxPreflightSkipsUnusedHelpersForNestedLaunch(t *testing.T) {
+// --explain's host-readiness section only probes what the resolved plan
+// actually needs — a nested launch (no layer of its own) skips bwrap, pasta,
+// nft, and dbus-proxy entirely rather than reporting them as failures.
+func TestExplainReadinessSkipsUnusedHelpersForNestedLaunch(t *testing.T) {
 	home, err := realUserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -920,13 +933,13 @@ func TestSandboxPreflightSkipsUnusedHelpersForNestedLaunch(t *testing.T) {
 	cfg := &config.Config{Sandbox: config.Sandbox{Packages: map[string]config.SandboxPackage{
 		"tool": {SandboxPolicy: config.SandboxPolicy{Home: "shared"}},
 	}}}
-	out, err := CheckSandbox(p, cfg, "", plainPrinter())
+	out, err := ExplainSandbox(p, cfg, "", plainPrinter())
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Sandbox preflight", "· bwrap", "ready to launch"} {
+	for _, want := range []string{"Host readiness", "· bwrap", "ready to launch"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("preflight missing %q:\n%s", want, out)
+			t.Errorf("explain missing %q:\n%s", want, out)
 		}
 	}
 }
@@ -1272,9 +1285,12 @@ func TestExplainX11CaveatFollowsTheNetworkNamespace(t *testing.T) {
 			cfg := &config.Config{Sandbox: config.Sandbox{
 				Packages: map[string]config.SandboxPackage{"claude": policy(tc.boundary, tc.mode)},
 			}}
+			// See the comment in TestExplainSandboxReportsEphemeralHomeAndPersist:
+			// a returned error may just be this host's readiness section, not a
+			// policy problem.
 			out, err := ExplainSandbox(newPrepared(), cfg, "", plainPrinter())
 			if err != nil {
-				t.Fatal(err)
+				t.Logf("host readiness (environment-dependent, not under test): %v", err)
 			}
 			if got := strings.Contains(out, "abstract X11 socket still reachable"); got != tc.reaches {
 				t.Errorf("caveat present = %v, want %v:\n%s", got, tc.reaches, out)

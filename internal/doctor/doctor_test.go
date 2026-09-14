@@ -418,7 +418,7 @@ func TestSandboxPolicyChecksCatchAMissingHidePath(t *testing.T) {
 	if !strings.Contains(results[0].Detail, gone) {
 		t.Errorf("the row must name the path: %+v", results[0])
 	}
-	if results[0].Fix != "bunny sandbox check code" {
+	if results[0].Fix != "bunny run --explain code" {
 		t.Errorf("the fix must reproduce the failure in full: %+v", results[0])
 	}
 }

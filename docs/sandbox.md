@@ -29,12 +29,12 @@ PID, IPC, and UTS isolation, a new session, a fresh `/proc`, a minimal
 materially limits unexpected or malicious user-space behaviour; a VM remains
 the answer when the host kernel itself is outside the trust boundary.
 
-`bunny run --explain <id>` prints a risk summary followed by the effective
-policy and each control's enforcement level, without launching anything.
-`bunny sandbox check <id>` additionally probes the helpers and kernel
-facilities required by that package's exact policy, and `bunny doctor`
-validates every armed policy at once — a `hide` path that was deleted or a
-grant that moved otherwise stays silent until that package is next launched.
+`bunny run --explain <id>` prints a risk summary, the effective policy and
+each control's enforcement level, and then whether the host can actually run
+it — the exact helpers and kernel facilities that policy needs — without
+launching anything. `bunny doctor` validates every armed policy at once — a
+`hide` path that was deleted or a grant that moved otherwise stays silent
+until that package is next launched.
 
 ## Quick start
 
@@ -898,12 +898,42 @@ network   namespace  no network stack
 dbus      mount      session and system endpoints masked
 ...
 context   mount      immutable: /run/user/1000/bunny/sandbox-context.json
+
+Host readiness
+✓ policy          resolved and enforceable in the current context
+✓ bwrap           /usr/bin/bwrap
+· overlay         not required by this launch
+· pasta           not required by this launch
+· nft             not required by this launch
+· dbus-proxy      not required by this launch
+✓ nested context  immutable context propagation available
+
+ready to launch
 ```
 
 Every control is listed with its enforcement level (`env`, `mount`,
 `namespace`, `filter`) and what it produces, including restrictions forced by
 the network mode and anything inherited from an enclosing sandbox. This is the
 difference between trusting the sandbox and guessing.
+
+The final section, "Host readiness," is a separate question from the plan
+above it: not what the policy asks for, but whether *this host* can actually
+deliver it right now — the exact helpers and kernel facilities the resolved
+plan needs, checked only when it needs them. A faint row is one this launch
+never reaches, so a missing helper there costs nothing. If a required
+component is missing, `--explain` still prints the full report and exits
+non-zero, naming what would block the launch:
+
+```text
+$ bunny run --sandbox --explain some-tool
+...
+Host readiness
+✓ policy   resolved and enforceable in the current context
+✗ bwrap    bwrap not found (required for sandboxing): exec: "bwrap": executable file not found in $PATH
+           Install: sudo pacman -S bubblewrap (Arch) or sudo apt install bubblewrap (Debian/Ubuntu)
+...
+1 required check(s) failed
+```
 
 ## Applications, dependencies, and child commands
 
@@ -1133,37 +1163,15 @@ A configured or explicitly sandboxed package fails rather than silently
 running unsandboxed when bubblewrap cannot start. Packages without active
 sandboxing continue to launch directly.
 
-For one package, preflight the exact effective policy before launching it:
-
-```bash
-bunny sandbox check some-tool
-bunny sandbox check some-tool --profile agent
-```
-
-The result distinguishes required, optional, and unused components and checks
-bubblewrap, ephemeral overlays, pasta, nftables, the filtered D-Bus proxy, and
-immutable nested-context support only when the resolved launch needs them. A
-faint row is one this launch never reaches, so a missing helper there costs
-nothing:
-
-```text
-$ bunny sandbox check some-tool
-
-Sandbox preflight
-✓ policy          resolved and enforceable in the current context
-✓ bwrap           /usr/bin/bwrap
-· overlay         not required by this launch
-· pasta           not required by this launch
-· nft             not required by this launch
-· dbus-proxy      not required by this launch
-✓ nested context  immutable context propagation available
-
-ready to launch
-```
-
-A policy that resolves but cannot be planned here reports what was asked
-under a `Requested policy` heading, then the failing check; the command exits
-non-zero either way.
+For one package, preflight the exact effective policy before launching it —
+see [Explaining a launch](#explaining-a-launch): `bunny run --explain
+some-tool` (add `--sandbox`/`--sandbox-profile` for a package with no active
+policy of its own) reports the plan and, in a "Host readiness" section,
+whether this host can actually run it — bubblewrap, ephemeral overlays,
+pasta, nftables, the filtered D-Bus proxy, and immutable nested-context
+support, checked only when the resolved launch needs them. The command exits
+non-zero if a required one is missing or if the policy could not be planned
+at all.
 
 Useful checks when behavior is surprising:
 

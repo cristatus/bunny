@@ -306,7 +306,7 @@ func policyResult(name string, checked int, broken []brokenPolicy) Result {
 			}
 			detail += fmt.Sprintf(" (and %d more: %s)", len(rest), strings.Join(ids, ", "))
 		}
-		return Result{Name: name, Detail: detail, Severity: Fail, Fix: "bunny sandbox check " + broken[0].id}
+		return Result{Name: name, Detail: detail, Severity: Fail, Fix: "bunny run --explain " + broken[0].id}
 	case checked == 0:
 		return Result{Name: name, Detail: "no armed package is installed", Severity: OK}
 	default:

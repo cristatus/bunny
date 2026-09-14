@@ -52,6 +52,15 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   common case — which `bunny update` and `bunny reshim` otherwise keep
   failing on with no guided fix.
 
+### Changed
+
+- **Breaking:** `bunny sandbox check <id>` is gone; `bunny run --explain`
+  now reports it in a "Host readiness" section after the enforcement plan —
+  whether the exact helpers and kernel facilities that policy needs are
+  actually available, not just what the policy asks for. `--explain` exits
+  non-zero if a required one is missing. `sandbox check`'s `--profile` flag
+  is `--sandbox-profile`, already accepted by `run`.
+
 ### Fixed
 
 - A policy a nested launch cannot apply is reported where the user sees it.
