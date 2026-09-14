@@ -7,6 +7,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-14
+
 ### Added
 
 - `bunny self-update` checks GitHub for a newer bunny release and replaces the
@@ -483,7 +485,8 @@ Initial public release.
   validation.
 - Install-time `prepare:` steps isolated via Bubblewrap where required.
 
-[Unreleased]: https://github.com/cristatus/bunny/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/cristatus/bunny/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/cristatus/bunny/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/cristatus/bunny/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/cristatus/bunny/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/cristatus/bunny/compare/v0.3.0...v0.4.0
