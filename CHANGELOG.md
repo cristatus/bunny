@@ -7,6 +7,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Install-time `prepare:` steps failed on ostree distros (Fedora Silverblue,
+  Kinoite) with `bwrap: Can't mount on symlink destination /home`: the
+  prepare sandbox mounted its scratch `$HOME` directly onto `/home`, which
+  those distros symlink to `/var/home`, and bwrap refuses to mount onto a
+  symlink destination. The scratch home now lives under `/var/tmp` instead —
+  real and non-symlink everywhere, and unlike `/tmp`, not a path some
+  prepare-step tooling (e.g. `codex`'s installer) refuses to place itself
+  under as looking like a temp dir.
+
 ## [0.7.0] - 2026-09-14
 
 ### Added
