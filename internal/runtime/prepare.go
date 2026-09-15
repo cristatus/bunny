@@ -51,8 +51,17 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 		"--dev", "/dev",
 		"--proc", "/proc",
 		"--tmpfs", "/tmp",
-		"--tmpfs", "/home",
-		"--setenv", "HOME", "/home",
+		// A dedicated tmpfs under /var/tmp, not /home: on ostree distros
+		// (Silverblue, Kinoite) /home is a symlink to /var/home, which bwrap
+		// refuses to mount onto. Not under /tmp either — some prepare-step
+		// tooling (e.g. codex's installer) refuses to place itself under
+		// what looks like a temp dir. /var/tmp is a real, non-symlink
+		// directory bwrap can mount onto directly, unlike a synthetic
+		// top-level path, which the read-only root bind has no room to
+		// create.
+		"--tmpfs", "/var/tmp",
+		"--dir", "/var/tmp/home",
+		"--setenv", "HOME", "/var/tmp/home",
 		"--bind", workDir, workDir,
 	}
 	// After the staging bind, so a shadow of a directory inside staging still
