@@ -119,6 +119,25 @@ func TestEnsureRcInit(t *testing.T) {
 	}
 }
 
+func TestBlankLinePrefix(t *testing.T) {
+	cases := []struct {
+		name, data, want string
+	}{
+		{"empty file", "", ""},
+		{"no trailing newline", "# my zshrc", "\n\n"},
+		{"one trailing newline", "# my zshrc\n", "\n"},
+		{"already one blank line", "# my zshrc\n\n", ""},
+		{"already multiple blank lines", "# my zshrc\n\n\n", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := blankLinePrefix(c.data); got != c.want {
+				t.Errorf("blankLinePrefix(%q) = %q, want %q", c.data, got, c.want)
+			}
+		})
+	}
+}
+
 // The rc runs in shells that never had $BUNNY_HOME, and `bunny init` reads the
 // layout from its own environment, so the rc line has to carry the root. An
 // unpinned line would emit the XDG snippet and put ~/.local/bin on PATH while

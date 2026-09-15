@@ -157,6 +157,24 @@ func initEvalLine(root, bunnyBin, shell string) string {
 	return fmt.Sprintf("eval \"$(%s init %s)\"\n", cmd, shell)
 }
 
+// blankLinePrefix returns the newlines to prepend so the appended block is
+// separated from existing rc content by exactly one blank line: nothing for
+// an empty file, and no more than needed when the file already ends in one or
+// more blank lines.
+func blankLinePrefix(data string) string {
+	if data == "" {
+		return ""
+	}
+	switch trailing := len(data) - len(strings.TrimRight(data, "\n")); {
+	case trailing >= 2:
+		return ""
+	case trailing == 1:
+		return "\n"
+	default:
+		return "\n\n"
+	}
+}
+
 // ensureRcInit appends initEvalLine to rcPath unless an existing bunny init
 // line is present. Returns true if it appended. Creates the file/dirs if missing.
 func ensureRcInit(rcPath, root, bunnyBin, shell string) (bool, error) {
@@ -170,10 +188,7 @@ func ensureRcInit(rcPath, root, bunnyBin, shell string) (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(rcPath), 0755); err != nil {
 		return false, err
 	}
-	prefix := ""
-	if len(data) > 0 && !strings.HasSuffix(string(data), "\n") {
-		prefix = "\n"
-	}
+	prefix := blankLinePrefix(string(data))
 	f, err := os.OpenFile(rcPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return false, err
