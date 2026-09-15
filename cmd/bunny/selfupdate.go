@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 
+	"github.com/charmbracelet/log"
+
 	"github.com/cristatus/bunny/internal/selfupdate"
 )
 
@@ -21,15 +23,16 @@ func (c *SelfUpdateCmd) Run(a *App) error {
 	if err != nil {
 		return fmt.Errorf("check %s for updates: %w", selfupdate.Repo, err)
 	}
+	p.Println()
 	if !r.HasUpdate {
 		p.Printf("bunny %s is already up to date\n", version)
 		return nil
 	}
 
-	p.Printf("updating bunny %s → %s...\n", version, r.LatestVersion)
 	if err := selfupdate.Apply(ctx, r, a.Paths.BunnyBinary()); err != nil {
 		return err
 	}
-	p.Printf("bunny updated to %s\n", r.LatestVersion)
+	log.Info("Updated bunny", "from", version, "to", r.LatestVersion)
+	p.Printf("updated bunny %s → %s\n", version, r.LatestVersion)
 	return nil
 }
