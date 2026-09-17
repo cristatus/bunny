@@ -411,9 +411,9 @@ func resolveSourceUpdate(ctx context.Context, id, currentVersion string, src man
 			"upstream did not report the size for %s", downloadURL)
 	}
 
-	urlUpdate := ""
-	if !strings.Contains(src.URL, "{version}") {
-		urlUpdate = downloadURL
+	urlUpdate, err := resolveTemplateURL(src.URL, r.LatestVersion, r.DownloadURL)
+	if err != nil {
+		return nil, catalog.SourceUpdate{}, fmt.Errorf("%s: %w", id, err)
 	}
 	return r, catalog.SourceUpdate{
 		URL:    urlUpdate,
@@ -421,6 +421,30 @@ func resolveSourceUpdate(ctx context.Context, id, currentVersion string, src man
 		SHA512: sha512Hash,
 		Size:   r.Size,
 	}, nil
+}
+
+// resolveTemplateURL decides what (if anything) belongs in a source's url
+// field after an update. A literal url is always replaced with the checker's
+// resolved asset url. A `{version}`-templated url is trusted only as long as
+// rendering it with the new version reproduces that resolved url — some
+// upstreams (NetBeans-platform tools like VisualVM) embed a filename build
+// number unrelated to the release tag, so the template can silently go
+// stale. When it diverges, that manifest needs a maintainer's attention
+// rather than a rewrite, so this reports an error instead of guessing.
+func resolveTemplateURL(srcURL, newVersion, resolved string) (string, error) {
+	if !strings.Contains(srcURL, "{version}") {
+		if resolved != "" {
+			return resolved, nil
+		}
+		return strings.ReplaceAll(srcURL, "{version}", newVersion), nil
+	}
+	if resolved == "" {
+		return "", nil
+	}
+	if rendered := strings.ReplaceAll(srcURL, "{version}", newVersion); rendered != resolved {
+		return "", fmt.Errorf("templated url %q does not match resolved asset %q; update the source url manually", rendered, resolved)
+	}
+	return "", nil
 }
 
 // extractURLVersion applies tag-pattern to a source URL to recover its
