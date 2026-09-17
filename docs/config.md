@@ -275,6 +275,23 @@ The full field set (`home`, `persist`, `features`, `hide`, `boundary`, `fs`,
 `net`), what each built-in sets, and the nesting and trust model are in
 [Sandboxing](sandbox.md).
 
+## Man pages
+
+Not a `config.yaml` key: a manifest's `man:` field lists the man pages a
+package installs (manifest authoring lives in the
+[catalog](https://github.com/cristatus/bunny-catalog)). Most entries name one
+file, e.g. `{app}/share/man/man1/foo.1`; an entry naming a directory instead
+installs every page inside it, for a tool like `gh` that ships one page per
+subcommand.
+
+Bunny installs them under a shared XDG man root (`~/.local/share/man`, or
+`$BUNNY_HOME/share/man` under a single root), sectioned into `man1/`, `man8/`,
+etc. by each page's own filename. Directory entries are symlinked rather than
+copied, so a reinstall finds exactly what the previous version installed.
+`bunny init`/`bunny setup` export `MANPATH` for this root unconditionally, in
+bash, zsh, and fish — unlike desktop entries and icons, `man` implementations
+do not search the XDG data dirs on their own.
+
 ## Recipes
 
 Per-version isolation recipes:

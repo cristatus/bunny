@@ -20,7 +20,7 @@ bunny run zulu-21 -- -version        # one-off execution without changing the de
 ```
 
 JDK manifests update through the vendor-neutral
-[Foojay Disco API](https://api.foojay.io/). Adding a new vendor or major line
+[Foojay Disco API](https://api.foojay.io/disco/v3.0). Adding a new vendor or major line
 is a simple manifest entry (`update: {type: foojay, distribution: <vendor>}`).
 Package sources require SHA-256 or SHA-512 checksums.
 
