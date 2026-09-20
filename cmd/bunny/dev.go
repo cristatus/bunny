@@ -125,6 +125,16 @@ func validateCatalog(root string) (int, error) {
 			}
 		}
 
+		for i, s := range m.Sources {
+			if s.Update != nil && s.Update.Type == "github" && strings.Contains(s.URL, "{version}") {
+				return 0, fmt.Errorf(
+					"%s: sources[%d].url templates {version}, but the github checker "+
+						"always resolves the actual matched asset url and overwrites it; "+
+						"pin a literal url instead (use update.url-template if the download "+
+						"host genuinely needs a reconstructed url)", m.ID, i)
+			}
+		}
+
 		e, ok := index.Packages[m.ID]
 		if !ok {
 			return 0, fmt.Errorf("%s: missing from index.json", m.ID)
