@@ -68,8 +68,8 @@ func (d *Debian) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 }
 
 type debPkg struct {
-	version, filename, sha256 string
-	size                      int64
+	version, filename, sha256, arch string
+	size                            int64
 }
 
 func (d *Debian) fetchPackage(ctx context.Context, url, pkgName string, gz bool) (*debPkg, error) {
@@ -100,7 +100,7 @@ func (d *Debian) fetchPackage(ctx context.Context, url, pkgName string, gz bool)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if line == "" {
-			if cur != nil && cur.version != "" {
+			if cur != nil && cur.version != "" && isSupportedArch(cur.arch) {
 				if best == nil || compareDebVersions(cur.version, best.version) > 0 {
 					best = cur
 				}
@@ -126,9 +126,11 @@ func (d *Debian) fetchPackage(ctx context.Context, url, pkgName string, gz bool)
 			cur.sha256 = strings.TrimPrefix(line, "SHA256: ")
 		case strings.HasPrefix(line, "Size: "):
 			cur.size, _ = strconv.ParseInt(strings.TrimPrefix(line, "Size: "), 10, 64)
+		case strings.HasPrefix(line, "Architecture: "):
+			cur.arch = strings.TrimPrefix(line, "Architecture: ")
 		}
 	}
-	if cur != nil && cur.version != "" {
+	if cur != nil && cur.version != "" && isSupportedArch(cur.arch) {
 		if best == nil || compareDebVersions(cur.version, best.version) > 0 {
 			best = cur
 		}
@@ -138,6 +140,16 @@ func (d *Debian) fetchPackage(ctx context.Context, url, pkgName string, gz bool)
 	}
 	log.Debug("Debian package", "version", best.version)
 	return best, nil
+}
+
+// isSupportedArch reports whether a Packages entry targets bunny's only
+// supported platform. Repos split by dists/{dist}/{component}/binary-{arch}
+// already scope each Packages.gz to one architecture, but a flat repo (root+
+// dist, no component) serves every architecture from a single index, and
+// entries for other architectures can sort ahead of amd64 for the same
+// version, silently winning the "latest" pick.
+func isSupportedArch(arch string) bool {
+	return arch == "" || arch == "amd64" || arch == "all"
 }
 
 func compareDebVersions(v1, v2 string) int {
