@@ -5,6 +5,7 @@
 package reshim
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,8 +19,9 @@ type Provider struct {
 	Tools      []string // executable names found in this provider's global-bins
 }
 
-// Conflict records two capabilities exposing the same command name; the first
-// (by sorted capability order) wins and the second is skipped.
+// Conflict records two capabilities exposing the same command name: the one
+// that owns it now keeps it, or for a new name the first by sorted capability
+// order, and the other is skipped.
 type Conflict struct {
 	Command           string
 	KeptCapability    string
@@ -35,7 +37,10 @@ type Conflict struct {
 //     only the entries for the capabilities being reshimmed).
 //
 // Returns add (name→capability to register+shim), remove (names to drop), and
-// any name collisions across capabilities (first-wins, deterministic).
+// any name collisions across capabilities. A collision goes to the name's
+// current owner while it still provides the tool, so a scoped and a full
+// reshim agree on who owns it; a new name goes to the first capability in
+// sorted order.
 func Plan(providers []Provider, protected map[string]bool, current map[string]string) (add map[string]string, remove []string, conflicts []Conflict) {
 	add = map[string]string{}
 	desired := map[string]string{}
@@ -43,24 +48,27 @@ func Plan(providers []Provider, protected map[string]bool, current map[string]st
 	sorted := slices.Clone(providers)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Capability < sorted[j].Capability })
 
+	claims := map[string][]string{} // tool → claiming capabilities, sorted
 	for _, p := range sorted {
 		tools := slices.Clone(p.Tools)
 		sort.Strings(tools)
-		for _, tool := range tools {
-			if protected[tool] {
-				continue
+		for _, tool := range slices.Compact(tools) {
+			if !protected[tool] && !slices.Contains(claims[tool], p.Capability) {
+				claims[tool] = append(claims[tool], p.Capability)
 			}
-			if keptCap, ok := desired[tool]; ok {
-				if keptCap != p.Capability {
-					conflicts = append(conflicts, Conflict{
-						Command:           tool,
-						KeptCapability:    keptCap,
-						SkippedCapability: p.Capability,
-					})
-				}
-				continue
+		}
+	}
+	for _, tool := range slices.Sorted(maps.Keys(claims)) {
+		caps := claims[tool]
+		kept := caps[0]
+		if slices.Contains(caps, current[tool]) {
+			kept = current[tool]
+		}
+		desired[tool] = kept
+		for _, c := range caps {
+			if c != kept {
+				conflicts = append(conflicts, Conflict{Command: tool, KeptCapability: kept, SkippedCapability: c})
 			}
-			desired[tool] = p.Capability
 		}
 	}
 

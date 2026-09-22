@@ -709,6 +709,7 @@ func (a *App) reshimCapabilities(capability string) (added, removed []string, er
 		protected[name] = true
 	}
 	current := map[string]string{}
+	owners := map[string]string{} // names owned outside a scoped reshim
 	for _, name := range a.State.GlobalCommandNames() {
 		c, _ := a.State.GlobalCommandCapability(name)
 		switch {
@@ -716,16 +717,24 @@ func (a *App) reshimCapabilities(capability string) (added, removed []string, er
 			current[name] = c
 		default:
 			// A scoped reshim sees only its own capability's providers, so
-			// Plan cannot tell another capability already owns this name.
-			// Left unprotected it would be reassigned, and which capability
-			// owns it would depend on which command ran last.
+			// Plan cannot tell another capability owns this name. Plan keeps
+			// a name with its current owner; protecting it does the same for
+			// an owner outside the scope.
 			protected[name] = true
+			owners[name] = c
 		}
 	}
 
 	add, remove, conflicts := reshim.Plan(providers, protected, current)
+	for _, p := range providers {
+		for _, tool := range p.Tools {
+			if owner, ok := owners[tool]; ok {
+				conflicts = append(conflicts, reshim.Conflict{Command: tool, KeptCapability: owner, SkippedCapability: p.Capability})
+			}
+		}
+	}
 	for _, c := range conflicts {
-		log.Warn("Global command conflict — keeping first", "command", c.Command, "kept", c.KeptCapability, "skipped", c.SkippedCapability)
+		log.Warn("Global command conflict", "command", c.Command, "kept", c.KeptCapability, "skipped", c.SkippedCapability)
 	}
 
 	bunnyPath, err := shim.BunnyBinaryPath(a.Paths.Bin())

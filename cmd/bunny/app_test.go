@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -9,9 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/log"
-
 	"github.com/alecthomas/kong"
+	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/manifest"
@@ -382,6 +382,11 @@ func TestScopedReshimKeepsAnotherCapabilitysGlobalCommand(t *testing.T) {
 	os.WriteFile(a.Paths.BunnyBinary(), []byte("#!/bin/sh\n"), 0755)
 	a.State.SetGlobalCommand("foo", "jdk")
 	os.Symlink(a.Paths.BunnyBinary(), a.Paths.Shim("foo"))
+	var logged bytes.Buffer
+	prevLevel := log.GetLevel()
+	log.SetOutput(&logged)
+	log.SetLevel(log.WarnLevel)
+	t.Cleanup(func() { log.SetOutput(os.Stderr); log.SetLevel(prevLevel) })
 
 	added, _, err := a.reshimCapabilities("node")
 	if err != nil {
@@ -389,6 +394,10 @@ func TestScopedReshimKeepsAnotherCapabilitysGlobalCommand(t *testing.T) {
 	}
 	if owner, _ := a.State.GlobalCommandCapability("foo"); owner != "jdk" || slices.Contains(added, "foo") {
 		t.Errorf("foo now owned by %q (added %v); want it left with jdk", owner, added)
+	}
+	// Kept, but not silently: the skipped claim is a conflict like any other.
+	if !strings.Contains(logged.String(), "Global command conflict") || !strings.Contains(logged.String(), "skipped=node") {
+		t.Errorf("the skipped claim must be reported as a conflict, logged %q", logged.String())
 	}
 }
 

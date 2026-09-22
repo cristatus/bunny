@@ -70,3 +70,20 @@ func TestExecutablesMissingDir(t *testing.T) {
 		t.Errorf("want empty, got %v", got)
 	}
 }
+
+// A contested name stays with the capability that owns it now. First-by-name
+// alone made a full reshim take it away from the owner a scoped reshim had
+// just kept, so ownership depended on which command ran last.
+func TestPlanKeepsTheCurrentOwnerOnCollision(t *testing.T) {
+	providers := []Provider{
+		{Capability: "node", Tools: []string{"foo"}},
+		{Capability: "python", Tools: []string{"foo"}},
+	}
+	add, remove, conflicts := Plan(providers, map[string]bool{}, map[string]string{"foo": "python"})
+	if len(add) != 0 || len(remove) != 0 {
+		t.Errorf("add %v, remove %v; want foo left with python", add, remove)
+	}
+	if len(conflicts) != 1 || conflicts[0].KeptCapability != "python" || conflicts[0].SkippedCapability != "node" {
+		t.Errorf("conflicts = %v, want python kept over node", conflicts)
+	}
+}
