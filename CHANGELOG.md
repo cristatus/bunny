@@ -29,6 +29,15 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when a launch from the home had left it unmounted, and reported D-Bus as
   masked where the session bus uses an abstract address, which host
   networking still reaches.
+- Reinstalling, updating or uninstalling a package no longer overwrites or
+  deletes an icon, shell completion or man page that another tool had already
+  put in place. Bunny left such a file alone at install, but still treated the
+  path as its own afterwards. It now records the files it actually writes
+  (`files` in `state.json`) and touches only those. Packages installed before
+  this change keep the old behaviour until their next install.
+- A reinstall or uninstall no longer deletes a directory named `<package>.old`
+  or `<package>.delete` next to the install tree unless bunny created it. With
+  an install root such as `~/Applications`, such a directory may be yours.
 
 ## [0.7.1] - 2026-09-15
 
