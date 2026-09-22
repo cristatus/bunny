@@ -194,11 +194,17 @@ func tilde(path string) string {
 	return path
 }
 
+// onPath reports whether dir is an entry of $PATH, compared cleaned so a
+// trailing slash names the same directory.
+func onPath(dir string) bool {
+	return slices.ContainsFunc(filepath.SplitList(os.Getenv("PATH")), func(entry string) bool {
+		return entry != "" && filepath.Clean(entry) == filepath.Clean(dir)
+	})
+}
+
 func pathOnPathCheck(binDir string) Result {
-	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
-		if p != "" && filepath.Clean(p) == filepath.Clean(binDir) {
-			return Result{Name: "PATH", Detail: fmt.Sprintf("contains %s", binDir), Severity: OK}
-		}
+	if onPath(binDir) {
+		return Result{Name: "PATH", Detail: fmt.Sprintf("contains %s", binDir), Severity: OK}
 	}
 	return Result{
 		Name:     "PATH",
@@ -509,9 +515,7 @@ func ShimsCheck(p *paths.Paths, s ShimState) Result {
 	// Shadowing only means something once the bin dir is on PATH at all;
 	// until then every lookup finds some other copy, and the PATH check
 	// already reports the real problem.
-	onPath := slices.ContainsFunc(filepath.SplitList(os.Getenv("PATH")), func(dir string) bool {
-		return dir != "" && filepath.Clean(dir) == p.Bin()
-	})
+	binOnPath := onPath(p.Bin())
 	var gone, foreign, shadowed []string
 	for _, n := range names {
 		path := p.Shim(n)
@@ -525,7 +529,7 @@ func ShimsCheck(p *paths.Paths, s ShimState) Result {
 			gone = append(gone, n)
 			continue
 		}
-		if !onPath {
+		if !binOnPath {
 			continue
 		}
 		if found, err := exec.LookPath(n); err == nil && filepath.Clean(found) != path {
