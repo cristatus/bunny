@@ -495,3 +495,40 @@ func TestHardenedRefusesASymlinkedIsolatedHome(t *testing.T) {
 		}
 	}
 }
+
+// A write grant over ~/.config would otherwise hand the payload its own
+// sandbox policy: rewrite config.yaml and the next launch runs unsandboxed.
+// Without such a grant the file stays hidden with the rest of the home.
+func TestHardenedConfigStaysReadOnlyUnderAWriteGrant(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	configDir := filepath.Join(hostHome, ".config")
+	p.ConfigFile = filepath.Join(configDir, "bunny", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(p.ConfigFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p.ConfigFile, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	policy := finalized(t, &PackageSandbox{
+		Boundary: "hardened",
+		FS:       FSPolicy{Write: []string{"~/.config"}, WriteSet: true},
+	})
+	plan, err := buildSandboxPlan(p, policy, "/work", hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantAt := indexSequence(plan.args, []string{"--bind", configDir, configDir})
+	configAt := indexSequence(plan.args, []string{"--ro-bind", p.ConfigFile, p.ConfigFile})
+	if grantAt < 0 || configAt < grantAt {
+		t.Errorf("config.yaml must be re-bound read-only after the write grant: %v", plan.args)
+	}
+
+	plan, err = buildSandboxPlan(p, finalized(t, &PackageSandbox{Boundary: "hardened"}), "/work", hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexSequence(plan.args, []string{"--ro-bind", p.ConfigFile, p.ConfigFile}) >= 0 {
+		t.Errorf("an ungranted config.yaml must stay hidden, not be bound back: %v", plan.args)
+	}
+}

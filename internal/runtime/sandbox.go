@@ -932,17 +932,12 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		// egress ruleset installed in this namespace.
 		args = append(args, "--cap-drop", "ALL")
 	}
-	// The sandbox must not protect its own policy less than any other user
-	// state: config.yaml is bound read-only wherever it exists. An absent
-	// optional config needs no bind, and Bunny must not create one merely to
-	// satisfy the mount.
-	if p.ConfigFile != "" {
-		if _, err := os.Stat(p.ConfigFile); err == nil {
-			args = append(args, "--ro-bind", p.ConfigFile, p.ConfigFile)
-		} else if !os.IsNotExist(err) {
-			return sandboxPlan{}, fmt.Errorf("inspect config %s: %w", p.ConfigFile, err)
-		}
+	// The scoped host view is writable everywhere.
+	configArgs, err := readOnlyConfigArgs(p.ConfigFile, []string{"/"})
+	if err != nil {
+		return sandboxPlan{}, err
 	}
+	args = append(args, configArgs...)
 	args = append(args, maskMountArgs(masks)...)
 	persistArgs, err := ephemeralPersistArgs(policy, isolatedHome)
 	if err != nil {
@@ -1377,6 +1372,36 @@ func mappedHostUID(data []byte, uid uint64) uint64 {
 // the host, so an ephemeral home would then be seeded from the real home, and
 // a persist entry would resolve inside it and pass the containment check. A
 // home that does not exist yet is fine: ensureIsolatedHome creates it.
+// readOnlyConfigArgs binds config.yaml read-only wherever a writable mount
+// would otherwise expose it: the sandbox must not protect its own policy less
+// than any other user state. Where no writable root covers the file it is
+// already read-only or hidden, and binding it would only reveal a hidden file.
+// The file is checked under both of its names, since a grant may reach it
+// through a symlinked parent. An absent optional config needs no bind, and
+// Bunny must not create one merely to satisfy the mount.
+func readOnlyConfigArgs(configFile string, writable []string) ([]string, error) {
+	if configFile == "" {
+		return nil, nil
+	}
+	if _, err := os.Stat(configFile); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("inspect config %s: %w", configFile, err)
+	}
+	roots := slices.Clone(writable)
+	for _, root := range writable {
+		roots = append(roots, resolveReal(root))
+	}
+	var args []string
+	for _, path := range dedupSorted([]string{configFile, resolveReal(configFile)}) {
+		if pathCoveredBy(path, roots) {
+			args = append(args, "--ro-bind", path, path)
+		}
+	}
+	return args, nil
+}
+
 func checkIsolatedHome(home string) error {
 	if home == "" {
 		return nil

@@ -131,6 +131,13 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	case "hidden":
 		args = append(args, "--tmpfs", env.cwd)
 	}
+	// After every writable bind, so a grant covering ~/.config cannot hand
+	// the payload its own policy.
+	configArgs, err := readOnlyConfigArgs(p.ConfigFile, plan.context.WritableRoots)
+	if err != nil {
+		return sandboxPlan{}, err
+	}
+	args = append(args, configArgs...)
 
 	// The baseline's private /run swallows the resolver configuration: on a
 	// systemd-resolved host /etc/resolv.conf is a symlink into /run, so it
