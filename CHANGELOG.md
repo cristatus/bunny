@@ -38,6 +38,13 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A reinstall or uninstall no longer deletes a directory named `<package>.old`
   or `<package>.delete` next to the install tree unless bunny created it. With
   an install root such as `~/Applications`, such a directory may be yours.
+- `bunny update` and `bunny dev update` missed new releases of packages whose
+  latest GitHub release falls outside their tag pattern and whose asset name
+  contains `{version}`, reporting "no update" instead. This affected
+  async-profiler, mvnd, sbt, scala, shellcheck and shfmt.
+- `bunny dev` could write another file's checksum into a manifest when a
+  multi-file sums file (`SHA256SUMS`, `checksums.txt`) had no line naming the
+  download. It now fails instead of picking the first hash in the file.
 
 ## [0.7.1] - 2026-09-15
 
