@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -314,5 +315,28 @@ func TestSourcePersists(t *testing.T) {
 	}
 	if got := loaded.Packages["rg"].Source; got != "axelor" {
 		t.Errorf("source after reload = %q, want axelor", got)
+	}
+}
+
+// Uninstall removes every recorded integration file, so a relative or
+// unclean path must never reach it: Save refuses one, and Load drops it while
+// keeping the package and its safe entries.
+func TestRecordedIntegrationFilesMustBeAbsolute(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	data := []byte(`{"version":1,"packages":{"tool":{"version":"1","files":["share/x","/a/../b","/share/ok"]}}}`)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load should repair, not reject: %v", err)
+	}
+	if got := s.Packages["tool"].Files; !slices.Equal(got, []string{"/share/ok"}) {
+		t.Errorf("files after repair = %v, want only the safe entry", got)
+	}
+
+	s.SetFiles("tool", []string{"relative"})
+	if err := s.Validate(); err == nil {
+		t.Error("Validate must refuse a relative integration file")
 	}
 }

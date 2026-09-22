@@ -3,6 +3,7 @@ package desktop
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -116,7 +117,7 @@ func TestInstallIcon(t *testing.T) {
 	src := filepath.Join(srcDir, "code.png")
 	os.WriteFile(src, []byte("fake-png"), 0644)
 
-	if err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil, nil); err != nil {
+	if _, err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.png")
@@ -134,7 +135,7 @@ func TestRefreshIconCache(t *testing.T) {
 		p := paths.At(root)
 		src := filepath.Join(t.TempDir(), "code.png")
 		os.WriteFile(src, []byte("x"), 0644)
-		if err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil, nil); err != nil {
+		if _, err := InstallIcons(p, []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		var got string
@@ -171,7 +172,7 @@ func TestInstallCompletions(t *testing.T) {
 		Bash: bash,
 		Zsh:  zsh,
 	}
-	if err := InstallCompletions(p, comps, nil, nil); err != nil {
+	if _, err := InstallCompletions(p, comps, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(p.BashCompletions(), "code.bash")); err != nil {
@@ -195,7 +196,7 @@ func TestInstallIconsLeavesAForeignIconAlone(t *testing.T) {
 	os.WriteFile(dst, []byte("the distro's icon"), 0644)
 
 	icons := []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}
-	if err := InstallIcons(p, icons, nil, nil); err != nil {
+	if _, err := InstallIcons(p, icons, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(dst); string(data) != "the distro's icon" {
@@ -205,7 +206,7 @@ func TestInstallIconsLeavesAForeignIconAlone(t *testing.T) {
 	// The previous install's manifest is what proves the file is bunny's, so
 	// with that in hand the same write goes through.
 	prev := &manifest.Manifest{Icons: icons}
-	if err := InstallIcons(p, icons, nil, ManagedFiles(p, prev, nil)); err != nil {
+	if _, err := InstallIcons(p, icons, nil, ManagedFiles(p, prev, nil)); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(dst); string(data) != "bunny-png" {
@@ -222,7 +223,7 @@ func TestInstallCompletionsLeavesAForeignFileAlone(t *testing.T) {
 	os.MkdirAll(filepath.Dir(dst), 0755)
 	os.WriteFile(dst, []byte("hand-written"), 0644)
 
-	if err := InstallCompletions(p, &manifest.Completions{Bash: src}, nil, nil); err != nil {
+	if _, err := InstallCompletions(p, &manifest.Completions{Bash: src}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(dst); string(data) != "hand-written" {
@@ -241,7 +242,7 @@ func TestInstallMan(t *testing.T) {
 	os.WriteFile(pageGz, []byte("not really gzipped, doesn't matter here"), 0644)
 
 	man := []string{page1, pageGz}
-	if err := InstallMan(p, man, nil, nil); err != nil {
+	if _, err := InstallMan(p, man, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(p.ManPages(), "man1", "bunnytool.1")); err != nil {
@@ -261,7 +262,7 @@ func TestInstallManLeavesAForeignFileAlone(t *testing.T) {
 	os.MkdirAll(filepath.Dir(dst), 0755)
 	os.WriteFile(dst, []byte("the distro's page"), 0644)
 
-	if err := InstallMan(p, []string{src}, nil, nil); err != nil {
+	if _, err := InstallMan(p, []string{src}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(dst); string(data) != "the distro's page" {
@@ -274,15 +275,15 @@ func TestRemoveMan(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "bunnytool.1")
 	os.WriteFile(src, []byte(".TH BUNNYTOOL 1"), 0644)
 
-	man := []string{src}
-	if err := InstallMan(p, man, nil, nil); err != nil {
+	written, err := InstallMan(p, []string{src}, nil, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(p.ManPages(), "man1", "bunnytool.1")
 	if _, err := os.Stat(dst); err != nil {
 		t.Fatalf("setup: page missing: %v", err)
 	}
-	if err := RemoveMan(p, man, nil); err != nil {
+	if _, err := RemoveFiles(written); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(dst); !os.IsNotExist(err) {
@@ -300,7 +301,8 @@ func TestInstallManDirectory(t *testing.T) {
 	os.WriteFile(filepath.Join(srcDir, "bunnytool-config.5"), []byte(".TH BUNNYTOOL-CONFIG 5"), 0644)
 	os.WriteFile(filepath.Join(srcDir, "README.md"), []byte("not a man page"), 0644)
 
-	if err := InstallMan(p, []string{srcDir}, nil, nil); err != nil {
+	written, err := InstallMan(p, []string{srcDir}, nil, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	page1 := filepath.Join(p.ManPages(), "man1", "bunnytool.1")
@@ -318,7 +320,7 @@ func TestInstallManDirectory(t *testing.T) {
 		t.Errorf("expected a symlink to the source page, got target %q, err %v", target, err)
 	}
 
-	if err := RemoveMan(p, []string{srcDir}, nil); err != nil {
+	if _, err := RemoveFiles(written); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(page1); !os.IsNotExist(err) {
@@ -331,10 +333,10 @@ func TestInstallManDirectory(t *testing.T) {
 
 // The reinstall path removes the *old* manifest's integration after {app}
 // already holds the *new* version's files (see installer.replaceDesktopIntegration).
-// For a directory entry that means, by the time RemoveMan runs for the old
-// manifest, re-reading srcDir would see the new files, not the old ones — so
-// this simulates exactly that ordering and checks removal still targets only
-// the pages the old install actually created.
+// For a directory entry that means re-reading srcDir would see the new files,
+// not the old ones — so this simulates exactly that ordering and checks that
+// both the recorded files and ManPaths, which stands in for an install that
+// predates the record, still name only the pages the old install created.
 func TestManDirectoryReinstallSurvivesAppSwap(t *testing.T) {
 	p := paths.At(t.TempDir())
 	appDir := t.TempDir()
@@ -344,7 +346,8 @@ func TestManDirectoryReinstallSurvivesAppSwap(t *testing.T) {
 	os.WriteFile(filepath.Join(manDir, "shared-cmd.1"), []byte(".TH SHARED-CMD 1 (old)"), 0644)
 
 	entry := []string{manDir}
-	if err := InstallMan(p, entry, nil, nil); err != nil {
+	written, err := InstallMan(p, entry, nil, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -356,8 +359,12 @@ func TestManDirectoryReinstallSurvivesAppSwap(t *testing.T) {
 	os.WriteFile(filepath.Join(manDir, "shared-cmd.1"), []byte(".TH SHARED-CMD 1 (new)"), 0644)
 
 	// Same entry string (same directory path) as the old manifest declared —
-	// removal must still find the *old* symlinks, not the now-live new files.
-	if err := RemoveMan(p, entry, nil); err != nil {
+	// the derivation must still find the *old* symlinks, not the now-live new
+	// files.
+	if got := ManPaths(p, entry, nil); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(written))) {
+		t.Errorf("ManPaths after the swap = %v, want the old install's %v", got, written)
+	}
+	if _, err := RemoveFiles(written); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(p.ManPages(), "man1", "old-cmd.1")); !os.IsNotExist(err) {
@@ -368,7 +375,7 @@ func TestManDirectoryReinstallSurvivesAppSwap(t *testing.T) {
 	}
 
 	// The new manifest's install then runs against the now-live new tree.
-	if err := InstallMan(p, entry, nil, nil); err != nil {
+	if _, err := InstallMan(p, entry, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	newCmd := filepath.Join(p.ManPages(), "man1", "new-cmd.1")
@@ -389,14 +396,15 @@ func TestRemoveIconsOnlyTouchesTheDeclaredExtension(t *testing.T) {
 	os.WriteFile(src, []byte("bunny-png"), 0644)
 
 	icons := []manifest.Icon{{Src: src, Name: "code", Size: "256x256"}}
-	if err := InstallIcons(p, icons, nil, nil); err != nil {
+	written, err := InstallIcons(p, icons, nil, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 	// Somebody else's scalable variant, same name, same theme directory.
 	svg := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.svg")
 	os.WriteFile(svg, []byte("<svg/>"), 0644)
 
-	if err := RemoveIcons(p, icons, nil); err != nil {
+	if _, err := RemoveFiles(written); err != nil {
 		t.Fatal(err)
 	}
 	png := filepath.Join(p.Icons(), "hicolor", "256x256", "apps", "code.png")

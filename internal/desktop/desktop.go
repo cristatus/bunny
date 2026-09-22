@@ -116,11 +116,12 @@ func CompletionPaths(p *paths.Paths, comps *manifest.Completions, vars map[strin
 	return out
 }
 
-// ManagedFiles is every icon and completion path a manifest lays claim to.
-// A .desktop entry carries its owner inside it; an icon is binary and a zsh
-// completion has to keep #compdef on its first line, so neither can. The
-// install-time manifest snapshot is the record instead: if the previous
-// snapshot declared a path, bunny put it there and may replace it.
+// ManagedFiles is every icon, completion and man page path a manifest lays
+// claim to. A .desktop entry carries its owner inside it; an icon is binary
+// and a zsh completion has to keep #compdef on its first line, so neither
+// can. Bunny records the paths it actually writes instead (the Install*
+// functions return them); this derivation stands in only for an install that
+// predates that record, where declaring a path is the best evidence there is.
 func ManagedFiles(p *paths.Paths, m *manifest.Manifest, vars map[string]string) map[string]bool {
 	if m == nil {
 		return nil
@@ -196,7 +197,10 @@ func symlinkedManPages(p *paths.Paths, srcDir string) []string {
 // InstallIcons copies icons into the XDG icons hierarchy, leaving alone any
 // file bunny cannot show it installed. These directories are shared with the
 // distro and every other application, so an existing file is somebody's.
-func InstallIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string, owned map[string]bool) error {
+// It returns the paths it wrote, including on error, so the caller can record
+// or undo exactly those.
+func InstallIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string, owned map[string]bool) ([]string, error) {
+	var written []string
 	for _, ic := range icons {
 		dst := IconPath(p, ic, vars)
 		if !claimable(dst, owned) {
@@ -204,18 +208,19 @@ func InstallIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string,
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-			return err
+			return written, err
 		}
 		if err := fsutil.CopyFile(runtime.Expand(ic.Src, vars), dst, 0644); err != nil {
-			return fmt.Errorf("install icon %s: %w", ic.Name, err)
+			return written, fmt.Errorf("install icon %s: %w", ic.Name, err)
 		}
+		written = append(written, dst)
 		log.Debug("Installed icon", "name", ic.Name, "path", dst)
 	}
-	return nil
+	return written, nil
 }
 
 // claimable reports whether bunny may write dst: either nothing is there, or
-// the package's previous install put it there.
+// the package's previous install wrote it.
 func claimable(dst string, owned map[string]bool) bool {
 	if _, err := os.Lstat(dst); os.IsNotExist(err) {
 		return true
@@ -223,19 +228,19 @@ func claimable(dst string, owned map[string]bool) bool {
 	return owned[dst]
 }
 
-// RemoveIcons removes the icons this manifest installed. Only the extension
-// the manifest actually declares: sweeping .png/.svg/.xpm for the name took
-// out variants bunny never wrote, in a directory it shares with everything
-// else on the system.
-func RemoveIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string) error {
+// RemoveFiles removes the icons, completions and man pages bunny recorded
+// writing, and nothing else in these shared directories. It returns the paths
+// it could not remove, which stay bunny's.
+func RemoveFiles(files []string) ([]string, error) {
+	var kept []string
 	var errs []error
-	for _, ic := range icons {
-		path := IconPath(p, ic, vars)
+	for _, path := range files {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			errs = append(errs, fmt.Errorf("remove icon %s: %w", ic.Name, err))
+			kept = append(kept, path)
+			errs = append(errs, fmt.Errorf("remove %s: %w", path, err))
 		}
 	}
-	return errors.Join(errs...)
+	return kept, errors.Join(errs...)
 }
 
 // iconCacheUpdater runs gtk-update-icon-cache on a hicolor dir. A package-level
@@ -270,11 +275,13 @@ func RefreshIconCache(p *paths.Paths) {
 	}
 }
 
-// InstallCompletions copies shell-completion files to the XDG share dirs.
-func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[string]string, owned map[string]bool) error {
+// InstallCompletions copies shell-completion files to the XDG share dirs,
+// returning the paths it wrote as InstallIcons does.
+func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[string]string, owned map[string]bool) ([]string, error) {
 	if comps == nil {
-		return nil
+		return nil, nil
 	}
+	var written []string
 	pairs := []struct {
 		src string
 		dir string
@@ -294,71 +301,59 @@ func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[st
 			continue
 		}
 		if err := os.MkdirAll(c.dir, 0755); err != nil {
-			return err
+			return written, err
 		}
 		if err := fsutil.CopyFile(src, dst, 0644); err != nil {
-			return fmt.Errorf("install completion %s: %w", filepath.Base(src), err)
+			return written, fmt.Errorf("install completion %s: %w", filepath.Base(src), err)
 		}
+		written = append(written, dst)
 	}
-	return nil
-}
-
-// RemoveCompletions deletes installed completion files.
-func RemoveCompletions(p *paths.Paths, comps *manifest.Completions, vars map[string]string) error {
-	if comps == nil {
-		return nil
-	}
-	var errs []error
-	for _, path := range CompletionPaths(p, comps, vars) {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			errs = append(errs, fmt.Errorf("remove completion %s: %w", filepath.Base(path), err))
-		}
-	}
-	return errors.Join(errs...)
+	return written, nil
 }
 
 // InstallMan copies man pages into bunny's XDG man root, sectioned by each
-// file's own name.
-func InstallMan(p *paths.Paths, man []string, vars map[string]string, owned map[string]bool) error {
+// file's own name, returning the paths it wrote as InstallIcons does.
+func InstallMan(p *paths.Paths, man []string, vars map[string]string, owned map[string]bool) ([]string, error) {
+	var written []string
 	for _, entry := range man {
 		expanded := runtime.Expand(entry, vars)
+		var err error
 		if section := manifest.ManSection(expanded); section != "" {
-			if err := installManFile(p, expanded, section, owned); err != nil {
-				return err
-			}
-			continue
+			written, err = installManFile(p, expanded, section, owned, written)
+		} else {
+			written, err = installManDir(p, expanded, owned, written)
 		}
-		if err := installManDir(p, expanded, owned); err != nil {
-			return err
+		if err != nil {
+			return written, err
 		}
 	}
-	return nil
+	return written, nil
 }
 
-func installManFile(p *paths.Paths, src, section string, owned map[string]bool) error {
+func installManFile(p *paths.Paths, src, section string, owned map[string]bool, written []string) ([]string, error) {
 	dir := filepath.Join(p.ManPages(), "man"+section)
 	dst := filepath.Join(dir, filepath.Base(src))
 	if !claimable(dst, owned) {
 		log.Warn("Leaving man page alone", "path", dst, "reason", "not installed by bunny")
-		return nil
+		return written, nil
 	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
+		return written, err
 	}
 	if err := fsutil.CopyFile(src, dst, 0644); err != nil {
-		return fmt.Errorf("install man page %s: %w", filepath.Base(src), err)
+		return written, fmt.Errorf("install man page %s: %w", filepath.Base(src), err)
 	}
-	return nil
+	return append(written, dst), nil
 }
 
 // installManDir symlinks every page directly inside srcDir into bunny's man
 // root — a symlink, not a copy, so ManPaths can later find exactly these
 // pages by their link target instead of re-reading srcDir, which a reinstall
 // may have already replaced with the next version's files by then.
-func installManDir(p *paths.Paths, srcDir string, owned map[string]bool) error {
+func installManDir(p *paths.Paths, srcDir string, owned map[string]bool, written []string) ([]string, error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
-		return fmt.Errorf("read man directory %s: %w", srcDir, err)
+		return written, fmt.Errorf("read man directory %s: %w", srcDir, err)
 	}
 	for _, e := range entries {
 		if e.IsDir() {
@@ -376,27 +371,17 @@ func installManDir(p *paths.Paths, srcDir string, owned map[string]bool) error {
 			continue
 		}
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return err
+			return written, err
 		}
 		if err := os.Remove(dst); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("replace man page %s: %w", e.Name(), err)
+			return written, fmt.Errorf("replace man page %s: %w", e.Name(), err)
 		}
 		if err := os.Symlink(src, dst); err != nil {
-			return fmt.Errorf("link man page %s: %w", e.Name(), err)
+			return written, fmt.Errorf("link man page %s: %w", e.Name(), err)
 		}
+		written = append(written, dst)
 	}
-	return nil
-}
-
-// RemoveMan deletes installed man pages referenced by the manifest.
-func RemoveMan(p *paths.Paths, man []string, vars map[string]string) error {
-	var errs []error
-	for _, path := range ManPaths(p, man, vars) {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			errs = append(errs, fmt.Errorf("remove man page %s: %w", filepath.Base(path), err))
-		}
-	}
-	return errors.Join(errs...)
+	return written, nil
 }
 
 // --- internal ---

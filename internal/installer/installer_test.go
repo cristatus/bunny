@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1105,5 +1106,91 @@ func TestFailedInstallLeavesDataUntouched(t *testing.T) {
 	seeded := filepath.Join(i.Paths.AppData("tomcat"), "conf", "server.xml")
 	if _, err := os.Stat(seeded); !os.IsNotExist(err) {
 		t.Errorf("a failed install seeded %s: %v", seeded, err)
+	}
+}
+
+// A completion another tool already put in place is left alone at install,
+// and must stay that way: the next reinstall used to claim it because the
+// previous manifest had declared the path, and uninstall removed it outright.
+// Only what bunny actually wrote is recorded, overwritten and removed.
+func TestIntegrationFilesBunnyDidNotWriteSurviveReinstallAndUninstall(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{
+		ID: "tool", Name: "Tool", Version: "1",
+		Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+		Bin:     []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
+		// noopPrepare leaves {app}/marker, which serves as the completion.
+		Prepare:     []string{"true"},
+		Completions: &manifest.Completions{Bash: "{app}/marker", Zsh: "{app}/marker"},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"tool": m}, nil)
+	foreign := filepath.Join(i.Paths.BashCompletions(), "marker")
+	if err := os.MkdirAll(filepath.Dir(foreign), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreign, []byte("foreign"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ours := filepath.Join(i.Paths.ZshCompletions(), "marker")
+	assertForeignIntact := func(step string) {
+		t.Helper()
+		if data, err := os.ReadFile(foreign); err != nil || string(data) != "foreign" {
+			t.Errorf("%s: the foreign completion was touched: %q, %v", step, data, err)
+		}
+	}
+
+	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertForeignIntact("install")
+	if got := i.State.Packages["tool"].Files; !slices.Equal(got, []string{ours}) {
+		t.Errorf("recorded files = %v, want only the one bunny wrote, %s", got, ours)
+	}
+
+	if err := i.Install(context.Background(), "tool", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	assertForeignIntact("reinstall")
+
+	if err := i.Uninstall("tool", false); err != nil {
+		t.Fatal(err)
+	}
+	assertForeignIntact("uninstall")
+	if _, err := os.Stat(ours); !os.IsNotExist(err) {
+		t.Errorf("the completion bunny wrote must be removed: %v", err)
+	}
+}
+
+// An install from before the record has Files == nil, and there the paths its
+// manifest declares stand in for what bunny wrote, so its own files are still
+// replaced and removed rather than orphaned.
+func TestIntegrationFilesFallBackToTheManifestForAnUnrecordedInstall(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{
+		ID: "tool", Name: "Tool", Version: "1",
+		Sources:     []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+		Bin:         []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
+		Prepare:     []string{"true"},
+		Completions: &manifest.Completions{Bash: "{app}/marker"},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"tool": m}, nil)
+	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	pkg := i.State.Packages["tool"]
+	pkg.Files = nil
+	i.State.Packages["tool"] = pkg
+
+	if err := i.Uninstall("tool", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(i.Paths.BashCompletions(), "marker")); !os.IsNotExist(err) {
+		t.Errorf("an unrecorded install's declared completion must still be removed: %v", err)
 	}
 }

@@ -65,6 +65,12 @@ type Package struct {
 	// changing hands between catalogs is something bunny can notice. Empty for
 	// an install predating it, and for a catalog that cannot name itself.
 	Source string `json:"source,omitempty"`
+	// Files are the icons, completions and man pages bunny wrote for the
+	// package into directories it shares with the rest of the system. Only
+	// these are overwritten or removed; a file bunny found already in place
+	// and left alone is not listed. nil marks an install that predates the
+	// record, so it is kept unset rather than omitted when empty.
+	Files []string `json:"files"`
 }
 
 // Empty returns a fresh State with all maps initialized.
@@ -170,6 +176,11 @@ func (s *State) Validate() error {
 				return fmt.Errorf("package %q provides invalid capability %q: %w", id, pkg.Provides, err)
 			}
 		}
+		for _, file := range pkg.Files {
+			if !safeFilePath(file) {
+				return fmt.Errorf("package %q records an unsafe integration file %q", id, file)
+			}
+		}
 	}
 	for command, owner := range s.Commands {
 		if !safeCommandName(command) {
@@ -212,6 +223,11 @@ func safeCommandName(name string) bool {
 // inconsistencies — the kinds Validate rejects that can be dropped without
 // guessing intent — leaving the survivors internally consistent so a later Save
 // passes Validate. It never invents data.
+// safeFilePath accepts only the absolute, clean paths bunny itself records.
+func safeFilePath(path string) bool {
+	return filepath.IsAbs(path) && filepath.Clean(path) == path
+}
+
 func (s *State) repair() []string {
 	var notes []string
 	// Packages first: dropping a bad package cascades into the command and
@@ -227,6 +243,12 @@ func (s *State) repair() []string {
 		case pkg.Provides != "" && manifest.ValidateID(pkg.Provides) != nil:
 			delete(s.Packages, id)
 			notes = append(notes, fmt.Sprintf("dropped package %q with invalid capability %q", id, pkg.Provides))
+		case slices.ContainsFunc(pkg.Files, func(file string) bool { return !safeFilePath(file) }):
+			// Uninstall removes these paths, so an unsafe one must not survive
+			// a read path either. The package itself is still sound.
+			pkg.Files = slices.DeleteFunc(slices.Clone(pkg.Files), func(file string) bool { return !safeFilePath(file) })
+			s.Packages[id] = pkg
+			notes = append(notes, fmt.Sprintf("dropped unsafe integration files recorded for %q", id))
 		}
 	}
 	for command, owner := range s.Commands {
@@ -281,6 +303,17 @@ func (s *State) SetInstalled(id, version, provides, kind, path string) {
 			s.Providers[provides] = id
 		}
 	}
+}
+
+// SetFiles records the shared integration files bunny wrote for id. The
+// record is never nil once set, even when nothing was written.
+func (s *State) SetFiles(id string, files []string) {
+	pkg, ok := s.Packages[id]
+	if !ok {
+		return
+	}
+	pkg.Files = append([]string{}, files...)
+	s.Packages[id] = pkg
 }
 
 // SetSource records which catalog a package resolved from. An empty source
