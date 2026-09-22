@@ -41,8 +41,18 @@ func PrepareStepsContext(ctx context.Context, workDir, srcDir string, shadow map
 // because {work} is a placeholder manifests are given and everything under it
 // has to persist. Binding only children would leave the root masked by the
 // tmpfs, where writes succeed and then vanish.
+//
+// A read-only bind does not stop connect() on a Unix socket, so /run is a
+// tmpfs too: the session bus under /run/user can start host processes through
+// systemd, outside any sandbox. The real home is hidden, so a step cannot copy
+// keys into the install tree, and the environment is cleared so it cannot read
+// the user's tokens either.
 func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[string]string, command string) error {
 	bwrapPath, err := FindBwrap()
+	if err != nil {
+		return err
+	}
+	hostHome, err := prepareHostHome()
 	if err != nil {
 		return err
 	}
@@ -50,6 +60,7 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 		"--ro-bind", "/", "/",
 		"--dev", "/dev",
 		"--proc", "/proc",
+		"--tmpfs", "/run",
 		"--tmpfs", "/tmp",
 		// A dedicated tmpfs under /var/tmp, not /home: on ostree distros
 		// (Silverblue, Kinoite) /home is a symlink to /var/home, which bwrap
@@ -61,9 +72,13 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 		// create.
 		"--tmpfs", "/var/tmp",
 		"--dir", "/var/tmp/home",
-		"--setenv", "HOME", "/var/tmp/home",
-		"--bind", workDir, workDir,
 	}
+	if hostHome != "/" {
+		args = append(args, "--tmpfs", hostHome)
+	}
+	args = append(args, prepareEnvArgs()...)
+	// After the home tmpfs, since staging normally sits under the home.
+	args = append(args, "--bind", workDir, workDir)
 	// After the staging bind, so a shadow of a directory inside staging still
 	// wins, and sorted so the sandbox is identical run to run.
 	for _, real := range slices.Sorted(maps.Keys(shadow)) {
@@ -80,4 +95,30 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 	c.Stdout = os.Stdout
 	c.Stderr = os.Stderr
 	return c.Run()
+}
+
+// prepareHostHome is the login home a prepare step must not see. The passwd
+// entry is authoritative; $HOME is the fallback for a container whose uid has
+// none.
+func prepareHostHome() (string, error) {
+	if home, err := realUserHomeDir(); err == nil {
+		return home, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the home directory to hide from prepare: %w", err)
+	}
+	return home, nil
+}
+
+// prepareEnvArgs gives a step a cleared environment with only what unpacking
+// tools need: the host PATH and locale, and the scratch home.
+func prepareEnvArgs() []string {
+	args := []string{"--clearenv", "--setenv", "HOME", "/var/tmp/home"}
+	for _, name := range []string{"PATH", "LANG", "LC_ALL"} {
+		if value, ok := os.LookupEnv(name); ok {
+			args = append(args, "--setenv", name, value)
+		}
+	}
+	return args
 }

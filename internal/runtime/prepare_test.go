@@ -138,3 +138,39 @@ func TestPrepareShadowsARealPathAtAStagingDir(t *testing.T) {
 		t.Errorf("{data} baked into config as %q, want the real path %q", got, want)
 	}
 }
+
+// A read-only root still lets a step read the real home, reach the session
+// bus under /run (connect() ignores a read-only bind), and inherit the user's
+// tokens from the environment. None of the three may reach a prepare step.
+func TestPrepareHidesHomeRunAndEnvironment(t *testing.T) {
+	requireBwrap(t)
+	workDir, srcDir, _ := stagingRoot(t)
+
+	secret, err := os.CreateTemp(filepath.Dir(workDir), ".bunny-prepare-secret-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret.Close()
+	t.Cleanup(func() { os.Remove(secret.Name()) })
+	t.Setenv("BUNNY_PREPARE_TOKEN", "leaked")
+
+	steps := []string{
+		"test ! -e " + secret.Name(),
+		`test -z "$BUNNY_PREPARE_TOKEN"`,
+		`test -n "$PATH"`,
+		"echo ok > {work}/still-writable",
+	}
+	if entries, err := os.ReadDir("/run"); err == nil && len(entries) > 0 {
+		steps = append(steps, "test ! -e "+filepath.Join("/run", entries[0].Name()))
+	}
+	for _, step := range steps {
+		err := PrepareStepsContext(context.Background(), workDir, srcDir, nil,
+			[]string{step}, map[string]string{"work": workDir})
+		if err != nil {
+			t.Errorf("step %q: %v", step, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "still-writable")); err != nil {
+		t.Errorf("staging under the hidden home must stay writable: %v", err)
+	}
+}
