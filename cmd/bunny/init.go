@@ -51,8 +51,11 @@ end
 		// An if, not `(( … )) && …`: that form leaves status 1 when compinit
 		// has not run, and a prompt showing $? then reports an error on every
 		// new shell.
+		// Through a variable: zsh keeps a quoted word's quotes inside the
+		// (Ie) subscript, so a path that needs quoting never matched, and
+		// each re-source prepended it again.
 		return posixGuards(p) +
-			fmt.Sprintf("(( ${fpath[(Ie)%[1]s]} )) || fpath=(%[1]s $fpath)\n", shellWord(p.ZshCompletions())) +
+			fmt.Sprintf("_bunny_fpath=%s\n(( ${fpath[(Ie)$_bunny_fpath]} )) || fpath=($_bunny_fpath $fpath)\nunset _bunny_fpath\n", shellWord(p.ZshCompletions())) +
 			"if (( $+functions[compdef] )); then autoload -Uz compinit && compinit -i; fi\n"
 	default:
 		return posixGuards(p)

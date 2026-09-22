@@ -193,3 +193,27 @@ func TestInitSnippetSurvivesTheShell(t *testing.T) {
 		}
 	}
 }
+
+// Sourcing the snippet again, as a nested shell or a re-read rc does, must not
+// grow the search paths. zsh's fpath guard kept a quoted path's quotes inside
+// its (Ie) subscript, so for a path that needs quoting it never matched.
+func TestInitSnippetIsIdempotentInZsh(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not installed")
+	}
+	p := paths.At(filepath.Join(t.TempDir(), `it's a dir`))
+	snippet := initSnippet(p, "zsh")
+	count := "t=" + shellWord(p.ZshCompletions()) + "; b=" + shellWord(p.Bin()) +
+		`; n=0; for e in $fpath; do [[ "$e" == "$t" ]] && (( n += 1 )); done` +
+		`; m=0; for e in $path; do [[ "$e" == "$b" ]] && (( m += 1 )); done; print $n $m`
+	cmd := exec.Command(zsh, "-f", "-c", snippet+snippet+count)
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "1 1" {
+		t.Errorf("fpath and PATH entries after sourcing twice = %q, want \"1 1\"", got)
+	}
+}
