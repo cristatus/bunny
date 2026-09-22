@@ -264,8 +264,13 @@ func writeUpdates(ctx context.Context, a *App, local *catalog.Local, id string) 
 	// rewritten package so the whole set aligns.
 	type row struct{ id, change, note string }
 	var rows []row
+	// Secondary sources follow the primary's commit, not its check: a
+	// primary rewrite refused as invalid would otherwise leave them bumped
+	// against the old version, again on every run. jobs lists a package's
+	// primary source before its secondaries.
+	primaryCommitted := map[string]bool{}
 	for _, j := range jobs {
-		if j.sourceIdx > 0 && !primaryAdvanced[j.pkg.ID] {
+		if j.sourceIdx > 0 && !primaryCommitted[j.pkg.ID] {
 			continue
 		}
 		if j.err != nil {
@@ -305,6 +310,7 @@ func writeUpdates(ctx context.Context, a *App, local *catalog.Local, id string) 
 				failed++
 				continue
 			}
+			primaryCommitted[j.pkg.ID] = true
 			change = fmt.Sprintf("%s → %s", r.CurrentVersion, r.LatestVersion)
 			log.Info("Rewrote package", "package", j.pkg.ID,
 				"from", r.CurrentVersion, "to", r.LatestVersion)
