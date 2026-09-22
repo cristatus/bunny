@@ -315,3 +315,28 @@ func TestPinningWritesThroughASymlinkedPinFile(t *testing.T) {
 		t.Errorf("an emptied shared pin file must stay for the other links: %v", err)
 	}
 }
+
+// When the shared pin file has been deleted, the link in sub/ dangles.
+// Pinning there replaced the link with a regular file instead of recreating
+// the file it points to.
+func TestPinningRecreatesADeletedSharedPinFile(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(sub, ProjectVersionFile)
+	if err := os.Symlink(filepath.Join("..", ProjectVersionFile), link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteProjectVersion(sub, "jdk", "21"); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link must survive: %v", err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, ProjectVersionFile)); !strings.Contains(string(data), "jdk 21") {
+		t.Errorf("the shared file must be recreated with the pin: %q", data)
+	}
+}

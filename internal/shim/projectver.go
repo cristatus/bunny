@@ -207,11 +207,28 @@ func pinFileTarget(path string) (target string, shared bool) {
 	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
 		return path, false
 	}
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return path, false
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		return real, true
 	}
-	return real, true
+	// The shared file was deleted: create it where the link points rather
+	// than replace the link. EvalSymlinks fails on a missing target, so
+	// follow the chain by hand, bounded as the kernel bounds it.
+	target = path
+	for range 40 {
+		info, err := os.Lstat(target)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return target, true
+		}
+		next, err := os.Readlink(target)
+		if err != nil {
+			return path, false
+		}
+		if !filepath.IsAbs(next) {
+			next = filepath.Join(filepath.Dir(target), next)
+		}
+		target = next
+	}
+	return path, false
 }
 
 // ResolveAllPins returns every pin from the nearest .bunny-version walking up
