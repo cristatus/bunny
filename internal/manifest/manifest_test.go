@@ -505,3 +505,25 @@ desktop: [{id: code.desktop, name: Code, exec: "{app}/code"}]
 		t.Errorf("an absent kind is inferred, not rejected: %v", err)
 	}
 }
+
+// Sources are downloaded and staged under one filename each. Two that resolve
+// to the same name overwrote each other, so prepare saw only the second.
+func TestValidateRejectsSourcesSharingAFilename(t *testing.T) {
+	base := `
+id: foo
+name: Foo
+version: "1.0"
+bin:
+  - {name: foo, path: "{app}/foo"}
+sources:
+`
+	a := `  - {url: "https://a.example/download", sha256: "` + strings.Repeat("a", 64) + `"}` + "\n"
+	b := `  - {url: "https://b.example/download", sha256: "` + strings.Repeat("b", 64) + `"}` + "\n"
+	if _, err := ParseBytes([]byte(base + a + b)); err == nil || !strings.Contains(err.Error(), `"download"`) {
+		t.Errorf("two sources downloading to %q must be refused, got %v", "download", err)
+	}
+	renamed := `  - {url: "https://b.example/download", file: "b.bin", sha256: "` + strings.Repeat("b", 64) + `"}` + "\n"
+	if _, err := ParseBytes([]byte(base + a + renamed)); err != nil {
+		t.Errorf("file: gives the second source its own name: %v", err)
+	}
+}

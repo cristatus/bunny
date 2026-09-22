@@ -2,6 +2,7 @@ package manifest
 
 import (
 	"fmt"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -43,10 +44,19 @@ func (m *Manifest) Validate() error {
 	if len(m.Sources) == 0 {
 		return vErr("sources", "at least one source required")
 	}
+	cacheNames := map[string]int{}
 	for i, s := range m.Sources {
 		if s.URL == "" {
 			return vErr(fmt.Sprintf("sources[%d].url", i), "required")
 		}
+		// Sources are cached and staged under this name, so two sharing it
+		// overwrite each other and prepare sees only one.
+		name := sourceCacheName(s)
+		if j, ok := cacheNames[name]; ok {
+			return vErr(fmt.Sprintf("sources[%d]", i),
+				fmt.Sprintf("downloads to %q, like sources[%d]; set file: on one of them", name, j))
+		}
+		cacheNames[name] = i
 		if err := validateSourceFileName(s.File); err != nil {
 			return vErr(fmt.Sprintf("sources[%d].file", i), err.Error())
 		}
@@ -584,4 +594,20 @@ func SafeRelPath(rel string) error {
 		return fmt.Errorf("path traversal not allowed")
 	}
 	return nil
+}
+
+// sourceCacheName is the filename a source is downloaded and staged under,
+// the same fallback the installer uses: file, then name, then the URL's last
+// path segment.
+func sourceCacheName(s Source) string {
+	switch {
+	case s.File != "":
+		return s.File
+	case s.Name != "":
+		return s.Name
+	}
+	if u, err := url.Parse(s.URL); err == nil && u.Path != "" {
+		return filepath.Base(u.Path)
+	}
+	return "source"
 }
