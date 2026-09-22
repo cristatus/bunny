@@ -1,6 +1,10 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,8 +59,8 @@ func TestInitSnippetSingleRootDedupGuards(t *testing.T) {
 func TestInitSnippetSingleRootReexportsRoot(t *testing.T) {
 	p := paths.At("/h/.bunny")
 	for _, c := range []struct{ shell, want string }{
-		{"bash", `export BUNNY_HOME="${BUNNY_HOME:-/h/.bunny}"`},
-		{"zsh", `export BUNNY_HOME="${BUNNY_HOME:-/h/.bunny}"`},
+		{"bash", `[ -n "${BUNNY_HOME:-}" ] || export BUNNY_HOME=/h/.bunny`},
+		{"zsh", `[ -n "${BUNNY_HOME:-}" ] || export BUNNY_HOME=/h/.bunny`},
 		{"fish", `test -n "$BUNNY_HOME"; or set -gx BUNNY_HOME /h/.bunny`},
 	} {
 		snippet := initSnippet(p, c.shell)
@@ -140,6 +144,52 @@ func TestInitSnippetSetsManpathInEveryLayout(t *testing.T) {
 		}
 		if fish := initSnippet(p, "fish"); !strings.Contains(fish, "set -gx MANPATH "+man) {
 			t.Errorf("fish: missing MANPATH guard for %s:\n%s", man, fish)
+		}
+	}
+}
+
+// The snippet and the rc line are shell code with paths in them. A HOME or
+// $BUNNY_HOME holding a space or a quote split PATH or broke the eval, and
+// zsh's compinit guard left status 1 behind when compinit had not run, which a
+// prompt showing $? reports on every new shell. Run both for real.
+func TestInitSnippetSurvivesTheShell(t *testing.T) {
+	root := filepath.Join(t.TempDir(), `it's a $dir "x"`)
+	p := paths.At(root)
+	for _, shell := range []string{"bash", "zsh"} {
+		exe, err := exec.LookPath(shell)
+		if err != nil {
+			t.Logf("%s not installed", shell)
+			continue
+		}
+		args := []string{"-c", initSnippet(p, shell) + `rc=$?; printf '%s\n' "$rc" "$BUNNY_HOME" "${PATH%%:*}"`}
+		if shell == "zsh" {
+			args = append([]string{"-f"}, args...)
+		}
+		cmd := exec.Command(exe, args...)
+		cmd.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", shell, err, out)
+		}
+		got := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+		if want := []string{"0", root, p.Bin()}; !slices.Equal(got, want) {
+			t.Errorf("%s: status, BUNNY_HOME, first PATH entry = %q, want %q", shell, got, want)
+		}
+
+		// The rc line runs bunny from its own path, with the root pinned, and
+		// evals what it prints.
+		bunny := filepath.Join(root, "bin", "bunny")
+		seen := filepath.Join(filepath.Dir(bunny), "seen")
+		os.MkdirAll(filepath.Dir(bunny), 0755)
+		os.WriteFile(bunny, []byte("#!/bin/sh\nprintf '%s' \"$BUNNY_HOME\" > \"$(dirname \"$0\")/seen\"\necho 'export EVALED=ran'\n"), 0755)
+		line := exec.Command(exe, "-c", initEvalLine(root, bunny, shell)+`printf '%s\n' "$EVALED"`)
+		line.Env = cmd.Env
+		out, err = line.CombinedOutput()
+		if err != nil || strings.TrimSpace(string(out)) != "ran" {
+			t.Errorf("%s: rc line gave %q, %v; want the snippet evaluated", shell, out, err)
+		}
+		if got, _ := os.ReadFile(seen); string(got) != root {
+			t.Errorf("%s: bunny ran with BUNNY_HOME=%q, want %q", shell, got, root)
 		}
 	}
 }

@@ -147,9 +147,13 @@ func rcHasBunnyInit(content string) bool { return bunnyInitRe.MatchString(conten
 // of the install lives under. The snippet a pinned call emits exports the root
 // onward, so this one line establishes the layout for the whole shell.
 func initEvalLine(root, bunnyBin, shell string) string {
-	cmd := bunnyBin
+	word, quote := shellWord, shellQuote
+	if shell == "fish" {
+		word, quote = fishWord, fishQuote
+	}
+	cmd := word(bunnyBin)
 	if root != "" {
-		cmd = fmt.Sprintf("env %s='%s' %s", paths.EnvHome, root, bunnyBin)
+		cmd = fmt.Sprintf("env %s=%s %s", paths.EnvHome, quote(root), cmd)
 	}
 	if shell == "fish" {
 		return fmt.Sprintf("%s init fish | source\n", cmd)
