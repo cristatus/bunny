@@ -387,8 +387,13 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 		names = appendMissing(names, binNames(manifest)...)
 	}
 	log.Debug("Removing shims", "package", id, "dir", i.Paths.Bin(), "commands", names)
+	ours := i.presentShims(names)
 	if err := i.removeShims(names); err != nil {
+		// Remove carries on past a name it refuses, so the ones before and
+		// after it are gone. Put back exactly those: restoring every name
+		// would be refused as a batch over the one that failed.
 		_ = removed.Rollback()
+		i.restoreShims(ours)
 		return fmt.Errorf("remove shims: %w", err)
 	}
 	if _, err := i.removeDesktopIntegration(manifest, i.ownedFiles(id, manifest)); err != nil {
@@ -884,6 +889,44 @@ func (i *Installer) restoreDesktopIntegration(old, next *manifest.Manifest, writ
 		if _, err := i.installDesktopIntegration(old, i.ownedFiles(id, old), id, appDir); err != nil {
 			log.Warn("Failed to restore previous desktop integration", "package", id, "error", err)
 		}
+	}
+}
+
+// presentShims are the names among names that are bunny's own shims right now.
+func (i *Installer) presentShims(names []string) []string {
+	bunnyPath, err := i.BunnyPath(i.Paths.Bin())
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, name := range names {
+		if _, err := os.Lstat(i.Paths.Shim(name)); err != nil {
+			continue
+		}
+		if shim.CheckOwnership(i.Paths.Bin(), name, bunnyPath) == nil {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// restoreShims reinstalls those of names that have gone missing.
+func (i *Installer) restoreShims(names []string) {
+	var missing []string
+	for _, name := range names {
+		if _, err := os.Lstat(i.Paths.Shim(name)); os.IsNotExist(err) {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	bunnyPath, err := i.BunnyPath(i.Paths.Bin())
+	if err == nil {
+		err = shim.Install(i.Paths.Bin(), missing, bunnyPath)
+	}
+	if err != nil {
+		log.Warn("Failed to restore shims", "commands", missing, "error", err)
 	}
 }
 

@@ -1259,3 +1259,43 @@ func TestSwapSiblingsBunnyDidNotCreateAreRefused(t *testing.T) {
 		t.Error("the final uninstall should have gone through")
 	}
 }
+
+// shim.Remove carries on past a name it refuses. When the user had replaced
+// one of a package's shims with their own script, uninstall failed on it
+// after removing the others and restored only the app tree, leaving the
+// package installed with its other commands gone.
+func TestFailedUninstallRestoresTheShimsItRemoved(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{
+		ID: "maven", Name: "Maven", Version: "1",
+		Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+		Bin:     []manifest.Binary{{Name: "mvn", Path: "{app}/mvn"}, {Name: "mvn-debug", Path: "{app}/mvn-debug"}},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"maven": m}, nil)
+	if err := i.Install(context.Background(), "maven", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	theirs := i.Paths.Shim("mvn-debug")
+	if err := os.Remove(theirs); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(theirs, []byte("#!/bin/sh\n# mine\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := i.Uninstall("maven", false); err == nil {
+		t.Fatal("uninstall must fail on a shim bunny does not own")
+	}
+	if target, err := os.Readlink(i.Paths.Shim("mvn")); err != nil || target != i.Paths.BunnyBinary() {
+		t.Errorf("mvn shim must be restored: target %q, %v", target, err)
+	}
+	if data, _ := os.ReadFile(theirs); string(data) != "#!/bin/sh\n# mine\n" {
+		t.Errorf("the user's mvn-debug was touched: %q", data)
+	}
+	if !i.State.IsInstalled("maven") {
+		t.Error("a failed uninstall leaves the package installed")
+	}
+}
