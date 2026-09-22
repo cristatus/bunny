@@ -77,3 +77,24 @@ func captureStdout(t *testing.T, fn func()) string {
 	r.Close()
 	return b.String()
 }
+
+// A package that is not installed has no update to report or apply. The check
+// used to answer "all packages are up to date" for it while --apply refused.
+func TestUpdateRefusesAPackageThatIsNotInstalled(t *testing.T) {
+	st := state.Empty()
+	st.SetInstalled("tool", "1.0", "", "", "")
+	a := &App{State: st, Catalog: reportCatalog{
+		packages: []catalog.PackageInfo{{ID: "tool", Version: "1.0"}, {ID: "idea", Version: "2"}},
+	}}
+	for _, apply := range []bool{false, true} {
+		out := captureStdout(t, func() {
+			err := (&UpdateCmd{ID: "idea", Apply: apply}).Run(a)
+			if err == nil || !strings.Contains(err.Error(), "not installed") {
+				t.Errorf("apply=%v: got %v, want a not-installed error", apply, err)
+			}
+		})
+		if strings.Contains(out, "up to date") {
+			t.Errorf("apply=%v: reported %q for a package that is not installed", apply, out)
+		}
+	}
+}

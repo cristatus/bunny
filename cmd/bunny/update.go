@@ -22,6 +22,12 @@ type UpdateCmd struct {
 }
 
 func (c *UpdateCmd) Run(a *App) error {
+	// Updates are about installed packages: a catalog id that is not
+	// installed has none to report or apply, and "up to date" would say
+	// otherwise.
+	if c.ID != "" && !a.State.IsInstalled(c.ID) {
+		return fmt.Errorf("package %q is not installed", c.ID)
+	}
 	if c.Apply {
 		return c.apply(a)
 	}
@@ -42,7 +48,11 @@ func (c *UpdateCmd) check(a *App) error {
 		p.Println("all packages are up to date")
 		return nil
 	}
-	p.Printf("%d of %d packages have updates\n\n", len(report.Results), len(a.State.Packages))
+	checked := len(a.State.Packages)
+	if c.ID != "" {
+		checked = 1
+	}
+	p.Printf("%d of %d packages have updates\n\n", len(report.Results), checked)
 	p.Print(renderUpdateTable(p, report.Results))
 	p.Println()
 	p.Println("run 'bunny update --apply' to install")
@@ -97,9 +107,6 @@ func (c *UpdateCmd) apply(a *App) error {
 	if len(report.Results) == 0 {
 		if err := report.Err(); err != nil {
 			return err
-		}
-		if c.ID != "" && !a.State.IsInstalled(c.ID) {
-			return fmt.Errorf("package %q is not installed", c.ID)
 		}
 		p := ui.New(os.Stdout)
 		p.Println()
