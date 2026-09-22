@@ -217,17 +217,17 @@ func safeCommandName(name string) bool {
 	return name != "" && name != "." && name != ".." && filepath.Base(name) == name && !strings.ContainsAny(name, `/\\`)
 }
 
+// safeFilePath accepts only the absolute, clean paths bunny itself records.
+func safeFilePath(path string) bool {
+	return filepath.IsAbs(path) && filepath.Clean(path) == path
+}
+
 // repair prunes referentially-inconsistent entries so a slightly-corrupt state
 // file does not brick read-only commands. It returns a note per pruned entry
 // (empty when the state was already consistent). It only removes recoverable
 // inconsistencies — the kinds Validate rejects that can be dropped without
 // guessing intent — leaving the survivors internally consistent so a later Save
 // passes Validate. It never invents data.
-// safeFilePath accepts only the absolute, clean paths bunny itself records.
-func safeFilePath(path string) bool {
-	return filepath.IsAbs(path) && filepath.Clean(path) == path
-}
-
 func (s *State) repair() []string {
 	var notes []string
 	// Packages first: dropping a bad package cascades into the command and
