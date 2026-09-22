@@ -155,7 +155,10 @@ func (m *Manifest) Validate() error {
 			return vErr(fmt.Sprintf("desktop[%d].id", i), "duplicate desktop id")
 		}
 		seenDesktop[d.ID] = true
-		if hasNewline(d.Name, d.GenericName, d.Comment, d.Exec, d.Icon, d.Type, d.StartupWMClass) {
+		// The list fields are written on one line each too, so a newline in
+		// any of them would start a key of its own, a second Exec= included.
+		if hasNewline(slices.Concat([]string{d.Name, d.GenericName, d.Comment, d.Exec, d.Icon, d.Type, d.StartupWMClass},
+			d.Categories, d.MimeTypes, d.Keywords)...) {
 			return vErr(fmt.Sprintf("desktop[%d]", i), "fields must not contain newlines")
 		}
 		seenActions := map[string]bool{}

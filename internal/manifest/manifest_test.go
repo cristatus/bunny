@@ -527,3 +527,26 @@ sources:
 		t.Errorf("file: gives the second source its own name: %v", err)
 	}
 }
+
+// Categories, Keywords and MimeTypes are each written on one line of the
+// .desktop file. A newline in one used to pass validation and could add
+// keys, a second Exec= among them.
+func TestValidateRejectsNewlinesInDesktopListFields(t *testing.T) {
+	src := `
+id: foo
+name: Foo
+version: "1.0"
+sources:
+  - {url: "https://x/foo.tar.gz", sha256: "` + strings.Repeat("a", 64) + `"}
+bin:
+  - {name: foo, path: "{app}/foo"}
+desktop:
+  - id: foo.desktop
+    name: Foo
+    exec: foo
+    categories: ["Development\nExec=/tmp/evil"]
+`
+	if _, err := ParseBytes([]byte(src)); err == nil || !strings.Contains(err.Error(), "newlines") {
+		t.Errorf("a newline in categories must be refused, got %v", err)
+	}
+}
