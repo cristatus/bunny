@@ -278,3 +278,43 @@ func TestFetchReportsByteProgress(t *testing.T) {
 		t.Errorf("final done = %d, want %d (should reach 100%%)", lastDone, len(body))
 	}
 }
+
+// A .part left by an interrupted download of a larger asset under the same
+// name cannot be resumed: the server answers 416, or resumes from somewhere
+// else. Both used to fail on every run until `bunny clean`; the part is now
+// dropped and the file fetched whole.
+func TestFetchRestartsAPartialDownloadThatCannotBeResumed(t *testing.T) {
+	for name, resume := range map[string]func() *http.Response{
+		"416": func() *http.Response {
+			return &http.Response{StatusCode: http.StatusRequestedRangeNotSatisfiable, Body: io.NopCloser(strings.NewReader("")), Header: make(http.Header)}
+		},
+		"206 elsewhere": func() *http.Response {
+			h := make(http.Header)
+			h.Set("Content-Range", "bytes 0-6/7")
+			return &http.Response{StatusCode: http.StatusPartialContent, ContentLength: 7, Body: io.NopCloser(strings.NewReader("payload")), Header: h}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cache := t.TempDir()
+			if err := os.WriteFile(filepath.Join(cache, "x.part"), []byte("an older, larger download"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			var ranges []string
+			client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				ranges = append(ranges, req.Header.Get("Range"))
+				if req.Header.Get("Range") != "" {
+					return resume(), nil
+				}
+				return &http.Response{StatusCode: 200, ContentLength: 7, Body: io.NopCloser(strings.NewReader("payload")), Header: make(http.Header)}, nil
+			})}
+			d := &Downloader{Client: client}
+			got, err := d.Fetch(cache, Source{URL: "https://example.com/x", File: "x", SHA256: sha256Of("payload")})
+			if err != nil {
+				t.Fatalf("fetch after an unresumable part: %v (requests %q)", err, ranges)
+			}
+			if data, _ := os.ReadFile(got); string(data) != "payload" {
+				t.Errorf("download = %q, want the whole file", data)
+			}
+		})
+	}
+}

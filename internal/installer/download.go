@@ -220,6 +220,20 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 	if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable && src.Size > 0 && offset == src.Size {
 		return false, os.Rename(part, target)
 	}
+	// A partial file the server cannot resume from, or resumes from elsewhere,
+	// does not belong to this asset: an interrupted download of an earlier,
+	// larger version under the same name, say. Resuming would fail on every
+	// run until `bunny clean`, so drop it and fetch the whole file. Without a
+	// part there is no Range header, so this restarts at most once.
+	if offset > 0 && (resp.StatusCode == http.StatusRequestedRangeNotSatisfiable ||
+		(resp.StatusCode == http.StatusPartialContent && !resumesAt(resp, offset))) {
+		resp.Body.Close()
+		log.Debug("Discarding a partial download that cannot be resumed", "path", part, "status", resp.StatusCode)
+		if err := os.Remove(part); err != nil {
+			return false, err
+		}
+		return d.fetchHTTPOnce(ctx, src, target, onProgress)
+	}
 	if resp.StatusCode != http.StatusOK && !(offset > 0 && resp.StatusCode == http.StatusPartialContent) {
 		return httpx.ShouldRetryStatus(resp.StatusCode), fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
@@ -272,6 +286,16 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 		onProgress(total, src.Size) // final tick → 100%
 	}
 	return false, nil
+}
+
+// resumesAt reports whether a 206 continues at offset. A response without a
+// parseable Content-Range is taken at its word; the hash check still guards it.
+func resumesAt(resp *http.Response, offset int64) bool {
+	var start, end int64
+	if _, err := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/", &start, &end); err != nil {
+		return true
+	}
+	return start == offset
 }
 
 func safeFileName(s Source) (string, error) {
