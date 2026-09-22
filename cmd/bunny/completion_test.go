@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -233,5 +234,42 @@ bin:
 	}
 	if err := writeUpdates(context.Background(), a, local, "node-22"); err != nil {
 		t.Errorf("dev update node-22: %v", err)
+	}
+}
+
+// Words after `bunny run <pkg>` are the package's own arguments, usually a
+// file. Bash and zsh completed nothing there, and fish offered package ids.
+// Run the real completion functions with the completion builtins stubbed.
+func TestRunArgumentsCompleteFiles(t *testing.T) {
+	for _, c := range []struct {
+		shell, script, want string
+	}{
+		{"bash", completionScript("bash") + `
+compopt() { echo "compopt $*"; }
+bunny() { :; }
+COMP_WORDS=(bunny run node ./sc); COMP_CWORD=3
+_bunny`, "compopt -o default"},
+		{"zsh", `bunny() { :; }
+_files() { echo "_files"; }
+compadd() { :; }
+words=(bunny run node ./sc); CURRENT=4
+_bunny() {
+` + completionScript("zsh") + `
+}
+_bunny`, "_files"},
+	} {
+		exe, err := exec.LookPath(c.shell)
+		if err != nil {
+			t.Logf("%s not installed", c.shell)
+			continue
+		}
+		args := []string{"-c", c.script}
+		if c.shell == "zsh" {
+			args = append([]string{"-f"}, args...)
+		}
+		out, err := exec.Command(exe, args...).CombinedOutput()
+		if err != nil || !strings.Contains(string(out), c.want) {
+			t.Errorf("%s: got %q, %v; want %q", c.shell, out, err, c.want)
+		}
 	}
 }

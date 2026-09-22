@@ -346,8 +346,12 @@ const bashCompletion = `_bunny() {
         uninstall)      COMPREPLY=( $(compgen -W "$(bunny complete-ids --installed 2>/dev/null)" -- "$cur") ); return ;;
     esac
 
-    # Single-operand commands: once an operand is present, nothing more.
-    [[ -n "$operand" ]] && return
+    # Single-operand commands: once an operand is present, nothing more,
+    # except run, whose later words are the package's own arguments: files.
+    if [[ -n "$operand" ]]; then
+        [[ "$sub" == run ]] && compopt -o default
+        return
+    fi
 
     case "$sub" in
         info)                     COMPREPLY=( $(compgen -W "$(bunny complete-ids 2>/dev/null)" -- "$cur") ) ;;
@@ -434,7 +438,12 @@ case $sub in
     uninstall) compadd -- ${(f)"$(bunny complete-ids --installed 2>/dev/null)"}; return ;;
 esac
 
-[[ -n $operand ]] && return
+# Once the operand is present nothing more, except run, whose later words
+# are the package's own arguments: files.
+if [[ -n $operand ]]; then
+    [[ $sub == run ]] && _files
+    return
+fi
 
 case $sub in
     info) compadd -- ${(f)"$(bunny complete-ids 2>/dev/null)"} ;;
@@ -487,6 +496,31 @@ function __bunny_run_binaries
         end
     end
 end
+# True until "run" has its package id; the words after it are the package's
+# own arguments, so files complete there. Values of run's value-taking flags
+# are not the id.
+function __bunny_run_needs_id
+    set -l after 0
+    set -l skip 0
+    for t in (commandline -opc)
+        if test $skip -eq 1
+            set skip 0
+            continue
+        end
+        if test $after -eq 1
+            switch $t
+                case -c --command --sandbox-profile -l --log-level
+                    set skip 1
+                case '-*'
+                case '*'
+                    return 1
+            end
+        else if test "$t" = run
+            set after 1
+        end
+    end
+    return 0
+end
 complete -c bunny -f -n __fish_use_subcommand -a '__SUBCMDS__'
 # global flags — accepted anywhere (no subcommand condition)
 complete -c bunny -s h -l help -d 'Show help'
@@ -495,7 +529,9 @@ complete -c bunny -l no-progress -d 'Disable interactive progress output'
 complete -c bunny -l version -d 'Print version'
 # positional operands per subcommand
 complete -c bunny -f -n '__fish_seen_subcommand_from install info search' -a '(__bunny_ids)'
-complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim run; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
+complete -c bunny -f -n '__fish_seen_subcommand_from uninstall update clean reshim; and not __fish_seen_subcommand_from dev' -a '(__bunny_installed_ids)'
+complete -c bunny -f -n '__fish_seen_subcommand_from run; and __bunny_run_needs_id' -a '(__bunny_installed_ids)'
+complete -c bunny -F -n '__fish_seen_subcommand_from run; and not __bunny_run_needs_id'
 complete -c bunny -f -n '__fish_seen_subcommand_from use; and not __fish_seen_subcommand_from dev' -a '(__bunny_provider_ids)'
 complete -c bunny -f -n '__fish_seen_subcommand_from pin unpin' -a '(__bunny_capabilities)'
 complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash zsh fish'
