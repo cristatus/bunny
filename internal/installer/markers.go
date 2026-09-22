@@ -2,6 +2,7 @@ package installer
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,4 +116,33 @@ func (i *Installer) checkOwned(dir, id string) error {
 		return fmt.Errorf("%s belongs to package %q, not %q", dir, marker.ID, id)
 	}
 	return nil
+}
+
+// removeOwnedTree deletes a package tree bunny moved aside, its marker last.
+// os.RemoveAll carries on past what it cannot delete, so a tree with one
+// unremovable subdirectory kept its contents but lost its marker, and every
+// later swap refused bunny's own leftover as "not created by bunny". With the
+// marker kept until the rest is gone, the leftover stays recognisable and
+// the next swap clears it.
+func removeOwnedTree(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var errs []error
+	for _, e := range entries {
+		if e.Name() == packageMarkerName {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
 }

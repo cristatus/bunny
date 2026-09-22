@@ -1299,3 +1299,43 @@ func TestFailedUninstallRestoresTheShimsItRemoved(t *testing.T) {
 		t.Error("a failed uninstall leaves the package installed")
 	}
 }
+
+// A swap's leftover that could not be fully deleted lost its marker first,
+// since os.RemoveAll carries on past what it cannot remove, and every later
+// swap then refused bunny's own leftover as "not created by bunny". The
+// marker now goes last, so the leftover stays recognisably bunny's.
+func TestRemoveOwnedTreeKeepsTheMarkerUntilTheRestIsGone(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the read-only directory this relies on")
+	}
+	dir := filepath.Join(t.TempDir(), "tool.old")
+	stuck := filepath.Join(dir, "lib")
+	if err := os.MkdirAll(stuck, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stuck, "x"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePackageMarker(dir, packageMarker{ID: "tool", Version: "1"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stuck, 0555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(stuck, 0755) })
+
+	if err := removeOwnedTree(dir); err == nil {
+		t.Fatal("a tree with an unremovable part must report it")
+	}
+	if m, err := readPackageMarker(dir); err != nil || m.ID != "tool" {
+		t.Errorf("the marker must survive a partial delete: %v, %v", m, err)
+	}
+
+	os.Chmod(stuck, 0755)
+	if err := removeOwnedTree(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("a removable tree must be gone: %v", err)
+	}
+}

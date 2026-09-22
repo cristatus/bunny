@@ -658,7 +658,7 @@ func (p *placement) Commit() error {
 	if !p.hadExisting {
 		return nil
 	}
-	return os.RemoveAll(p.backupDir)
+	return removeOwnedTree(p.backupDir)
 }
 
 func (p *placement) Rollback() error {
@@ -738,7 +738,7 @@ func (p *removalPlacement) Commit() error {
 	if !p.existed {
 		return nil
 	}
-	return os.RemoveAll(p.trashDir)
+	return removeOwnedTree(p.trashDir)
 }
 
 func (p *removalPlacement) Rollback() error {
