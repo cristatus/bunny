@@ -317,15 +317,44 @@ func TestWriteEnvironmentDRewritesExistingFile(t *testing.T) {
 
 // Setup leaves an existing bunny init line alone, but one written for another
 // layout (an XDG setup, then a reinstall under BUNNY_HOME) points the shell
-// somewhere else, and "already configured" alone would hide that.
+// somewhere else, and "already configured" alone would hide that. A line
+// that reaches bunny through PATH is equivalent, and a commented-out one runs
+// nothing: neither is stale.
 func TestStaleRcInitNamesALineForAnotherLayout(t *testing.T) {
 	rc := filepath.Join(t.TempDir(), ".zshrc")
-	os.WriteFile(rc, []byte("# added by bunny setup\n"+initEvalLine("", "/h/.local/bin/bunny", "zsh")), 0644)
-
-	if got := staleRcInit(rc, "", "/h/.local/bin/bunny", "zsh"); got != "" {
-		t.Errorf("the line this install writes is not stale: %q", got)
+	write := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(rc, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := staleRcInit(rc, "/opt/bunny", "/opt/bunny/bin/bunny", "zsh"); !strings.Contains(got, "/h/.local/bin/bunny") {
-		t.Errorf("a line for another layout must be named, got %q", got)
+	xdgLine := initEvalLine("", "/h/.local/bin/bunny", "zsh")
+
+	write("# added by bunny setup\n" + xdgLine)
+	if got := staleRcInit(rc, "", "zsh"); got != "" {
+		t.Errorf("the line this layout writes is not stale: %q", got)
+	}
+	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/h/.local/bin/bunny") {
+		t.Errorf("an unpinned line under a single-root install must be named, got %q", got)
+	}
+
+	write("# eval \"$(bunny init zsh)\"  # old\neval \"$(bunny init zsh)\"\n")
+	if got := staleRcInit(rc, "", "zsh"); got != "" {
+		t.Errorf("a PATH-based line is equivalent and a comment runs nothing, got %q", got)
+	}
+
+	// A comment that would pin the right root runs nothing either: the active
+	// unpinned line below it is still the stale one.
+	write("# " + initEvalLine("/opt/bunny", "/opt/bunny/bin/bunny", "zsh") + xdgLine)
+	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/h/.local/bin/bunny") {
+		t.Errorf("a comment must not stand in for the active line, got %q", got)
+	}
+
+	write(initEvalLine("/opt/old", "/opt/old/bin/bunny", "zsh"))
+	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/opt/old") {
+		t.Errorf("a line pinning another root must be named, got %q", got)
+	}
+	if got := staleRcInit(rc, "/opt/old", "zsh"); got != "" {
+		t.Errorf("a line pinning this root is not stale, got %q", got)
 	}
 }

@@ -208,28 +208,39 @@ func ensureRcInit(rcPath, root, bunnyBin, shell string) (bool, error) {
 	return err == nil, err
 }
 
-// staleRcInit returns the bunny init line rcPath already has when it is not
-// the one this install would write, such as one left by an XDG setup after
-// a reinstall under BUNNY_HOME, and "" otherwise. Setup does not rewrite a
-// line the user may have edited, but "already configured" alone would claim
-// a shell setup that points somewhere else.
-func staleRcInit(rcPath, root, bunnyBin, shell string) string {
+// staleRcInit returns the bunny init line rcPath runs when it was written for
+// another layout, and "" otherwise. What decides the layout is the root the
+// line pins, or that it pins none: an XDG setup's unpinned line left in place
+// after a reinstall under BUNNY_HOME emits the XDG snippet in every shell.
+// How the line reaches bunny, by absolute path or through PATH, does not
+// matter, and a commented-out line runs nothing. Setup does not rewrite a line
+// the user may have edited, but "already configured" alone would claim a
+// shell setup that points somewhere else.
+func staleRcInit(rcPath, root, shell string) string {
 	data, err := os.ReadFile(rcPath)
 	if err != nil {
 		return ""
 	}
-	want := strings.TrimSpace(initEvalLine(root, bunnyBin, shell))
-	var found string
+	quote := shellQuote
+	if shell == "fish" {
+		quote = fishQuote
+	}
+	pin := paths.EnvHome + "=" + quote(root)
+	var stale string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line == want {
+		if strings.HasPrefix(line, "#") || !bunnyInitRe.MatchString(line) {
+			continue
+		}
+		pinned := strings.Contains(line, paths.EnvHome+"=")
+		if (root == "" && !pinned) || (root != "" && strings.Contains(line, pin)) {
 			return ""
 		}
-		if found == "" && bunnyInitRe.MatchString(line) {
-			found = line
+		if stale == "" {
+			stale = line
 		}
 	}
-	return found
+	return stale
 }
 
 // SetupCmd is the one-shot installer: session env (environment.d), shell
@@ -291,7 +302,7 @@ func (c *SetupCmd) Run(a *App) error {
 		} else {
 			log.Info("Shell rc already configured", "rc", rcPath)
 			p.Println(tildePath(rcPath) + " already configured")
-			if line := staleRcInit(rcPath, a.Paths.Root, bunnyBin, shell); line != "" {
+			if line := staleRcInit(rcPath, a.Paths.Root, shell); line != "" {
 				ui.Notice(fmt.Sprintf("%s runs %q, not what this install writes: %s",
 					tildePath(rcPath), line, strings.TrimSpace(initEvalLine(a.Paths.Root, bunnyBin, shell))))
 			}
