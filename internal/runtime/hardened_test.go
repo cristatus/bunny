@@ -432,3 +432,42 @@ func TestHardenedMaskedCwdIsReported(t *testing.T) {
 		t.Errorf("a bound working directory needs no notice: %v", quiet.notices)
 	}
 }
+
+// On ostree hosts /home is a symlink to /var/home, so the passwd home is a
+// literal path whose resolved form differs. Launching from it must still be
+// recognised as the host home, not bound back over the tmpfs that hides it.
+func TestHardenedCwdAtSymlinkedHomeStaysMasked(t *testing.T) {
+	p, _ := hardenedPrepared(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "var", "home", "user"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(base, "var", "home"), filepath.Join(base, "home")); err != nil {
+		t.Fatal(err)
+	}
+	hostHome := filepath.Join(base, "home", "user")
+
+	// os.Getwd reports $PWD when it is accurate and the resolved path when it
+	// is not, so both names of the home must stay masked.
+	for _, cwd := range []string{hostHome, filepath.Join(base, "var", "home", "user")} {
+		plan, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Boundary: "hardened"}), cwd, hostHome, sandboxContext{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if indexSequence(plan.args, []string{"--ro-bind", cwd, cwd}) >= 0 {
+			t.Errorf("cwd %s at a symlinked home must not re-expose the home: %v", cwd, plan.args)
+		}
+	}
+
+	// The resolved name is the same home, so a grant naming it is refused too.
+	policy := finalized(t, &PackageSandbox{
+		Boundary: "hardened",
+		FS:       FSPolicy{Read: []string{filepath.Join(base, "var", "home")}, ReadSet: true},
+	})
+	if _, err := buildSandboxPlan(p, policy, "/work", hostHome, sandboxContext{}); err == nil {
+		t.Error("a grant of the resolved home's parent must be refused")
+	}
+}

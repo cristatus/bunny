@@ -192,8 +192,19 @@ func hostResolverBinds() []string {
 // ancestor of one, would re-expose the real host content the baseline hid, so
 // such paths are refused; a proper descendant (~/Projects, /run/foo) is an
 // explicit, scoped grant and is allowed.
+//
+// Each root is listed under its resolved name too. Candidates are checked
+// resolved, so on a host where /home is a symlink to /var/home the literal
+// root alone would never match a path under it, and launching from $HOME
+// would bind the real home back over its tmpfs.
 func protectedRoots(hostHome string) []string {
-	return []string{hostHome, "/run", "/tmp", "/var/tmp", "/mnt", "/media", "/dev", "/proc"}
+	roots := []string{hostHome, "/run", "/tmp", "/var/tmp", "/mnt", "/media", "/dev", "/proc"}
+	for _, root := range slices.Clone(roots) {
+		if real := resolveReal(root); real != root {
+			roots = append(roots, real)
+		}
+	}
+	return roots
 }
 
 // grantEscapesBaseline reports whether binding path back would uncover a
