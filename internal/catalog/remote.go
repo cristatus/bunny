@@ -152,11 +152,29 @@ func (r *Remote) Refresh() error {
 	if err != nil {
 		return err
 	}
-	if err := r.cacheIndex(idx); err != nil {
-		return err
+	_, err = r.adopt(idx, true)
+	return err
+}
+
+// adopt makes idx the current index, unless the one already held is newer.
+// A stale-while-revalidate fetch goes through the CDN and can finish after a
+// cache-busted Refresh; replacing the fresh index with its edge copy would
+// then also stamp that copy fresh on disk for the next indexTTL. persist
+// writes idx to the on-disk cache as well; the index is adopted even when that
+// write fails, and the error is only for a caller that cares. It returns the
+// current index.
+func (r *Remote) adopt(idx *Index, persist bool) (*Index, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.index != nil && r.index.Updated.After(idx.Updated) {
+		return r.index, nil
 	}
-	r.setCached(idx)
-	return nil
+	var err error
+	if persist {
+		err = r.cacheIndex(idx)
+	}
+	r.index = idx
+	return idx, err
 }
 
 // List returns packages from the index.
@@ -309,29 +327,27 @@ func (r *Remote) loadIndex() (*Index, error) {
 			defer r.wg.Done()
 			fresh, err := r.fetchIndex()
 			if err == nil {
-				_ = r.cacheIndex(fresh)
+				fresh, _ = r.adopt(fresh, true)
 			}
 			done <- fetchResult{fresh, err}
 		}()
 		select {
 		case res := <-done:
 			if res.err == nil {
-				r.setCached(res.idx)
 				return res.idx, nil
 			}
 			log.Debug("Index refresh failed, serving cache", "error", res.err)
 		case <-time.After(r.revalidateTimeout):
 			log.Debug("Index refresh too slow, serving cache", "timeout", r.revalidateTimeout)
 		}
-		r.setCached(idx)
+		idx, _ = r.adopt(idx, false)
 		return idx, nil
 	}
 	idx, err := r.fetchIndex()
 	if err != nil {
 		return nil, err
 	}
-	_ = r.cacheIndex(idx)
-	r.setCached(idx)
+	idx, _ = r.adopt(idx, true)
 	return idx, nil
 }
 

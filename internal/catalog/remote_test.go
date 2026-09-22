@@ -460,3 +460,40 @@ func TestRemotePackageFilesAreKeyedToTheIndex(t *testing.T) {
 		t.Errorf("requests = %v, want the manifest keyed as %s", urls, want)
 	}
 }
+
+// A stale-while-revalidate fetch goes through the CDN and may still be in
+// flight when `bunny update` runs a cache-busted Refresh. Finishing last, it
+// replaced the fresh index with the edge's older copy, and stamped that copy
+// fresh on disk for the next indexTTL.
+func TestRemoteSlowRevalidationDoesNotReplaceANewerRefresh(t *testing.T) {
+	newer := strings.Replace(testIndex, `"updated": "2026-01-01T00:00:00Z"`, `"updated": "2026-02-01T00:00:00Z"`, 1)
+	release := make(chan struct{})
+	r := NewRemote("https://x", t.TempDir()).WithHTTPGet(func(url string) (*http.Response, error) {
+		body := newer
+		if !strings.Contains(url, "?") { // the plain URL the CDN serves stale
+			<-release
+			body = testIndex
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	r.revalidateTimeout = 20 * time.Millisecond
+	seedStaleIndex(t, r.IndexPath(), testIndex)
+
+	if _, err := r.List(); err != nil { // starts the revalidation, serves stale
+		t.Fatal(err)
+	}
+	if err := r.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	r.Wait()
+
+	want, _ := time.Parse(time.RFC3339, "2026-02-01T00:00:00Z")
+	if got := r.cached(); got == nil || !got.Updated.Equal(want) {
+		t.Errorf("in-memory index = %v, want the refreshed one from %v", got, want)
+	}
+	onDisk, err := r.loadCachedIndex()
+	if err != nil || !onDisk.Updated.Equal(want) {
+		t.Errorf("on-disk index = %v, %v; want the refreshed one", onDisk, err)
+	}
+}
