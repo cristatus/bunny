@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/charmbracelet/log"
 
+	"github.com/cristatus/bunny/internal/progress"
 	"github.com/cristatus/bunny/internal/ui"
 )
 
@@ -59,10 +60,10 @@ type CLI struct {
 }
 
 func main() {
-	// Logging is off until -l asks for it. Set before shim dispatch, which
+	// Logging is off on the shim path. Set before shim dispatch, which
 	// returns without ever parsing flags: the library defaults to info, so
 	// anything logged at info or above on the run path would print on every
-	// `node` invocation.
+	// `node` invocation. The CLI path turns it back on in configureLogging.
 	log.SetLevel(log.FatalLevel + 1)
 
 	// Shim dispatch — when argv[0] is a symlink under $BUNNY_HOME/bin (e.g.
@@ -90,14 +91,8 @@ func main() {
 		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
 	)
 
-	// Genuine failures surface via ui.Fatal (returned errors), not the log
-	// channel, so leaving it off loses nothing.
-	if cli.LogLevel != "" {
-		level, err := log.ParseLevel(cli.LogLevel)
-		if err != nil {
-			ui.Fatal(fmt.Errorf("invalid log level %q (want: debug, info, warn, or error)", cli.LogLevel))
-		}
-		log.SetLevel(level)
+	if err := configureLogging(cli.LogLevel); err != nil {
+		ui.Fatal(err)
 	}
 
 	app, err := New()
@@ -111,4 +106,26 @@ func main() {
 		}
 		ui.Fatal(err)
 	}
+}
+
+// configureLogging sets up the log channel for the CLI path. Without -l it
+// carries warnings and errors only: a skipped file, a rollback that failed, an
+// unreachable catalog are reported through it and nowhere else. It writes
+// through progress.Lines so a warning raised mid-install cannot garble the
+// live progress line. -l lowers the level for diagnostics.
+func configureLogging(level string) error {
+	log.SetOutput(progress.Lines(os.Stderr))
+	diagnostics = level != ""
+	// A timestamp helps read a diagnostic trace, not a one-line warning.
+	log.SetReportTimestamp(diagnostics)
+	if !diagnostics {
+		log.SetLevel(log.WarnLevel)
+		return nil
+	}
+	parsed, err := log.ParseLevel(level)
+	if err != nil {
+		return fmt.Errorf("invalid log level %q (want: debug, info, warn, or error)", level)
+	}
+	log.SetLevel(parsed)
+	return nil
 }

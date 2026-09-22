@@ -43,22 +43,32 @@ func (c reportCatalog) Lookup(id string) (catalog.PackageInfo, error) {
 	return catalog.InfoOf(m), nil
 }
 
-// The live reporter and the log channel share stderr, so progress has to know
-// whether logging is on. main disables the channel by parking the level above
-// FatalLevel; this pins that coupling.
-func TestLoggingReflectsLogLevel(t *testing.T) {
-	prev := log.GetLevel()
-	t.Cleanup(func() { log.SetLevel(prev) })
+// Without -l the log channel still carries warnings, since several failures
+// are reported through it and nowhere else, but that must not read as
+// diagnostics: logging() decides whether narration and live progress give way
+// to the log.
+func TestConfigureLoggingDefaultsToWarnings(t *testing.T) {
+	prevLevel, prevDiagnostics := log.GetLevel(), diagnostics
+	t.Cleanup(func() {
+		log.SetLevel(prevLevel)
+		log.SetOutput(os.Stderr)
+		diagnostics = prevDiagnostics
+	})
 
-	log.SetLevel(log.FatalLevel + 1)
-	if logging() {
-		t.Error("the disabled sentinel level should read as logging off")
+	if err := configureLogging(""); err != nil {
+		t.Fatal(err)
 	}
-	for _, lvl := range []log.Level{log.DebugLevel, log.InfoLevel, log.ErrorLevel, log.FatalLevel} {
-		log.SetLevel(lvl)
-		if !logging() {
-			t.Errorf("level %v should read as logging on", lvl)
-		}
+	if log.GetLevel() != log.WarnLevel || logging() {
+		t.Errorf("default: level %v, logging %v; want warn and no diagnostics", log.GetLevel(), logging())
+	}
+	if err := configureLogging("debug"); err != nil {
+		t.Fatal(err)
+	}
+	if log.GetLevel() != log.DebugLevel || !logging() {
+		t.Errorf("-l debug: level %v, logging %v; want debug with diagnostics", log.GetLevel(), logging())
+	}
+	if err := configureLogging("loud"); err == nil {
+		t.Error("an unknown level must be refused")
 	}
 }
 

@@ -191,7 +191,9 @@ bunny -l debug install jdk-21 2> jdk-21-install.log
 The log records the resolved layout, source URLs, hash verifications, staging
 directories, install targets, and shims created.
 
-Enabling a log level replaces bunny's progress output rather than adding to it.
+Without `-l`, the log carries warnings and errors only, printed above the
+normal progress output. Enabling a log level replaces bunny's progress output
+rather than adding to it.
 There is no spinner, no per-package status line, and no summary: the log is the
 whole account of what happened, so a captured file is complete and a terminal
 run is readable.

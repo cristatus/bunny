@@ -71,8 +71,21 @@ func (r *liveReporter) Begin(parent context.Context, ids []string) context.Conte
 	fmt.Fprint(r.w, hideCursor) // stop the blinking cursor flashing/jumping over redraws
 	r.watchSignals()            // restore the cursor if the process is interrupted
 	fmt.Fprintln(r.w)           // blank line above the list, matching the summary's below
+	show(r)
 	go r.tick()
 	return parent
+}
+
+func (r *liveReporter) interrupt(print func()) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.active {
+		fmt.Fprint(r.w, "\r\x1b[K")
+	}
+	print()
+	if r.active {
+		r.redrawLocked()
+	}
 }
 
 // watchSignals restores the cursor before a SIGINT/SIGTERM kills the process, so
@@ -164,6 +177,7 @@ func (r *liveReporter) Fail(pkg string, err error) {
 }
 
 func (r *liveReporter) Close() {
+	hide(r)
 	if r.stop != nil {
 		close(r.stop)
 	}

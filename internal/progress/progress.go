@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 )
 
 // barWidth is the character width of the download progress bar.
@@ -119,7 +120,9 @@ func finalLinePad(pkg string, idWidth int) string {
 type Status struct {
 	w      io.Writer
 	tty    bool
+	mu     sync.Mutex
 	active bool
+	msg    string
 }
 
 // NewStatus returns a transient status line bound to w.
@@ -130,17 +133,38 @@ func (s *Status) Update(msg string) {
 	if !s.tty {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	fmt.Fprintf(s.w, "\r\x1b[K%s", msg)
-	s.active = true
+	s.active, s.msg = true, msg
+	show(s)
 }
 
 // Clear erases the status line if one is showing.
 func (s *Status) Clear() {
-	if !s.tty || !s.active {
+	if !s.tty {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.active {
 		return
 	}
 	fmt.Fprint(s.w, "\r\x1b[K")
 	s.active = false
+	hide(s)
+}
+
+func (s *Status) interrupt(print func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.active {
+		print()
+		return
+	}
+	fmt.Fprint(s.w, "\r\x1b[K")
+	print()
+	fmt.Fprintf(s.w, "\r\x1b[K%s", s.msg)
 }
 
 // bar renders a fixed-width filled/empty progress bar. On a color terminal the

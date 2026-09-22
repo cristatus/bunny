@@ -145,9 +145,14 @@ func versionKV(version string) []any {
 	return []any{"version", version}
 }
 
-// logging reports whether -l enabled the log channel. main parks the level
-// above FatalLevel to disable it.
-func logging() bool { return log.GetLevel() <= log.FatalLevel }
+// diagnostics is set when -l asked for the log channel beyond its default
+// warnings; see configureLogging.
+var diagnostics bool
+
+// logging reports whether -l enabled diagnostics. The default warn level does
+// not count: it prints only what goes wrong, so the narration and progress
+// output stay.
+func logging() bool { return diagnostics }
 
 // status returns the printer for bunny's narration of what it did: activated a
 // provider, wrote a pin, removed a cache file. With -l that narration is the
