@@ -74,7 +74,10 @@ func (g *GitHub) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 			version = g.extractVersion(tag, cfg.TagPattern)
 			r.LatestVersion = version
 			r.HasUpdate = verparse.Compare(version, currentVersion) > 0
-			asset = g.findAsset(altAssets, cfg.Asset, version)
+			// The checksum lookup below searches these assets too: a
+			// SHA256SUMS from the latest release describes other files.
+			assets = altAssets
+			asset = g.findAsset(assets, cfg.Asset, version)
 		}
 	}
 
@@ -121,7 +124,8 @@ func (g *GitHub) latestTag(ctx context.Context, repo string) (string, error) {
 	u := fmt.Sprintf("https://github.com/%s/releases/latest", repo)
 	var finalURL string
 	client := &http.Client{
-		Timeout: httpClient.Timeout,
+		Transport: httpClient.Transport,
+		Timeout:   httpClient.Timeout,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			finalURL = req.URL.String()
 			return nil
