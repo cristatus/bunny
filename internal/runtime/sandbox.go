@@ -95,6 +95,9 @@ type sandboxPlan struct {
 	// isolatedHome is created by the exec path just before launch; planning
 	// stays free of host mutation so --explain can share it.
 	isolatedHome string
+	// configDir, when set, is bunny's config directory, bound read-only and
+	// created by the exec path first, as isolatedHome is.
+	configDir string
 	// forcedDBus records D-Bus cut off by a non-host network mode rather than
 	// by policy, for --explain.
 	forcedDBus bool
@@ -944,7 +947,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		args = append(args, "--cap-drop", "ALL")
 	}
 	// The scoped host view is writable everywhere.
-	configArgs, err := readOnlyConfigArgs(p.ConfigFile, []string{"/"})
+	configArgs, _, err := readOnlyConfigArgs(p.ConfigFile, []string{"/"}, false)
 	if err != nil {
 		return sandboxPlan{}, err
 	}
@@ -1270,6 +1273,11 @@ func execPackageSandboxed(p *Prepared, cfg *config.Config, profileOverride strin
 	if err := ensureIsolatedHome(plan.isolatedHome); err != nil {
 		return err
 	}
+	if plan.configDir != "" {
+		if err := os.MkdirAll(plan.configDir, 0755); err != nil {
+			return fmt.Errorf("create config directory %s: %w", plan.configDir, err)
+		}
+	}
 	// The single reap point, and deliberately ahead of every launchState.ensure
 	// below: this launch has staged nothing yet, so the sweep cannot collect its
 	// own directory, and a launch that ends up staging nothing still reaps.
@@ -1377,42 +1385,59 @@ func mappedHostUID(data []byte, uid uint64) uint64 {
 	return uid
 }
 
+// readOnlyConfigArgs binds bunny's config directory read-only over any
+// writable mount that covers it: the sandbox must not protect its own policy
+// less than any other user state. The directory rather than config.yaml, so a
+// payload cannot create a config where there is none yet.
+//
+// strict is the hardened boundary. There a missing directory is bound anyway
+// and returned as create, for the launch to make first, and a directory that
+// is a symlink is refused: bwrap cannot mount over one, and a payload that can
+// write its parent could repoint it. The scoped view is writable everywhere
+// and is not a boundary, so it protects only a directory that exists, at its
+// target when it is a link, and never creates one.
+func readOnlyConfigArgs(configFile string, writable []string, strict bool) (args []string, create string, err error) {
+	if configFile == "" {
+		return nil, "", nil
+	}
+	dir := filepath.Dir(configFile)
+	real := resolveReal(dir)
+	roots := slices.Clone(writable)
+	for _, root := range writable {
+		roots = append(roots, resolveReal(root))
+	}
+	if !pathCoveredBy(dir, roots) && !pathCoveredBy(real, roots) {
+		return nil, "", nil
+	}
+	info, err := os.Lstat(dir)
+	switch {
+	case os.IsNotExist(err):
+		if !strict {
+			return nil, "", nil
+		}
+		return []string{"--ro-bind", dir, dir}, dir, nil
+	case err != nil:
+		return nil, "", fmt.Errorf("inspect config directory %s: %w", dir, err)
+	case info.Mode()&os.ModeSymlink != 0:
+		if strict {
+			return nil, "", fmt.Errorf("config directory %s is a symlink inside a writable grant, which bunny cannot keep read-only; narrow the grant or replace the link with a directory", dir)
+		}
+		return []string{"--ro-bind", real, real}, "", nil
+	case !info.IsDir():
+		return nil, "", fmt.Errorf("config directory %s is not a directory", dir)
+	}
+	for _, path := range dedupSorted([]string{dir, real}) {
+		args = append(args, "--ro-bind", path, path)
+	}
+	return args, "", nil
+}
+
 // checkIsolatedHome refuses an isolated home that is not a plain directory.
 // The package owns {data}, so an earlier launch can replace {data}/home with a
 // symlink to the host home. bwrap resolves --overlay-src and --bind sources on
 // the host, so an ephemeral home would then be seeded from the real home, and
 // a persist entry would resolve inside it and pass the containment check. A
 // home that does not exist yet is fine: ensureIsolatedHome creates it.
-// readOnlyConfigArgs binds config.yaml read-only wherever a writable mount
-// would otherwise expose it: the sandbox must not protect its own policy less
-// than any other user state. Where no writable root covers the file it is
-// already read-only or hidden, and binding it would only reveal a hidden file.
-// The file is checked under both of its names, since a grant may reach it
-// through a symlinked parent. An absent optional config needs no bind, and
-// Bunny must not create one merely to satisfy the mount.
-func readOnlyConfigArgs(configFile string, writable []string) ([]string, error) {
-	if configFile == "" {
-		return nil, nil
-	}
-	if _, err := os.Stat(configFile); err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("inspect config %s: %w", configFile, err)
-	}
-	roots := slices.Clone(writable)
-	for _, root := range writable {
-		roots = append(roots, resolveReal(root))
-	}
-	var args []string
-	for _, path := range dedupSorted([]string{configFile, resolveReal(configFile)}) {
-		if pathCoveredBy(path, roots) {
-			args = append(args, "--ro-bind", path, path)
-		}
-	}
-	return args, nil
-}
-
 func checkIsolatedHome(home string) error {
 	if home == "" {
 		return nil

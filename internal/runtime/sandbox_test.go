@@ -777,13 +777,13 @@ func TestTTYFalseAddsProcessIsolation(t *testing.T) {
 }
 
 func TestConfigFileBoundReadOnlyOnlyWhenPresent(t *testing.T) {
-	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	configDir := filepath.Join(t.TempDir(), "bunny")
 	p := &Prepared{
 		Manifest:   &manifest.Manifest{ID: "tool"},
 		BinPath:    "/opt/tool/tool",
 		Vars:       map[string]string{"data": t.TempDir()},
 		Env:        []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
-		ConfigFile: configFile,
+		ConfigFile: filepath.Join(configDir, "config.yaml"),
 	}
 	policy := finalized(t, &PackageSandbox{Home: "isolated"})
 
@@ -791,19 +791,22 @@ func TestConfigFileBoundReadOnlyOnlyWhenPresent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if indexSequence(args, []string{"--ro-bind", configFile, configFile}) >= 0 {
-		t.Errorf("absent optional config must not be bound or created: %v", args)
+	if indexSequence(args, []string{"--ro-bind", configDir, configDir}) >= 0 {
+		t.Errorf("an absent optional config directory must not be bound or created: %v", args)
+	}
+	if _, err := os.Stat(configDir); !os.IsNotExist(err) {
+		t.Errorf("the scoped planner must not create the config directory: %v", err)
 	}
 
-	if err := os.WriteFile(configFile, []byte("sandbox: {}\n"), 0644); err != nil {
+	if err := os.MkdirAll(configDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 	args, err = sandboxArgs(p, policy, "/work", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if indexSequence(args, []string{"--ro-bind", configFile, configFile}) < 0 {
-		t.Errorf("existing config must be bound read-only: %v", args)
+	if indexSequence(args, []string{"--ro-bind", configDir, configDir}) < 0 {
+		t.Errorf("an existing config directory must be bound read-only: %v", args)
 	}
 }
 

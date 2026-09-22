@@ -519,18 +519,56 @@ func TestHardenedConfigStaysReadOnlyUnderAWriteGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bunnyDir := filepath.Dir(p.ConfigFile)
 	grantAt := indexSequence(plan.args, []string{"--bind", configDir, configDir})
-	configAt := indexSequence(plan.args, []string{"--ro-bind", p.ConfigFile, p.ConfigFile})
+	configAt := indexSequence(plan.args, []string{"--ro-bind", bunnyDir, bunnyDir})
 	if grantAt < 0 || configAt < grantAt {
-		t.Errorf("config.yaml must be re-bound read-only after the write grant: %v", plan.args)
+		t.Errorf("the config directory must be re-bound read-only after the write grant: %v", plan.args)
 	}
 
 	plan, err = buildSandboxPlan(p, finalized(t, &PackageSandbox{Boundary: "hardened"}), "/work", hostHome, sandboxContext{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if indexSequence(plan.args, []string{"--ro-bind", p.ConfigFile, p.ConfigFile}) >= 0 {
-		t.Errorf("an ungranted config.yaml must stay hidden, not be bound back: %v", plan.args)
+	if indexSequence(plan.args, []string{"--ro-bind", bunnyDir, bunnyDir}) >= 0 {
+		t.Errorf("an ungranted config directory must stay hidden, not be bound back: %v", plan.args)
+	}
+}
+
+// With no config yet, protecting config.yaml alone let a payload under a
+// ~/.config write grant create one, with a looser policy for its next launch.
+// A config directory that is a symlink cannot be mounted over, and a payload
+// able to write its parent could repoint it, so that launch is refused.
+func TestHardenedProtectsAMissingOrLinkedConfigDirectory(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	configHome := filepath.Join(hostHome, ".config")
+	if err := os.MkdirAll(configHome, 0755); err != nil {
+		t.Fatal(err)
+	}
+	bunnyDir := filepath.Join(configHome, "bunny")
+	p.ConfigFile = filepath.Join(bunnyDir, "config.yaml")
+	policy := finalized(t, &PackageSandbox{
+		Boundary: "hardened",
+		FS:       FSPolicy{Write: []string{"~/.config"}, WriteSet: true},
+	})
+
+	plan, err := buildSandboxPlan(p, policy, "/work", hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexSequence(plan.args, []string{"--ro-bind", bunnyDir, bunnyDir}) < 0 || plan.configDir != bunnyDir {
+		t.Errorf("a missing config directory must be bound read-only and created at launch (configDir %q): %v", plan.configDir, plan.args)
+	}
+	if _, err := os.Stat(bunnyDir); !os.IsNotExist(err) {
+		t.Errorf("planning must not create it: %v", err)
+	}
+
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, bunnyDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildSandboxPlan(p, policy, "/work", hostHome, sandboxContext{}); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("a symlinked config directory inside a write grant must be refused, got %v", err)
 	}
 }
 

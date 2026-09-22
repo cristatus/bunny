@@ -134,10 +134,11 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	}
 	// After every writable bind, so a grant covering ~/.config cannot hand
 	// the payload its own policy.
-	configArgs, err := readOnlyConfigArgs(p.ConfigFile, plan.context.WritableRoots)
+	configArgs, configDir, err := readOnlyConfigArgs(p.ConfigFile, plan.context.WritableRoots, true)
 	if err != nil {
 		return sandboxPlan{}, err
 	}
+	plan.configDir = configDir
 	args = append(args, configArgs...)
 
 	// The baseline's private /run swallows the resolver configuration: on a
