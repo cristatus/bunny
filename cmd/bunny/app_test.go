@@ -70,6 +70,13 @@ func TestConfigureLoggingDefaultsToWarnings(t *testing.T) {
 	if log.GetLevel() != log.DebugLevel || !logging() {
 		t.Errorf("-l debug: level %v, logging %v; want debug with diagnostics", log.GetLevel(), logging())
 	}
+	// -l warn only chooses which problems print; it must not hide progress.
+	if err := configureLogging("warn"); err != nil {
+		t.Fatal(err)
+	}
+	if log.GetLevel() != log.WarnLevel || logging() {
+		t.Errorf("-l warn: level %v, logging %v; want warn without diagnostics", log.GetLevel(), logging())
+	}
 	if err := configureLogging("loud"); err == nil {
 		t.Error("an unknown level must be refused")
 	}

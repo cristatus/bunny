@@ -138,17 +138,19 @@ func main() {
 // live progress line. -l lowers the level for diagnostics.
 func configureLogging(level string) error {
 	log.SetOutput(progress.Lines(os.Stderr))
-	diagnostics = level != ""
+	parsed := log.WarnLevel
+	if level != "" {
+		var err error
+		if parsed, err = log.ParseLevel(level); err != nil {
+			return fmt.Errorf("invalid log level %q (want: debug, info, warn, or error)", level)
+		}
+	}
+	// Only info and debug are diagnostics, which replace narration and live
+	// progress. -l warn or -l error just choose which problems print, so
+	// they must not show less than the default does.
+	diagnostics = parsed < log.WarnLevel
 	// A timestamp helps read a diagnostic trace, not a one-line warning.
 	log.SetReportTimestamp(diagnostics)
-	if !diagnostics {
-		log.SetLevel(log.WarnLevel)
-		return nil
-	}
-	parsed, err := log.ParseLevel(level)
-	if err != nil {
-		return fmt.Errorf("invalid log level %q (want: debug, info, warn, or error)", level)
-	}
 	log.SetLevel(parsed)
 	return nil
 }
