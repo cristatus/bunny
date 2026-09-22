@@ -617,6 +617,9 @@ func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error
 		if !ok {
 			continue
 		}
+		if partial != nil && fromADownCatalog(installed.Source, p.Source, partial) {
+			continue // not this package's catalog; reported as unchecked below
+		}
 		if installed.Version != p.Version {
 			report.Results = append(report.Results, checker.Result{
 				ID:             p.ID,
@@ -633,26 +636,38 @@ func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error
 }
 
 // uncheckedPackages are the installed packages a partial listing could not
-// speak for: missing from it, and from a catalog that did not answer, or from
-// one bunny cannot name (an install that predates recording it). A package
-// whose own catalog answered without it was dropped from that catalog, which
-// is not a failed check.
+// speak for: missing from it, or listed only by another catalog, while theirs
+// did not answer or cannot be named (an install that predates recording it).
+// A package whose own catalog answered without it was dropped from that
+// catalog, which is not a failed check.
 func uncheckedPackages(st *state.State, listed []catalog.PackageInfo, partial *catalog.PartialError, id string) []error {
-	seen := map[string]bool{}
+	listedFrom := map[string]string{}
 	for _, p := range listed {
-		seen[p.ID] = true
+		listedFrom[p.ID] = p.Source
 	}
 	var out []error
 	for _, installed := range st.Installed() {
-		if (id != "" && installed != id) || seen[installed] {
+		if id != "" && installed != id {
 			continue
 		}
 		source := st.Packages[installed].Source
-		if source == "" || slices.Contains(partial.Catalogs, source) {
+		from, listed := listedFrom[installed]
+		if listed && !fromADownCatalog(source, from, partial) {
+			continue // checked against its own catalog's entry
+		}
+		if listed || source == "" || slices.Contains(partial.Catalogs, source) {
 			out = append(out, fmt.Errorf("%s: not checked: %w", installed, partial))
 		}
 	}
 	return out
+}
+
+// fromADownCatalog reports whether a listing entry comes from some other
+// catalog than the one the package was installed from, while that one did not
+// answer. Comparing against it would offer a lower catalog's copy, older or
+// not, as this package's update, and applying it would switch catalogs.
+func fromADownCatalog(installedFrom, listedFrom string, partial *catalog.PartialError) bool {
+	return installedFrom != "" && installedFrom != listedFrom && slices.Contains(partial.Catalogs, installedFrom)
 }
 
 // reshimCapabilities rebuilds global-tool shims. capability=="" covers every
