@@ -7,6 +7,14 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Warnings are shown by default, as `WARN …` lines on stderr. Before, they
+  appeared only with `-l`, which hid several failures that are reported
+  nowhere else: a skipped integration file, a rollback that could not
+  restore shims, an unreachable catalog, or a pin of a version that is not
+  installed. `-l` still enables full diagnostics.
+
 ### Fixed
 
 - Hardened sandbox: on hosts where `/home` is a symlink (Fedora Silverblue,
@@ -45,6 +53,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `bunny dev` could write another file's checksum into a manifest when a
   multi-file sums file (`SHA256SUMS`, `checksums.txt`) had no line naming the
   download. It now fails instead of picking the first hash in the file.
+- With a configured catalog unreachable and uncached, `bunny install` of one
+  of its packages reported "not found in catalog", and `bunny update`
+  skipped its packages and could report everything up to date. Install now
+  says the catalog is unavailable, and the update check reports the packages
+  it could not check and exits non-zero.
+- `bunny update <id>` for a package that is not installed said "all packages
+  are up to date"; it now says the package is not installed.
+- `bunny reshim <typo>` and `bunny dev update <typo>` reported success. Both
+  now refuse an unknown target.
+- `bunny toolchains` claimed to regenerate config when no Gradle or Maven
+  package was installed.
 
 ## [0.7.1] - 2026-09-15
 
