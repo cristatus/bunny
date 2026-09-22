@@ -7,6 +7,29 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Hardened sandbox: on hosts where `/home` is a symlink (Fedora Silverblue,
+  Kinoite), launching from `$HOME` or granting `/var/home` exposed the real
+  home. Both are now recognised as the host home.
+- Sandbox: a package could replace its isolated home with a symlink to the
+  host home, so a later `home: ephemeral` launch seeded from the real home
+  and `persist` could bind real files such as `~/.ssh`. A symlinked or
+  non-directory isolated home is now refused.
+- Hardened sandbox: a write grant covering `~/.config` let the package
+  rewrite bunny's `config.yaml`, including its own sandbox policy. The file
+  now stays read-only under any writable grant.
+- Hardened sandbox: an `SSH_AUTH_SOCK` naming a directory such as `/home` was
+  bound back read-write. Only an actual socket is bound now.
+- Install-time `prepare:` steps could reach the session bus under `/run`
+  (and through it start host processes), read the real home, and inherit
+  the user's environment, tokens included. `/run` and the home are now
+  hidden, and steps start from a minimal environment.
+- `bunny run --explain` reported a hardened working directory as read-only
+  when a launch from the home had left it unmounted, and reported D-Bus as
+  masked where the session bus uses an abstract address, which host
+  networking still reaches.
+
 ## [0.7.1] - 2026-09-15
 
 ### Fixed
