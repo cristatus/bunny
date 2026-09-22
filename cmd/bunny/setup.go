@@ -16,6 +16,7 @@ import (
 
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/paths"
+	"github.com/cristatus/bunny/internal/ui"
 )
 
 // environmentDPath is where systemd's per-user environment generator reads
@@ -207,6 +208,30 @@ func ensureRcInit(rcPath, root, bunnyBin, shell string) (bool, error) {
 	return err == nil, err
 }
 
+// staleRcInit returns the bunny init line rcPath already has when it is not
+// the one this install would write, such as one left by an XDG setup after
+// a reinstall under BUNNY_HOME, and "" otherwise. Setup does not rewrite a
+// line the user may have edited, but "already configured" alone would claim
+// a shell setup that points somewhere else.
+func staleRcInit(rcPath, root, bunnyBin, shell string) string {
+	data, err := os.ReadFile(rcPath)
+	if err != nil {
+		return ""
+	}
+	want := strings.TrimSpace(initEvalLine(root, bunnyBin, shell))
+	var found string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == want {
+			return ""
+		}
+		if found == "" && bunnyInitRe.MatchString(line) {
+			found = line
+		}
+	}
+	return found
+}
+
 // SetupCmd is the one-shot installer: session env (environment.d), shell
 // completions, and the shell rc `bunny init` line.
 type SetupCmd struct {
@@ -266,6 +291,10 @@ func (c *SetupCmd) Run(a *App) error {
 		} else {
 			log.Info("Shell rc already configured", "rc", rcPath)
 			p.Println(tildePath(rcPath) + " already configured")
+			if line := staleRcInit(rcPath, a.Paths.Root, bunnyBin, shell); line != "" {
+				ui.Notice(fmt.Sprintf("%s runs %q, not what this install writes: %s",
+					tildePath(rcPath), line, strings.TrimSpace(initEvalLine(a.Paths.Root, bunnyBin, shell))))
+			}
 		}
 
 		sessionVars := "PATH"

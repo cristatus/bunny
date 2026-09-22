@@ -314,3 +314,18 @@ func TestWriteEnvironmentDRewritesExistingFile(t *testing.T) {
 		t.Errorf("current shim dir missing: %s", data)
 	}
 }
+
+// Setup leaves an existing bunny init line alone, but one written for another
+// layout (an XDG setup, then a reinstall under BUNNY_HOME) points the shell
+// somewhere else, and "already configured" alone would hide that.
+func TestStaleRcInitNamesALineForAnotherLayout(t *testing.T) {
+	rc := filepath.Join(t.TempDir(), ".zshrc")
+	os.WriteFile(rc, []byte("# added by bunny setup\n"+initEvalLine("", "/h/.local/bin/bunny", "zsh")), 0644)
+
+	if got := staleRcInit(rc, "", "/h/.local/bin/bunny", "zsh"); got != "" {
+		t.Errorf("the line this install writes is not stale: %q", got)
+	}
+	if got := staleRcInit(rc, "/opt/bunny", "/opt/bunny/bin/bunny", "zsh"); !strings.Contains(got, "/h/.local/bin/bunny") {
+		t.Errorf("a line for another layout must be named, got %q", got)
+	}
+}
