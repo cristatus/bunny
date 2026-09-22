@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -316,5 +317,44 @@ func TestFetchRestartsAPartialDownloadThatCannotBeResumed(t *testing.T) {
 				t.Errorf("download = %q, want the whole file", data)
 			}
 		})
+	}
+}
+
+// A connection that stops sending mid-body used to hold each attempt for the
+// client's full 30 minutes. The stall watchdog cuts it after stallTimeout,
+// and the retry resumes from what arrived.
+func TestFetchAbandonsAStalledDownloadAndResumes(t *testing.T) {
+	prev := stallTimeout
+	stallTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { stallTimeout = prev })
+
+	done := make(chan struct{})
+	defer close(done)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "bytes=3-" {
+			w.Header().Set("Content-Range", "bytes 3-6/7")
+			w.WriteHeader(http.StatusPartialContent)
+			io.WriteString(w, "load")
+			return
+		}
+		w.Header().Set("Content-Length", "7")
+		io.WriteString(w, "pay")
+		w.(http.Flusher).Flush()
+		select { // stall: the rest never comes
+		case <-done:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	d := &Downloader{Client: srv.Client(), Retries: 1}
+	got, err := d.FetchContext(ctx, t.TempDir(), Source{URL: srv.URL + "/x", File: "x", Size: 7, SHA256: sha256Of("payload")})
+	if err != nil {
+		t.Fatalf("a stalled download must be cut and resumed: %v", err)
+	}
+	if data, _ := os.ReadFile(got); string(data) != "payload" {
+		t.Errorf("download = %q", data)
 	}
 }

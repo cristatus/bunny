@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -29,6 +30,13 @@ import (
 // Long enough to cover IDEA-sized tarballs on slow links; stalls past that
 // should fail loudly.
 var defaultClient = newDownloadClient()
+
+// stallTimeout bounds how long a download may go without receiving a byte.
+// The client's own limits cover the headers and the whole transfer; without
+// this a connection that stops mid-body holds each attempt for the full
+// 30 minutes before the retry that would resume it. A var so tests can
+// shorten it.
+var stallTimeout = 60 * time.Second
 
 func newDownloadClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -200,7 +208,9 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 		return false, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.URL, nil)
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, src.URL, nil)
 	if err != nil {
 		return false, err
 	}
@@ -255,9 +265,15 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 	if err != nil {
 		return false, err
 	}
-	reader := io.Reader(resp.Body)
+	var stalled atomic.Bool
+	watchdog := time.AfterFunc(stallTimeout, func() {
+		stalled.Store(true)
+		cancel()
+	})
+	defer watchdog.Stop()
+	reader := io.Reader(&stallReader{r: resp.Body, watchdog: watchdog})
 	if src.Size > 0 {
-		reader = io.LimitReader(resp.Body, src.Size-offset+1)
+		reader = io.LimitReader(reader, src.Size-offset+1)
 	}
 	dst := io.Writer(file)
 	if onProgress != nil {
@@ -266,6 +282,9 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 	written, copyErr := io.Copy(dst, reader)
 	closeErr := file.Close()
 	if copyErr != nil {
+		if stalled.Load() && ctx.Err() == nil {
+			return true, fmt.Errorf("download stalled: no data for %s", stallTimeout)
+		}
 		return true, copyErr
 	}
 	if closeErr != nil {
@@ -286,6 +305,20 @@ func (d *Downloader) fetchHTTPOnce(ctx context.Context, src Source, target strin
 		onProgress(total, src.Size) // final tick → 100%
 	}
 	return false, nil
+}
+
+// stallReader restarts the stall watchdog on every read that returns data.
+type stallReader struct {
+	r        io.Reader
+	watchdog *time.Timer
+}
+
+func (s *stallReader) Read(p []byte) (int, error) {
+	n, err := s.r.Read(p)
+	if n > 0 {
+		s.watchdog.Reset(stallTimeout)
+	}
+	return n, err
 }
 
 // resumesAt reports whether a 206 continues at offset. A response without a
