@@ -251,8 +251,8 @@ func TestRegenerateToolchains(t *testing.T) {
 		Bin:     []manifest.Binary{{Name: "mvn", Path: "{app}/bin/mvn"}},
 	})
 
-	if _, err := a.regenerateToolchains(); err != nil {
-		t.Fatal(err)
+	if _, consumers, err := a.regenerateToolchains(); err != nil || consumers != 2 {
+		t.Fatalf("regenerateToolchains: %d consumers, %v; want gradle and maven written", consumers, err)
 	}
 
 	gp, err := os.ReadFile(filepath.Join(root, "data", "gradle", "gradle", "gradle.properties"))
@@ -337,5 +337,26 @@ func TestReshimRefusesAnUnknownTarget(t *testing.T) {
 	}
 	if err := (&ReshimCmd{Target: "nod"}).Run(a); err == nil || !strings.Contains(err.Error(), `"nod" is neither`) {
 		t.Errorf("reshim nod: got %v, want it refused as an unknown target", err)
+	}
+}
+
+// With no Gradle or Maven package installed there is no config to write, and
+// `bunny toolchains` used to announce it had regenerated one anyway.
+func TestToolchainsSaysWhenThereIsNothingToConfigure(t *testing.T) {
+	root := t.TempDir()
+	a := &App{Paths: paths.At(root), State: state.Empty()}
+	a.State.SetInstalled("jdk-21", "21.0.11+10", "jdk", "", "")
+	cacheManifest(t, a.Paths.ManifestFile("jdk-21"), &manifest.Manifest{
+		ID: "jdk-21", Name: "JDK", Version: "21.0.11+10", Provides: "jdk",
+		Sources: []manifest.Source{{URL: "https://example.com/jdk", SHA256: strings.Repeat("a", 64)}},
+		Bin:     []manifest.Binary{{Name: "java", Path: "{app}/bin/java"}},
+	})
+
+	jdks, consumers, err := a.regenerateToolchains()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jdks != 1 || consumers != 0 {
+		t.Errorf("regenerateToolchains = %d JDKs, %d consumers; want 1 and 0", jdks, consumers)
 	}
 }

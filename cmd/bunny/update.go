@@ -169,7 +169,7 @@ func (c *UpdateCmd) apply(a *App) error {
 			applied++
 		}
 		if applied > 0 {
-			if _, err := a.regenerateToolchains(); err != nil {
+			if _, _, err := a.regenerateToolchains(); err != nil {
 				errs = append(errs, fmt.Errorf("regenerate toolchains: %w", err))
 			}
 		}

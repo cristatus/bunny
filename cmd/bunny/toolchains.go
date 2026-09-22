@@ -18,13 +18,17 @@ type ToolchainsCmd struct{}
 
 func (c *ToolchainsCmd) Run(a *App) error {
 	return a.withMutation(a.context(), func() error {
-		jdks, err := a.regenerateToolchains()
+		jdks, consumers, err := a.regenerateToolchains()
 		if err != nil {
 			return err
 		}
-		log.Info("Regenerated JDK toolchain config", "jdks", jdks)
+		log.Info("Regenerated JDK toolchain config", "jdks", jdks, "consumers", consumers)
 		p := a.status()
 		p.Println()
+		if consumers == 0 {
+			p.Println("no Gradle or Maven package installed: no toolchain config to write")
+			return nil
+		}
 		p.Println("regenerated JDK toolchain config")
 		return nil
 	})
@@ -67,9 +71,6 @@ func (a *App) gradleUserHome(m *manifest.Manifest, vars map[string]string) strin
 	return filepath.Join(vars["home"], ".gradle")
 }
 
-// regenerateToolchains writes JDK-toolchain config for every installed package
-// that declares `toolchains:`, listing all installed `provides: jdk` packages.
-// No-op when no consumer (or no JDK) is installed.
 // jdkVendor reports the distribution name to publish for a JDK, or "" when the
 // manifest does not say. It reads the primary source's update distribution,
 // which tells two installs of the same major version apart.
@@ -84,13 +85,14 @@ func jdkVendor(m *manifest.Manifest) string {
 	return m.Sources[0].Update.Distribution
 }
 
-// regenerateToolchains rewrites every installed toolchain consumer's config and
-// reports how many JDKs it published, so a caller does not reload the installed
-// manifests to learn the count.
-func (a *App) regenerateToolchains() (int, error) {
+// regenerateToolchains rewrites the config of every installed package that
+// declares `toolchains:`, listing all installed `provides: jdk` packages. It
+// reports how many JDKs it published and how many consumers it wrote, so a
+// caller does not reload the installed manifests to learn either.
+func (a *App) regenerateToolchains() (jdkCount, consumers int, err error) {
 	jdks, err := a.installedJDKs()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	homes := make([]string, 0, len(jdks))
 	for _, j := range jdks {
@@ -100,7 +102,7 @@ func (a *App) regenerateToolchains() (int, error) {
 	for _, id := range a.State.Installed() {
 		m, err := a.loadInstalledManifest(id)
 		if err != nil {
-			return 0, fmt.Errorf("load installed manifest %s: %w", id, err)
+			return 0, 0, fmt.Errorf("load installed manifest %s: %w", id, err)
 		}
 		if m.Toolchains == "" {
 			continue
@@ -109,29 +111,31 @@ func (a *App) regenerateToolchains() (int, error) {
 		case "gradle":
 			home := a.gradleUserHome(m, a.Paths.Vars(id, m.Version))
 			if err := os.MkdirAll(home, 0755); err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			path := filepath.Join(home, "gradle.properties")
 			existing, err := os.ReadFile(path)
 			if err != nil && !os.IsNotExist(err) {
-				return 0, err
+				return 0, 0, err
 			}
 			content := toolchains.MergeGradleProperties(string(existing), homes)
 			if err := fsutil.WriteFile(path, []byte(content), 0644); err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			log.Debug("Wrote Gradle toolchain config", "path", path, "jdks", len(homes))
+			consumers++
 		case "maven":
 			dir := a.Paths.AppData(id)
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			path := filepath.Join(dir, "toolchains.xml")
 			if err := fsutil.WriteFile(path, []byte(mavenXML), 0644); err != nil {
-				return 0, err
+				return 0, 0, err
 			}
 			log.Debug("Wrote Maven toolchain config", "path", path, "jdks", len(jdks))
+			consumers++
 		}
 	}
-	return len(jdks), nil
+	return len(jdks), consumers, nil
 }
