@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -433,4 +434,29 @@ func TestRemoteRefreshIsSafeWhileReading(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+// Refresh busts the CDN for the index; the manifest it then loads has to come
+// from the same catalog state, or the index lists X+1 while the edge still
+// serves the manifest at X. Package files are keyed to the index's updated
+// time, which changes exactly when the catalog does.
+func TestRemotePackageFilesAreKeyedToTheIndex(t *testing.T) {
+	var urls []string
+	bodies := map[string]string{
+		"https://x/index.json":                testIndex,
+		"https://x/packages/rg/manifest.yaml": remoteManifest,
+	}
+	serve := fakeHTTP(bodies)
+	r := NewRemote("https://x", t.TempDir()).WithHTTPGet(func(url string) (*http.Response, error) {
+		urls = append(urls, url)
+		return serve(url)
+	})
+	if _, err := r.Load("rg"); err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := time.Parse(time.RFC3339, "2026-01-01T00:00:00Z")
+	want := fmt.Sprintf("https://x/packages/rg/manifest.yaml?v=%d", updated.Unix())
+	if !slices.Contains(urls, want) {
+		t.Errorf("requests = %v, want the manifest keyed as %s", urls, want)
+	}
 }

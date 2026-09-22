@@ -240,7 +240,7 @@ func (r *Remote) LoadFile(id, relPath string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: package %q not in remote index", ErrNotFound, id)
 	}
-	return r.fetch(fmt.Sprintf("%s/%s/%s", r.baseURL, entry.Path, relPath))
+	return r.fetch(packageFileURL(r.baseURL, entry.Path, relPath, idx))
 }
 
 // --- internal ---
@@ -265,7 +265,21 @@ func (r *Remote) manifestURL(id string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("%w: package %q not in remote index", ErrNotFound, id)
 	}
-	return fmt.Sprintf("%s/%s/manifest.yaml", r.baseURL, entry.Path), nil
+	return packageFileURL(r.baseURL, entry.Path, "manifest.yaml", idx), nil
+}
+
+// packageFileURL addresses a file in a package's directory, keyed to the
+// index it was listed in. The CDN in front of raw.githubusercontent.com
+// serves a pre-push copy of each path for minutes after a commit, so a
+// cache-busted Refresh could list version X+1 and then load a manifest still
+// at X. Keying by the index's updated time changes the URL whenever the
+// catalog does, and keeps it stable, and cacheable, between commits.
+func packageFileURL(baseURL, dir, rel string, idx *Index) string {
+	u := fmt.Sprintf("%s/%s/%s", baseURL, dir, rel)
+	if !idx.Updated.IsZero() {
+		u += "?v=" + strconv.FormatInt(idx.Updated.Unix(), 10)
+	}
+	return u
 }
 
 func (r *Remote) loadIndex() (*Index, error) {
