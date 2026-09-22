@@ -63,3 +63,41 @@ const (
 	wrongArchSHA = "1111111111111111111111111111111111111111111111111111111111111a"
 	rightArchSHA = "2222222222222222222222222222222222222222222222222222222222222b"
 )
+
+// Any segment that was not purely numeric used to compare as a string, so
+// 1.9 beat 1.10~rc1, an rc outranked its release, and epochs 9 and 10 came
+// out backwards. The expectations are dpkg's (dpkg --compare-versions).
+func TestCompareDebVersionsFollowsDpkg(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want int
+	}{
+		{"1.10~rc1", "1.9", 1},
+		{"1.2~rc1", "1.2", -1},
+		{"~~", "~", -1},
+		{"5:10.0", "5:9.0", 1},
+		{"1:1.0", "2.0", 1},
+		{"1.0-1", "1.0-2", -1},
+		{"1.0a", "1.0", 1},
+		{"1.0", "1.0+dfsg", -1},
+		{"1.0.00", "1.0.0", 0},
+		{"2.30.0-1ubuntu1", "2.30.0-1", 1},
+	} {
+		if got := compareDebVersions(c.a, c.b); sign(got) != c.want {
+			t.Errorf("compareDebVersions(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+		if got := compareDebVersions(c.b, c.a); sign(got) != -c.want {
+			t.Errorf("compareDebVersions(%q, %q) = %d, want %d", c.b, c.a, got, -c.want)
+		}
+	}
+}
+
+func sign(n int) int {
+	switch {
+	case n < 0:
+		return -1
+	case n > 0:
+		return 1
+	}
+	return 0
+}

@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/log"
 
 	"github.com/cristatus/bunny/internal/manifest"
-	"github.com/cristatus/bunny/internal/verparse"
 )
 
 func init() { Register(&Debian{}) }
@@ -58,7 +57,7 @@ func (d *Debian) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentV
 		Hash:          pkg.sha256,
 		HashAlgorithm: "sha256",
 		Size:          pkg.size,
-		HasUpdate:     verparse.Compare(pkg.version, currentVersion) > 0,
+		HasUpdate:     compareDebVersions(pkg.version, currentVersion) > 0,
 	}
 	if pkg.filename != "" {
 		r.DownloadURL = root + "/" + pkg.filename
@@ -135,6 +134,11 @@ func (d *Debian) fetchPackage(ctx context.Context, url, pkgName string, gz bool)
 			best = cur
 		}
 	}
+	// A line past the buffer stops the scan early, and "latest" picked from
+	// part of the index is a wrong answer, not a partial one.
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read Packages index: %w", err)
+	}
 	if best == nil {
 		return nil, fmt.Errorf("package %q not found", pkgName)
 	}
@@ -152,39 +156,99 @@ func isSupportedArch(arch string) bool {
 	return arch == "" || arch == "amd64" || arch == "all"
 }
 
+// compareDebVersions orders two Debian versions the way dpkg does:
+// [epoch:]upstream[-revision], the epoch compared numerically, then upstream
+// and revision by verrevcmp. That is not a dotted-number compare: "~" sorts
+// before everything, even the end of the string, so 1.2~rc1 < 1.2, and runs
+// of digits compare as numbers wherever they fall, so 1.10~rc1 > 1.9.
 func compareDebVersions(v1, v2 string) int {
-	split := func(v string) []string {
-		v = strings.ReplaceAll(v, "-", ".")
-		v = strings.ReplaceAll(v, "+", ".")
-		return strings.Split(v, ".")
-	}
-	p1, p2 := split(v1), split(v2)
-	max := len(p1)
-	if len(p2) > max {
-		max = len(p2)
-	}
-	for i := 0; i < max; i++ {
-		var a, b string
-		if i < len(p1) {
-			a = p1[i]
-		}
-		if i < len(p2) {
-			b = p2[i]
-		}
-		na, ea := strconv.Atoi(a)
-		nb, eb := strconv.Atoi(b)
-		if ea == nil && eb == nil {
-			if na != nb {
-				return na - nb
-			}
-			continue
-		}
-		if a != b {
-			if a > b {
-				return 1
-			}
+	e1, u1, r1 := splitDebVersion(v1)
+	e2, u2, r2 := splitDebVersion(v2)
+	if e1 != e2 {
+		if e1 < e2 {
 			return -1
 		}
+		return 1
+	}
+	if c := verrevcmp(u1, u2); c != 0 {
+		return c
+	}
+	return verrevcmp(r1, r2)
+}
+
+func splitDebVersion(v string) (epoch int, upstream, revision string) {
+	if i := strings.IndexByte(v, ':'); i >= 0 {
+		epoch, _ = strconv.Atoi(v[:i])
+		v = v[i+1:]
+	}
+	if i := strings.LastIndexByte(v, '-'); i >= 0 {
+		return epoch, v[:i], v[i+1:]
+	}
+	return epoch, v, ""
+}
+
+// verrevcmp is dpkg's comparison of an upstream version or revision:
+// alternating non-digit runs, compared character by character with debOrder,
+// and digit runs, compared numerically.
+func verrevcmp(a, b string) int {
+	isDigit := func(c byte) bool { return c >= '0' && c <= '9' }
+	for a != "" || b != "" {
+		for (a != "" && !isDigit(a[0])) || (b != "" && !isDigit(b[0])) {
+			ac, bc := debOrder(a), debOrder(b)
+			if ac != bc {
+				return cmpInt(ac, bc)
+			}
+			a, b = a[1:], b[1:]
+		}
+		for a != "" && a[0] == '0' {
+			a = a[1:]
+		}
+		for b != "" && b[0] == '0' {
+			b = b[1:]
+		}
+		first := 0
+		for a != "" && isDigit(a[0]) && b != "" && isDigit(b[0]) {
+			if first == 0 {
+				first = int(a[0]) - int(b[0])
+			}
+			a, b = a[1:], b[1:]
+		}
+		if a != "" && isDigit(a[0]) {
+			return 1
+		}
+		if b != "" && isDigit(b[0]) {
+			return -1
+		}
+		if first != 0 {
+			return cmpInt(first, 0)
+		}
+	}
+	return 0
+}
+
+// debOrder weighs the next non-digit character: "~" below the end of the
+// string, letters next, then everything else.
+func debOrder(s string) int {
+	switch {
+	case s == "":
+		return 0
+	case s[0] == '~':
+		return -1
+	case s[0] >= '0' && s[0] <= '9':
+		return 0
+	case (s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z'):
+		return int(s[0])
+	default:
+		return int(s[0]) + 256
+	}
+}
+
+func cmpInt(a, b int) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
 	}
 	return 0
 }
