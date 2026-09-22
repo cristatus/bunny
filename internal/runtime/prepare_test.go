@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -172,5 +173,59 @@ func TestPrepareHidesHomeRunAndEnvironment(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(workDir, "still-writable")); err != nil {
 		t.Errorf("staging under the hidden home must stay writable: %v", err)
+	}
+}
+
+// bwrap cannot mount a tmpfs onto a missing directory under the read-only
+// root, or onto a symlink. A service account's /nonexistent home made every
+// prepare step fail; a symlinked home did the same. A $HOME other than the
+// passwd home was left readable.
+func TestHiddenHomesAreExistingResolvedDirectories(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := filepath.Join(base, "var", "home", "u")
+	other := filepath.Join(base, "data", "u")
+	for _, d := range []string{real, other} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	link := filepath.Join(base, "home")
+	if err := os.Symlink(filepath.Join(base, "var", "home"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	got := hiddenHomes([]string{filepath.Join(link, "u"), "/nonexistent", other, real, "relative", "/"})
+	if want := []string{real, other}; !slices.Equal(got, want) {
+		t.Errorf("hiddenHomes = %v, want %v", got, want)
+	}
+}
+
+// The tmpfs over /run hides NixOS's /run/current-system/sw/bin, and with it
+// every tool a prepare step runs. PATH directories under /run are bound back.
+func TestRunPathBindsRestorePathEntriesUnderRun(t *testing.T) {
+	run, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := filepath.Join(t.TempDir(), "system-path", "bin")
+	if err := os.MkdirAll(store, 0755); err != nil {
+		t.Fatal(err)
+	}
+	system := filepath.Join(run, "current-system", "sw")
+	if err := os.MkdirAll(system, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(store, filepath.Join(system, "bin")); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(system, "bin")
+	realStore, _ := filepath.EvalSymlinks(store)
+
+	got := runPathBinds("/usr/bin:"+bin+":"+filepath.Join(run, "missing"), run)
+	if want := []string{"--ro-bind", realStore, bin}; !slices.Equal(got, want) {
+		t.Errorf("runPathBinds = %v, want %v", got, want)
 	}
 }

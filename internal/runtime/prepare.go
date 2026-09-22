@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 
 	"github.com/charmbracelet/log"
@@ -52,10 +53,6 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 	if err != nil {
 		return err
 	}
-	hostHome, err := prepareHostHome()
-	if err != nil {
-		return err
-	}
 	args := []string{
 		"--ro-bind", "/", "/",
 		"--dev", "/dev",
@@ -73,8 +70,13 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 		"--tmpfs", "/var/tmp",
 		"--dir", "/var/tmp/home",
 	}
-	if hostHome != "/" {
-		args = append(args, "--tmpfs", hostHome)
+	args = append(args, runPathBinds(os.Getenv("PATH"), "/run")...)
+	var homes []string
+	if home, err := realUserHomeDir(); err == nil {
+		homes = append(homes, home)
+	}
+	for _, home := range hiddenHomes(append(homes, os.Getenv("HOME"))) {
+		args = append(args, "--tmpfs", home)
 	}
 	args = append(args, prepareEnvArgs()...)
 	// After the home tmpfs, since staging normally sits under the home.
@@ -97,18 +99,53 @@ func runPrepareStep(ctx context.Context, workDir, srcDir string, shadow map[stri
 	return c.Run()
 }
 
-// prepareHostHome is the login home a prepare step must not see. The passwd
-// entry is authoritative; $HOME is the fallback for a container whose uid has
-// none.
-func prepareHostHome() (string, error) {
-	if home, err := realUserHomeDir(); err == nil {
-		return home, nil
+// hiddenHomes are the home directories a prepare step must not see: the
+// passwd entry's and $HOME, when they differ, each by its resolved path.
+// bwrap refuses to mount onto a symlink or to create a missing directory
+// under the read-only root, so a home that is not an existing directory
+// (a service account's /nonexistent, say) has nothing to hide and is
+// skipped rather than failing every prepare step.
+func hiddenHomes(candidates []string) []string {
+	var out []string
+	for _, home := range candidates {
+		if home == "" || !filepath.IsAbs(home) {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(home)
+		if err != nil || real == "/" {
+			continue
+		}
+		if info, err := os.Stat(real); err != nil || !info.IsDir() {
+			continue
+		}
+		if !slices.Contains(out, real) {
+			out = append(out, real)
+		}
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the home directory to hide from prepare: %w", err)
+	return out
+}
+
+// runPathBinds binds back, read-only, the PATH directories the tmpfs over
+// runRoot would hide. On NixOS the whole toolset lives under
+// /run/current-system/sw/bin, and without it no prepare step finds tar.
+// Executables are what a PATH entry holds, not the sockets the tmpfs is for.
+func runPathBinds(pathEnv, runRoot string) []string {
+	var args []string
+	for _, dir := range filepath.SplitList(pathEnv) {
+		dir = filepath.Clean(dir)
+		if !isAncestor(runRoot, dir) {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			continue
+		}
+		if info, err := os.Stat(real); err != nil || !info.IsDir() {
+			continue
+		}
+		args = append(args, "--ro-bind", real, dir)
 	}
-	return home, nil
+	return args
 }
 
 // prepareEnvArgs gives a step a cleared environment with only what unpacking
