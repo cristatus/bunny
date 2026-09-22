@@ -886,6 +886,9 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 	next.Hidden = sortedMapKeys(hidden)
 
 	overrides, isolatedHome := homeOverrides(p, policy, cwd)
+	if err := checkIsolatedHome(isolatedHome); err != nil {
+		return sandboxPlan{}, err
+	}
 
 	plan := sandboxPlan{
 		context:      next,
@@ -1366,6 +1369,29 @@ func mappedHostUID(data []byte, uid uint64) uint64 {
 		}
 	}
 	return uid
+}
+
+// checkIsolatedHome refuses an isolated home that is not a plain directory.
+// The package owns {data}, so an earlier launch can replace {data}/home with a
+// symlink to the host home. bwrap resolves --overlay-src and --bind sources on
+// the host, so an ephemeral home would then be seeded from the real home, and
+// a persist entry would resolve inside it and pass the containment check. A
+// home that does not exist yet is fine: ensureIsolatedHome creates it.
+func checkIsolatedHome(home string) error {
+	if home == "" {
+		return nil
+	}
+	info, err := os.Lstat(home)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect sandbox home %s: %w", home, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("sandbox home %s is not a directory (a symlink or file left in the package's data); remove it and launch again", home)
+	}
+	return nil
 }
 
 func ensureIsolatedHome(home string) error {

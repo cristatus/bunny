@@ -471,3 +471,27 @@ func TestHardenedCwdAtSymlinkedHomeStaysMasked(t *testing.T) {
 		t.Error("a grant of the resolved home's parent must be refused")
 	}
 }
+
+// The package owns {data}, so an earlier launch can swap {data}/home for a
+// symlink to the host home. bwrap resolves overlay and bind sources on the
+// host, so the next ephemeral launch would seed from the real home and a
+// persist entry would bind the real ~/.ssh writable.
+func TestHardenedRefusesASymlinkedIsolatedHome(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	if err := os.MkdirAll(filepath.Join(hostHome, ".ssh"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hostHome, filepath.Join(p.Vars["data"], "home")); err != nil {
+		t.Fatal(err)
+	}
+	for _, policy := range []*PackageSandbox{
+		{Boundary: "hardened", Home: "ephemeral", Persist: []string{".ssh"}},
+		{Boundary: "hardened", Home: "isolated"},
+		{Boundary: "scoped", Home: "ephemeral"},
+	} {
+		_, err := buildSandboxPlan(p, finalized(t, policy), "/work", hostHome, sandboxContext{})
+		if err == nil || !strings.Contains(err.Error(), "not a directory") {
+			t.Errorf("%s/%s: a symlinked isolated home must be refused, got %v", policy.Boundary, policy.Home, err)
+		}
+	}
+}
