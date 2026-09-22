@@ -261,10 +261,6 @@ func (g *GitHub) searchReleases(ctx context.Context, repo, tagPattern, assetPatt
 	if err != nil {
 		return "", nil
 	}
-	assetRe, err := regexp.Compile(assetPattern)
-	if err != nil {
-		return "", nil
-	}
 	seen := map[string]bool{}
 	for _, m := range tagRe.FindAllStringSubmatch(string(body), -1) {
 		if len(m) < 2 {
@@ -279,10 +275,10 @@ func (g *GitHub) searchReleases(ctx context.Context, repo, tagPattern, assetPatt
 		if err != nil {
 			continue
 		}
-		for _, a := range assets {
-			if assetRe.MatchString(a.Filename) {
-				return tag, assets
-			}
+		// The same matching as the latest release gets, {version} included:
+		// compiled as-is, the placeholder is a literal no filename contains.
+		if g.findAsset(assets, assetPattern, g.extractVersion(tag, tagPattern)) != nil {
+			return tag, assets
 		}
 	}
 	return "", nil
