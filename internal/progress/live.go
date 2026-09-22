@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/cristatus/bunny/internal/ui"
@@ -69,7 +67,6 @@ func (r *liveReporter) Begin(parent context.Context, ids []string) context.Conte
 	r.width = ui.TermWidth(r.w)
 	r.stop = make(chan struct{})
 	fmt.Fprint(r.w, hideCursor) // stop the blinking cursor flashing/jumping over redraws
-	r.watchSignals()            // restore the cursor if the process is interrupted
 	fmt.Fprintln(r.w)           // blank line above the list, matching the summary's below
 	show(r)
 	go r.tick()
@@ -86,22 +83,6 @@ func (r *liveReporter) interrupt(print func()) {
 	if r.active {
 		r.redrawLocked()
 	}
-}
-
-// watchSignals restores the cursor before a SIGINT/SIGTERM kills the process, so
-// an interrupted install never leaves the terminal cursor hidden.
-func (r *liveReporter) watchSignals() {
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		select {
-		case <-r.stop:
-			signal.Stop(sig)
-		case <-sig:
-			fmt.Fprint(r.w, showCursor)
-			os.Exit(130)
-		}
-	}()
 }
 
 func (r *liveReporter) tick() {

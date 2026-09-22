@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -100,7 +101,18 @@ func main() {
 		ui.Fatal(err)
 	}
 	app.NoProgress = cli.NoProgress
-	if err := ctx.Run(app); err != nil {
+	runCtx, stop := progress.Interruptible(context.Background())
+	app.Context = runCtx
+	err = ctx.Run(app)
+	interrupted := runCtx.Err() != nil // read before stop, which cancels it
+	stop()
+	// A command stopped by Ctrl+C has already rolled back and said what it
+	// finished. Exit as an interrupted process does.
+	if err != nil && interrupted {
+		ui.Notice("interrupted")
+		os.Exit(130)
+	}
+	if err != nil {
 		if errors.Is(err, errHandled) {
 			os.Exit(1) // already reported (per-package lines + summary)
 		}
