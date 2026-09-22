@@ -317,3 +317,17 @@ func TestAppDirResolvesThroughState(t *testing.T) {
 		t.Errorf("{app} = %q, want the recorded path", got)
 	}
 }
+
+// Every XDG fallback and the shim directory hang off HOME. A relative HOME
+// used to resolve against the working directory, moving state and shims with
+// each cd, the failure a relative BUNNY_HOME is already refused for.
+func TestResolveRefusesARelativeHome(t *testing.T) {
+	t.Setenv(EnvHome, "")
+	t.Setenv("HOME", "foo")
+	for _, v := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(v, "")
+	}
+	if _, err := Resolve(); err == nil || !strings.Contains(err.Error(), "HOME must be an absolute path") {
+		t.Errorf("Resolve with HOME=foo: got %v, want a refusal", err)
+	}
+}

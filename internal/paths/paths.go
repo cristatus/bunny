@@ -94,6 +94,12 @@ func Resolve() (*Paths, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Every XDG fallback and the shim directory hang off HOME, so a relative
+	// one would move state, shims and installs with each cd, which is why a
+	// relative BUNNY_HOME is refused above.
+	if !filepath.IsAbs(home) {
+		return nil, fmt.Errorf("HOME must be an absolute path, got %q", home)
+	}
 	var (
 		dataHome   = xdgDir("XDG_DATA_HOME", home, ".local", "share")
 		configHome = xdgDir("XDG_CONFIG_HOME", home, ".config")
