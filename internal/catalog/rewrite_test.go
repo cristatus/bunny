@@ -20,7 +20,7 @@ tags: [editor]
 
 sources:
   - url: "https://example.com/{version}/file.tar.gz"
-    sha256: "OLDSHA"
+    sha256: "1111111111111111111111111111111111111111111111111111111111111111"
     size: 100
 
 bin:
@@ -53,7 +53,7 @@ bin:
 	if !strings.Contains(out, `size: 2048`) {
 		t.Errorf("expected updated size in output, got:\n%s", out)
 	}
-	if strings.Contains(out, "OLDSHA") {
+	if strings.Contains(out, "1111111111111111111111111111111111111111111111111111111111111111") {
 		t.Error("old sha256 should have been replaced")
 	}
 	// Re-parse to confirm the result is still a valid manifest.
@@ -76,10 +76,10 @@ homepage: https://example.com/
 
 sources:
   - url: "https://example.com/{version}/a.tar.gz"
-    sha256: "AAAA"
+    sha256: "3333333333333333333333333333333333333333333333333333333333333333"
     size: 1
   - url: "https://example.com/{version}/b.tar.gz"
-    sha256: "BBBB"
+    sha256: "4444444444444444444444444444444444444444444444444444444444444444"
     size: 2
 
 bin:
@@ -92,17 +92,17 @@ env:
 		t.Fatal(err)
 	}
 
-	if err := RewriteManifestVersion(path, "1.0.1", SourceUpdate{SHA256: "AAAA-NEW", Size: 11}); err != nil {
+	if err := RewriteManifestVersion(path, "1.0.1", SourceUpdate{SHA256: "2222222222222222222222222222222222222222222222222222222222222222", Size: 11}); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
 	out := string(got)
 	for _, want := range []string{
 		`version: "1.0.1"`,
-		`sha256: "AAAA-NEW"`,
+		`sha256: "2222222222222222222222222222222222222222222222222222222222222222"`,
 		`size: 11`,
 		// Second source untouched:
-		`sha256: "BBBB"`,
+		`sha256: "4444444444444444444444444444444444444444444444444444444444444444"`,
 		`size: 2`,
 		`homepage: https://example.com/`,
 		`EXAMPLE_HOME: "{data}"`,
@@ -122,7 +122,7 @@ version: "1.0.0"
 
 sources:
   - url: "https://example.com/files/pinned-1.0.0.tar.gz"
-    sha256: "OLD"
+    sha256: "5555555555555555555555555555555555555555555555555555555555555555"
 
 bin:
   - { name: pinned, path: "{app}/bin/pinned" }
@@ -132,7 +132,7 @@ bin:
 	}
 	err := RewriteManifestVersion(path, "1.0.1", SourceUpdate{
 		URL:    "https://example.com/files/pinned-1.0.1.tar.gz",
-		SHA256: "NEW",
+		SHA256: "6666666666666666666666666666666666666666666666666666666666666666",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -155,7 +155,7 @@ version: "1.0.0"
 
 sources:
   - url: "https://example.com/{version}/file.tar.gz"
-    sha512: "OLD512"
+    sha512: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 bin:
   - { name: nodelike, path: "{app}/bin/nodelike" }
@@ -164,15 +164,15 @@ bin:
 		t.Fatal(err)
 	}
 	// Only SHA512 set; SHA256 left empty in the update.
-	err := RewriteManifestVersion(path, "1.0.1", SourceUpdate{SHA512: "NEW512"})
+	err := RewriteManifestVersion(path, "1.0.1", SourceUpdate{SHA512: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
-	if !strings.Contains(string(got), `sha512: "NEW512"`) {
+	if !strings.Contains(string(got), `sha512: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`) {
 		t.Errorf("sha512 not updated:\n%s", got)
 	}
-	if strings.Contains(string(got), "OLD512") {
+	if strings.Contains(string(got), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") {
 		t.Errorf("old sha512 still present:\n%s", got)
 	}
 }
@@ -186,10 +186,10 @@ version: "1.0.0"
 
 sources:
   - url: "https://example.com/primary-1.0.0.tar.gz"
-    sha256: "AAA"
+    sha256: "7777777777777777777777777777777777777777777777777777777777777777"
     size: 100
   - url: "https://example.com/plugin-2.0.0.jar"
-    sha256: "BBB"
+    sha256: "8888888888888888888888888888888888888888888888888888888888888888"
     size: 200
 
 bin:
@@ -200,7 +200,7 @@ bin:
 	}
 	err := RewriteSource(path, 1, SourceUpdate{
 		URL:    "https://example.com/plugin-2.1.0.jar",
-		SHA256: "CCC",
+		SHA256: "9999999999999999999999999999999999999999999999999999999999999999",
 		Size:   222,
 	})
 	if err != nil {
@@ -210,17 +210,17 @@ bin:
 	out := string(got)
 	for _, want := range []string{
 		`version: "1.0.0"`, // unchanged
-		`url: "https://example.com/primary-1.0.0.tar.gz"`, // primary unchanged
-		`sha256: "AAA"`, // primary hash unchanged
+		`url: "https://example.com/primary-1.0.0.tar.gz"`,                            // primary unchanged
+		`sha256: "7777777777777777777777777777777777777777777777777777777777777777"`, // primary hash unchanged
 		`url: "https://example.com/plugin-2.1.0.jar"`,
-		`sha256: "CCC"`,
+		`sha256: "9999999999999999999999999999999999999999999999999999999999999999"`,
 		`size: 222`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q\n--- got ---\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, `sha256: "BBB"`) {
+	if strings.Contains(out, `sha256: "8888888888888888888888888888888888888888888888888888888888888888"`) {
 		t.Error("old secondary sha256 should have been replaced")
 	}
 }
@@ -318,7 +318,7 @@ name: ripgrep
 version: "13.0.0"
 sources:
   - url: "https://example.com/{version}.tar.gz"
-    sha256: "OLD"
+    sha256: "5555555555555555555555555555555555555555555555555555555555555555"
 bin:
   - { name: rg, path: "{app}/rg" }
 `), 0644); err != nil {
@@ -334,7 +334,7 @@ bin:
 		t.Fatal(err)
 	}
 
-	mw, err := PrepareManifestVersion(manifestPath, "14.0.0", SourceUpdate{SHA256: "NEW"})
+	mw, err := PrepareManifestVersion(manifestPath, "14.0.0", SourceUpdate{SHA256: "6666666666666666666666666666666666666666666666666666666666666666"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ bin:
 	}
 
 	mb, _ := os.ReadFile(manifestPath)
-	if !strings.Contains(string(mb), `version: "14.0.0"`) || !strings.Contains(string(mb), `sha256: "NEW"`) {
+	if !strings.Contains(string(mb), `version: "14.0.0"`) || !strings.Contains(string(mb), `sha256: "6666666666666666666666666666666666666666666666666666666666666666"`) {
 		t.Errorf("manifest not updated after Commit:\n%s", mb)
 	}
 	ib, _ := os.ReadFile(indexPath)
@@ -382,7 +382,7 @@ name: ripgrep
 version: "13.0.0"
 sources:
   - url: "https://example.com/{version}.tar.gz"
-    sha256: "OLD"
+    sha256: "5555555555555555555555555555555555555555555555555555555555555555"
 bin:
   - { name: rg, path: "{app}/rg" }
 `
@@ -390,7 +390,7 @@ bin:
 		t.Fatal(err)
 	}
 
-	mw, err := PrepareManifestVersion(manifestPath, "14.0.0", SourceUpdate{SHA256: "NEW"})
+	mw, err := PrepareManifestVersion(manifestPath, "14.0.0", SourceUpdate{SHA256: "6666666666666666666666666666666666666666666666666666666666666666"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,5 +414,31 @@ bin:
 		if strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("leftover staging file: %s", e.Name())
 		}
+	}
+}
+
+// dev update writes the version upstream reports. A Debian "1:2.3.4-1~jammy"
+// is not a valid manifest version, and committing it broke the package for
+// every catalog user; the rewrite now refuses it and leaves the file alone.
+func TestRewriteRefusesAVersionTheManifestCannotHold(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.yaml")
+	original := `id: tool
+name: Tool
+version: "1.0.0"
+sources:
+  - url: "https://example.com/tool.deb"
+    sha256: "` + strings.Repeat("1", 64) + `"
+bin:
+  - { name: tool, path: "{app}/tool" }
+`
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := RewriteManifestVersion(path, "1:2.3.4-1~jammy", SourceUpdate{SHA256: strings.Repeat("2", 64)})
+	if err == nil || !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("got %v, want the rewrite refused", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != original {
+		t.Errorf("a refused rewrite must leave the manifest untouched:\n%s", got)
 	}
 }

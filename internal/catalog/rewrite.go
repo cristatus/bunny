@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/cristatus/bunny/internal/manifest"
 )
 
 // SourceUpdate is the set of source-entry fields to overwrite during a manifest
@@ -203,6 +205,13 @@ func prepareManifest(path string, mutate func(*yaml.Node) error) (PreparedWrite,
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return PreparedWrite{}, err
+	}
+	// The new values come from upstream: a Debian "1:2.3-1~jammy" version or
+	// a scraped string that is not a version at all. Committing a manifest
+	// that no longer parses breaks the package for every catalog user, so
+	// the rewrite has to validate like any other manifest first.
+	if _, err := manifest.ParseBytes(out); err != nil {
+		return PreparedWrite{}, fmt.Errorf("%s: rewritten manifest is invalid: %w", path, err)
 	}
 	return PreparedWrite{path: path, data: out, perm: 0644}, nil
 }
