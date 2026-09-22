@@ -11,6 +11,8 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/alecthomas/kong"
+
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
@@ -387,5 +389,34 @@ func TestScopedReshimKeepsAnotherCapabilitysGlobalCommand(t *testing.T) {
 	}
 	if owner, _ := a.State.GlobalCommandCapability("foo"); owner != "jdk" || slices.Contains(added, "foo") {
 		t.Errorf("foo now owned by %q (added %v); want it left with jdk", owner, added)
+	}
+}
+
+// bunny run hands the terminal's signals to the package: the interrupt
+// handler every other command runs under would end a supervised launch on a
+// second Ctrl+C. The check keys off kong's command path, so it is tested
+// against real parses rather than a hand-written string.
+func TestOnlyRunSkipsTheInterruptHandler(t *testing.T) {
+	var cli CLI
+	parser, err := kong.New(&cli, kong.Name("bunny"), kong.Vars{"version": "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		args []string
+		run  bool
+	}{
+		{[]string{"run", "node", "--", "x.js"}, true},
+		{[]string{"run", "--sandbox", "node"}, true},
+		{[]string{"install", "rg"}, false},
+		{[]string{"update", "--apply"}, false},
+	} {
+		ctx, err := parser.Parse(c.args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := isRunCommand(ctx.Command()); got != c.run {
+			t.Errorf("%v (%q): isRunCommand = %v, want %v", c.args, ctx.Command(), got, c.run)
+		}
 	}
 }

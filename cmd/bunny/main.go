@@ -101,16 +101,27 @@ func main() {
 		ui.Fatal(err)
 	}
 	app.NoProgress = cli.NoProgress
-	runCtx, stop := progress.Interruptible(context.Background())
-	app.Context = runCtx
-	err = ctx.Run(app)
-	interrupted := runCtx.Err() != nil // read before stop, which cancels it
-	stop()
-	// A command stopped by Ctrl+C has already rolled back and said what it
-	// finished. Exit as an interrupted process does.
-	if err != nil && interrupted {
-		ui.Notice("interrupted")
-		os.Exit(130)
+	if isRunCommand(ctx.Command()) {
+		// The package owns the terminal's signals: a supervised launch
+		// forwards them to the sandbox and waits for it, and a direct one
+		// execs, inheriting whatever the caller ignored. A handler of
+		// bunny's would end the supervisor on a second Ctrl+C and un-ignore
+		// SIGINT for `bunny run x &`.
+		err = ctx.Run(app)
+	} else {
+		runCtx, stop := progress.Interruptible(context.Background())
+		app.Context = runCtx
+		err = ctx.Run(app)
+		interrupted := runCtx.Err() != nil // read before stop, which cancels it
+		stop()
+		// A command stopped by Ctrl+C has already rolled back and said what
+		// it finished. It exits as an interrupted process does even when it
+		// returned no error: a batch that stopped between packages has
+		// skipped the rest, and exit 0 would call that success.
+		if interrupted {
+			ui.Notice("interrupted")
+			os.Exit(130)
+		}
 	}
 	if err != nil {
 		if errors.Is(err, errHandled) {
@@ -141,3 +152,7 @@ func configureLogging(level string) error {
 	log.SetLevel(parsed)
 	return nil
 }
+
+// isRunCommand reports whether kong resolved the `run` command, whose path is
+// "run <id>" with its arguments.
+func isRunCommand(path string) bool { return path == "run" || strings.HasPrefix(path, "run ") }
