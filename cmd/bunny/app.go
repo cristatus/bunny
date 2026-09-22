@@ -561,6 +561,19 @@ func (a *App) packageSource(id string, resolved string) string {
 	return resolved
 }
 
+// listCatalog lists every catalog's packages. A catalog that cannot answer is
+// warned about and left out, and returned as partial so a caller can tell a
+// package missing because its catalog is down from one no catalog carries.
+// The error is set only when no catalog answered at all.
+func (a *App) listCatalog() ([]catalog.PackageInfo, *catalog.PartialError, error) {
+	pkgs, err := a.Catalog.List()
+	if partial, ok := catalog.Partial(err); ok {
+		log.Warn("Catalog unavailable, listing without it", "catalogs", strings.Join(partial.Catalogs, ", "), "error", partial.Err)
+		return pkgs, partial, nil
+	}
+	return pkgs, nil, err
+}
+
 // UpdateReport distinguishes "no updates" from "updates could not be checked".
 type UpdateReport struct {
 	Results  []checker.Result
@@ -582,11 +595,11 @@ func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error
 
 	status.Update("refreshing catalog…")
 	a.refreshRemote()
-	pkgs, err := a.Catalog.List()
+	pkgs, partial, err := a.listCatalog()
 	if err != nil {
 		return nil, err
 	}
-	if id != "" {
+	if id != "" && partial == nil {
 		if err := requireInCatalog(id, pkgs); err != nil {
 			return nil, err
 		}
@@ -613,7 +626,33 @@ func (a *App) checkUpdates(ctx context.Context, id string) (*UpdateReport, error
 			})
 		}
 	}
+	if partial != nil {
+		report.Failures = append(report.Failures, uncheckedPackages(a.State, pkgs, partial, id)...)
+	}
 	return report, nil
+}
+
+// uncheckedPackages are the installed packages a partial listing could not
+// speak for: missing from it, and from a catalog that did not answer, or from
+// one bunny cannot name (an install that predates recording it). A package
+// whose own catalog answered without it was dropped from that catalog, which
+// is not a failed check.
+func uncheckedPackages(st *state.State, listed []catalog.PackageInfo, partial *catalog.PartialError, id string) []error {
+	seen := map[string]bool{}
+	for _, p := range listed {
+		seen[p.ID] = true
+	}
+	var out []error
+	for _, installed := range st.Installed() {
+		if (id != "" && installed != id) || seen[installed] {
+			continue
+		}
+		source := st.Packages[installed].Source
+		if source == "" || slices.Contains(partial.Catalogs, source) {
+			out = append(out, fmt.Errorf("%s: not checked: %w", installed, partial))
+		}
+	}
+	return out
 }
 
 // reshimCapabilities rebuilds global-tool shims. capability=="" covers every

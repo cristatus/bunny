@@ -41,10 +41,12 @@ func (c *UpdateCmd) check(a *App) error {
 	if err != nil {
 		return err
 	}
-	if err := report.Err(); err != nil {
-		return err
-	}
+	// Updates found in the catalogs that answered are still worth showing when
+	// others could not be checked; the failure is the exit status.
 	if len(report.Results) == 0 {
+		if err := report.Err(); err != nil {
+			return err
+		}
 		p.Println("all packages are up to date")
 		return nil
 	}
@@ -56,7 +58,7 @@ func (c *UpdateCmd) check(a *App) error {
 	p.Print(renderUpdateTable(p, report.Results))
 	p.Println()
 	p.Println("run 'bunny update --apply' to install")
-	return nil
+	return report.Err()
 }
 
 // renderUpdateTable prints Package / Change (current → latest) / Bump. Bump is

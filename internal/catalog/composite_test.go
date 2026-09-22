@@ -317,3 +317,34 @@ func (lookupOnly) Load(string) (*manifest.Manifest, error) {
 func (lookupOnly) LoadFile(string, string) ([]byte, error) {
 	return nil, fmt.Errorf("%w: https://flaky: dial tcp", ErrUnavailable)
 }
+
+// A listing with one catalog down still holds the others' packages, but says
+// which catalog it lacks: a caller treating it as complete reports a package
+// from the missing catalog as "not found", or its update as "up to date".
+func TestCompositeListReportsTheCatalogsItCouldNotRead(t *testing.T) {
+	down := &stubLoader{err: fmt.Errorf("%w: https://down: dial tcp", ErrUnavailable)}
+	c := NewComposite(src("company", down), src("upstream", pkgStub("rg", "14.0.0")))
+
+	pkgs, err := c.List()
+	partial, ok := Partial(err)
+	if !ok || len(partial.Catalogs) != 1 || partial.Catalogs[0] != "company" {
+		t.Fatalf("List error = %v, want a PartialError naming company", err)
+	}
+	if !errors.Is(err, ErrUnavailable) {
+		t.Errorf("the cause must stay inspectable: %v", err)
+	}
+	if len(pkgs) != 1 || pkgs[0].ID != "rg" {
+		t.Errorf("the answering catalog's packages must still be listed: %v", pkgs)
+	}
+}
+
+// When a catalog that could not answer sits above one that does not carry
+// the package, the outage is the answer: the package may well be there.
+func TestCompositeResolvePrefersUnavailableOverALaterNotFound(t *testing.T) {
+	down := &stubLoader{err: fmt.Errorf("%w: https://down: dial tcp", ErrUnavailable)}
+	missing := &stubLoader{err: ErrNotFound}
+	c := NewComposite(src("company", down), src("upstream", missing))
+	if _, err := c.Resolve("teleport"); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("got %v, want ErrUnavailable", err)
+	}
+}

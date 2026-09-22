@@ -65,7 +65,7 @@ func (c *ListCmd) listInstalled(a *App) error {
 	// The catalog fills in what state does not record: tags for --tag, and a
 	// kind for a package installed before its manifest declared one.
 	catalogInfo := map[string]catalog.PackageInfo{}
-	if info, err := a.Catalog.List(); err == nil {
+	if info, _, err := a.listCatalog(); err == nil {
 		for _, p := range info {
 			catalogInfo[p.ID] = p
 		}
@@ -161,7 +161,7 @@ func (c *InfoCmd) Run(a *App) error {
 			}
 		}
 	}
-	if pkgs, err := a.Catalog.List(); err == nil {
+	if pkgs, _, err := a.listCatalog(); err == nil {
 		for _, pkg := range pkgs {
 			for _, req := range pkg.Requires {
 				capability, _, _ := manifest.ParseRequirement(req)
@@ -379,7 +379,7 @@ func (c *SearchCmd) Run(a *App) error {
 	if len(terms) == 0 && c.unset() && !c.Installed && !c.Available {
 		return errors.New("nothing to search for: pass a query, or a filter such as --tag, --kind, or --capability")
 	}
-	pkgs, err := a.Catalog.List()
+	pkgs, _, err := a.listCatalog()
 	if err != nil {
 		return err
 	}

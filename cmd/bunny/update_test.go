@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -96,5 +98,51 @@ func TestUpdateRefusesAPackageThatIsNotInstalled(t *testing.T) {
 		if strings.Contains(out, "up to date") {
 			t.Errorf("apply=%v: reported %q for a package that is not installed", apply, out)
 		}
+	}
+}
+
+// With one catalog down, packages from it are missing from the listing. The
+// check used to skip them and could answer "all packages are up to date".
+// They are failures now; a package its own, answering catalog dropped is not,
+// and updates found elsewhere are still reported.
+func TestUpdateCheckReportsPackagesItCouldNotCheck(t *testing.T) {
+	st := state.Empty()
+	for _, p := range []struct{ id, version, source string }{
+		{"rg", "14.0", "upstream"},
+		{"tsh", "17.0", "company"}, // its catalog is down
+		{"legacy", "1.0", ""},      // installed before sources were recorded
+		{"gone", "1.0", "upstream"},
+	} {
+		st.SetInstalled(p.id, p.version, "", "", "")
+		st.SetSource(p.id, p.source)
+	}
+	partial := &catalog.PartialError{Catalogs: []string{"company"}, Err: catalog.ErrUnavailable}
+	a := &App{State: st, Catalog: reportCatalog{
+		packages: []catalog.PackageInfo{{ID: "rg", Version: "15.0"}},
+		err:      partial,
+	}}
+
+	report, err := a.checkUpdates(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 1 || report.Results[0].ID != "rg" {
+		t.Errorf("results = %v, want rg's update from the catalog that answered", report.Results)
+	}
+	var unchecked []string
+	for _, f := range report.Failures {
+		unchecked = append(unchecked, strings.SplitN(f.Error(), ":", 2)[0])
+	}
+	if !slices.Equal(unchecked, []string{"legacy", "tsh"}) {
+		t.Errorf("unchecked = %v, want [legacy tsh]", unchecked)
+	}
+
+	out := captureStdout(t, func() {
+		if err := (&UpdateCmd{}).check(a); err == nil {
+			t.Error("the check must fail when packages could not be checked")
+		}
+	})
+	if !strings.Contains(out, "rg") || strings.Contains(out, "up to date") {
+		t.Errorf("check output = %q, want rg's update and no up-to-date claim", out)
 	}
 }

@@ -31,13 +31,15 @@ func (c *InstallCmd) Run(a *App) error {
 		regenToolchains := false
 		var errs []error
 		// Preflight the catalog once so an unknown id fails fast with a
-		// did-you-mean suggestion instead of a raw "not in remote index".
-		catalogPkgs, _ := a.Catalog.List()
+		// did-you-mean suggestion instead of a raw "not in remote index". Only
+		// a complete listing can say an id is unknown: with a catalog down,
+		// resolving the id is what tells "unavailable" from "not found".
+		catalogPkgs, partial, _ := a.listCatalog()
 		for _, id := range c.IDs {
 			if ctx.Err() != nil {
 				break // cancelled (Ctrl+C)
 			}
-			if len(catalogPkgs) > 0 {
+			if len(catalogPkgs) > 0 && partial == nil {
 				if err := requireInCatalog(id, catalogPkgs); err != nil {
 					rep.Fail(id, err)
 					failed++

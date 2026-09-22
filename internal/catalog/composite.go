@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/log"
 
@@ -20,6 +21,27 @@ var ErrNotFound = errors.New("not found in catalog")
 // ErrNotFound because "this catalog is down" and "this catalog does not carry
 // it" stop meaning the same thing once another catalog might carry it.
 var ErrUnavailable = errors.New("catalog unavailable")
+
+// PartialError is what a listing returns when some catalogs answered and
+// others could not: the listing still holds everything the answering ones
+// carry, and Catalogs names the rest. A package missing from such a listing
+// may only be missing because its catalog did not answer.
+type PartialError struct {
+	Catalogs []string
+	Err      error
+}
+
+func (e *PartialError) Error() string {
+	return fmt.Sprintf("listing is missing catalog(s) %s: %v", strings.Join(e.Catalogs, ", "), e.Err)
+}
+
+func (e *PartialError) Unwrap() error { return e.Err }
+
+// Partial reports whether err is a PartialError, whose listing is still usable.
+func Partial(err error) (*PartialError, bool) {
+	var partial *PartialError
+	return partial, errors.As(err, &partial)
+}
 
 // Source is one catalog in a Composite.
 type Source struct {
@@ -110,7 +132,7 @@ func serve[T any](p *ResolvedPackage, load func(Loader) (T, error)) (T, error) {
 // Resolve binds a package to the first catalog carrying it, keeping the ones
 // below it as the rest of the chain.
 func (c *Composite) Resolve(id string) (*ResolvedPackage, error) {
-	var err error
+	var err, unavailable error
 	for i, src := range c.sources {
 		info, lookupErr := src.Loader.Lookup(id)
 		switch {
@@ -125,12 +147,17 @@ func (c *Composite) Resolve(id string) (*ResolvedPackage, error) {
 			}, nil
 		case errors.Is(lookupErr, ErrUnavailable):
 			log.Warn("Catalog unavailable, skipping", "catalog", src.Name, "error", lookupErr)
-			err = lookupErr
+			unavailable = lookupErr
 		case errors.Is(lookupErr, ErrNotFound):
 			err = lookupErr
 		default:
 			return nil, fmt.Errorf("catalog %s: %w", src.Name, lookupErr)
 		}
+	}
+	// A catalog that could not answer may carry the package, so its outage is
+	// the answer, not the "not found" of the ones that did.
+	if unavailable != nil {
+		return nil, fmt.Errorf("package %q: %w", id, unavailable)
 	}
 	if err != nil {
 		return nil, err
@@ -140,15 +167,18 @@ func (c *Composite) Resolve(id string) (*ResolvedPackage, error) {
 
 // List unions package summaries, each stamped with the catalog that serves it.
 // A duplicate id is dropped: a catalog higher up already answered for it, and
-// listing has to agree with what an install would resolve to.
+// listing has to agree with what an install would resolve to. When some
+// catalogs fail, the others' packages come back with a *PartialError.
 func (c *Composite) List() ([]PackageInfo, error) {
 	seen := map[string]bool{}
 	var out []PackageInfo // first-seen order, so listings stay stable
 	var errs []error
+	var failed []string
 	for _, src := range c.sources {
 		pkgs, err := src.Loader.List()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("catalog %s: %w", src.Name, err))
+			failed = append(failed, src.Name)
 			continue
 		}
 		for _, p := range pkgs {
@@ -159,10 +189,13 @@ func (c *Composite) List() ([]PackageInfo, error) {
 			out = append(out, withSource(p, src.Name))
 		}
 	}
-	if len(errs) == len(c.sources) && len(errs) > 0 {
+	switch {
+	case len(errs) == 0:
+		return out, nil
+	case len(errs) == len(c.sources):
 		return nil, errors.Join(errs...)
 	}
-	return out, nil
+	return out, &PartialError{Catalogs: failed, Err: errors.Join(errs...)}
 }
 
 // Load returns the manifest from the catalog that serves the package.
