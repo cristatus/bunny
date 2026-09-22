@@ -31,9 +31,13 @@ func seedStaleIndex(t *testing.T, path, body string) {
 	}
 }
 
-// fakeHTTP returns an HTTPGet that serves a fixed map of url → body.
+// fakeHTTP returns an HTTPGet that serves a fixed map of url → body, ignoring
+// any query string (Refresh cache-busts index.json with one).
 func fakeHTTP(bodies map[string]string) HTTPGet {
 	return func(url string) (*http.Response, error) {
+		if i := strings.IndexByte(url, '?'); i >= 0 {
+			url = url[:i]
+		}
 		body, ok := bodies[url]
 		if !ok {
 			return &http.Response{
@@ -198,6 +202,38 @@ func TestRemoteCachesIndex(t *testing.T) {
 	}
 	if calls != 0 {
 		t.Errorf("expected 0 HTTP calls, got %d", calls)
+	}
+}
+
+// Refresh (what `bunny update` calls) must not be answered from the in-memory
+// index and must cache-bust the request: raw.githubusercontent.com fronts
+// index.json with a CDN that keeps serving a pre-push copy for several
+// minutes, and a plain re-request to the same URL would just hit that edge
+// cache again instead of the origin's latest copy.
+func TestRemoteRefreshBypassesCacheAndBustsCDN(t *testing.T) {
+	cache := t.TempDir()
+	var urls []string
+	served := testIndex
+	r := NewRemote("https://x", cache).WithHTTPGet(func(url string) (*http.Response, error) {
+		urls = append(urls, url)
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(served))}, nil
+	})
+
+	if _, err := r.List(); err != nil { // primes the in-memory + on-disk cache
+		t.Fatal(err)
+	}
+	if err := r.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 2 {
+		t.Fatalf("expected 2 HTTP calls (initial load + forced refresh), got %d: %v", len(urls), urls)
+	}
+	refreshed := urls[1]
+	if !strings.HasPrefix(refreshed, "https://x/index.json?") {
+		t.Errorf("Refresh url = %q, want a cache-busted https://x/index.json?...", refreshed)
+	}
+	if refreshed == urls[0] {
+		t.Errorf("Refresh reused the plain index url %q; want a distinct cache-busting query", refreshed)
 	}
 }
 

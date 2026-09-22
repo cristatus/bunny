@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -141,9 +142,13 @@ func (r *Remote) Wait() {
 	r.wg.Wait()
 }
 
-// Refresh fetches the index from the remote and overwrites the cache.
+// Refresh fetches the index from the remote and overwrites the cache. The
+// request is cache-busted: raw.githubusercontent.com fronts every path with a
+// CDN that keeps serving a pre-push copy for several minutes after a catalog
+// commit lands, and `bunny update` calling this is the one path that needs
+// the origin's latest copy right now rather than whatever the edge still has.
 func (r *Remote) Refresh() error {
-	idx, err := r.fetchIndex()
+	idx, err := r.fetchIndexAt(r.indexURL() + "?_=" + strconv.FormatInt(time.Now().UnixNano(), 10))
 	if err != nil {
 		return err
 	}
@@ -327,8 +332,16 @@ func (r *Remote) loadCachedIndex() (*Index, error) {
 	return &idx, nil
 }
 
+func (r *Remote) indexURL() string {
+	return r.baseURL + "/index.json"
+}
+
 func (r *Remote) fetchIndex() (*Index, error) {
-	body, err := r.fetch(r.baseURL + "/index.json")
+	return r.fetchIndexAt(r.indexURL())
+}
+
+func (r *Remote) fetchIndexAt(url string) (*Index, error) {
+	body, err := r.fetch(url)
 	if err != nil {
 		return nil, err
 	}
