@@ -141,15 +141,22 @@ func ExplainSandbox(p *Prepared, cfg *config.Config, profileOverride string, out
 		add("network", "namespace+filter", "pasta, inbound: "+inbound+", egress: "+egress)
 	}
 
+	// A session bus on an abstract address lives in the network namespace,
+	// exactly like the abstract X11 socket below: no mount reaches it while
+	// the host namespace is shared, and the bus can start host processes.
+	abstractBus := ""
+	if sharesHostNetns(plan.context.NetMode) && strings.Contains(trustedSessionBusAddress(), "abstract=") {
+		abstractBus = "; abstract session bus still reachable (host networking)"
+	}
 	switch {
 	case plan.proxy != nil:
-		add("dbus", "filter", "portal-only via xdg-dbus-proxy; raw buses unreachable")
+		add("dbus", "filter", "portal-only via xdg-dbus-proxy; raw buses unreachable"+abstractBus)
 	case plan.forcedDBus:
 		add("dbus", "mount", "forced off by network mode; session and system endpoints masked")
 	case policy.feature("dbus") && !hardened:
 		add("dbus", "none", "host bus available")
 	default:
-		add("dbus", "mount", "session and system endpoints masked")
+		add("dbus", "mount", "session and system endpoints masked"+abstractBus)
 	}
 
 	for _, name := range endpointFeatureNames {

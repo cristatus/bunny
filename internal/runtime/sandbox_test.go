@@ -1299,3 +1299,47 @@ func TestExplainX11CaveatFollowsTheNetworkNamespace(t *testing.T) {
 		})
 	}
 }
+
+// A session bus on an abstract address (dbus-launch setups) is reachable
+// through the network namespace, so while the host namespace is shared the
+// dbus row must not claim the bus is masked or unreachable.
+func TestExplainAbstractSessionBusCaveatFollowsTheNetworkNamespace(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		address string
+		mode    string
+		dbus    bool
+		reaches bool
+	}{
+		{"masked on the host namespace", "unix:abstract=/tmp/dbus-test,guid=0123", "host", false, true},
+		{"portal proxy on the host namespace", "unix:abstract=/tmp/dbus-test", "host", true, true},
+		{"masked with its own namespace", "unix:abstract=/tmp/dbus-test", "none", false, false},
+		{"filesystem bus", "unix:path=/run/user/1000/bus", "host", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("DBUS_SESSION_BUS_ADDRESS", tc.address)
+			p := &Prepared{
+				Manifest: &manifest.Manifest{ID: "claude"},
+				BinPath:  "/opt/claude/claude",
+				Vars:     map[string]string{"data": t.TempDir()},
+				Env:      []string{"XDG_RUNTIME_DIR=" + t.TempDir()},
+			}
+			cfg := &config.Config{Sandbox: config.Sandbox{
+				Packages: map[string]config.SandboxPackage{"claude": {SandboxPolicy: config.SandboxPolicy{
+					Boundary: "hardened",
+					Net:      &manifest.SandboxNet{Mode: tc.mode},
+					Features: map[string]bool{"dbus": tc.dbus},
+				}}},
+			}}
+			// A returned error may be this host's readiness section, not a
+			// policy problem.
+			out, err := ExplainSandbox(p, cfg, "", plainPrinter())
+			if err != nil {
+				t.Logf("host readiness (environment-dependent, not under test): %v", err)
+			}
+			if got := strings.Contains(out, "abstract session bus still reachable"); got != tc.reaches {
+				t.Errorf("caveat present = %v, want %v:\n%s", got, tc.reaches, out)
+			}
+		})
+	}
+}

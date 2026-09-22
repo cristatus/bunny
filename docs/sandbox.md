@@ -615,6 +615,8 @@ such as X11 over TCP. In particular, `x11: false` blocks an explicitly set
 `DISPLAY` only together with a private or no-network `net` mode (see
 [Network modes](#network-modes)), because X clients prefer the abstract
 socket, which lives in the network namespace rather than the filesystem.
+The same holds for `dbus: false` on a host whose session bus listens on an
+abstract address (`unix:abstract=`, typical of `dbus-launch` setups).
 Endpoints are resolved at launch; one created afterwards is not retroactively
 masked.
 
