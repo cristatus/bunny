@@ -64,6 +64,42 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   now refuse an unknown target.
 - `bunny toolchains` claimed to regenerate config when no Gradle or Maven
   package was installed.
+- Ctrl+C during an install or update now cancels it and rolls back, instead
+  of killing bunny between moving a package into place and recording it. A
+  second Ctrl+C still exits at once.
+- A partial download that cannot be resumed (a `.part` left by an earlier,
+  larger version under the same name) no longer fails with "HTTP 416" on
+  every run; it is discarded and fetched again. A download that stops
+  sending is abandoned after 60 seconds and resumed, instead of hanging for
+  up to 30 minutes.
+- A manifest whose sources download to the same filename is refused; the
+  second used to overwrite the first.
+- `bunny self-update` replaces the binary the shims actually run, not
+  `~/.local/bin/bunny`, so `go install` and symlinked installs update.
+- A failed uninstall puts back the shims it had already removed.
+- A catalog entry whose manifest names another package is refused, rather
+  than installed under one id and run as the other.
+- `bunny dev update` refuses to commit a manifest that no longer validates
+  (a Debian `1:2.3-1~jammy` version, say). Debian versions are ordered the
+  way dpkg orders them, and a JSON API's numeric version such as `3.10` is
+  no longer read as `3.1`.
+- `bunny update` could see a new version in the refreshed index and still
+  load the old manifest through the CDN, or have a slow background refresh
+  replace the index it had just fetched. Both are fixed.
+- A scoped reshim (`bunny use`, `bunny reshim node`) no longer takes over
+  global commands owned by another capability.
+- `bunny doctor` checks only the shims bunny manages. Another tool's dangling
+  link in `~/.local/bin` is no longer a failure, a deleted shim is reported,
+  and a command shadowed by an earlier PATH entry is flagged.
+- Shell init and the rc line `bunny setup` writes quote their paths, so a
+  home or `BUNNY_HOME` with a space or quote works. zsh init no longer leaves
+  exit status 1, and `setup` names an existing init line written for another
+  layout.
+- `bunny run <pkg> <TAB>` completes files in bash, zsh and fish.
+- Pinning in a directory whose `.bunny-version` is a symlink writes through
+  it instead of replacing it. A relative `HOME` is refused. Newlines in
+  desktop entry categories, keywords and MIME types are refused. A reinstall
+  keeps the recorded catalog source.
 
 ## [0.7.1] - 2026-09-15
 
