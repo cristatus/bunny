@@ -164,14 +164,27 @@ func ParseChecksumFile(content, targetFile, algorithm string, validator func(str
 			}
 		}
 	}
-	// Last resort: any line whose first field is a valid hash.
+	// Last resort, for a per-file checksum that names the file differently:
+	// its one hash. A file listing several has an entry per artifact, and
+	// picking one when none names the target is picking another file's hash.
+	var only, onlyAlgo string
 	for _, line := range lines {
 		parts := strings.Fields(strings.TrimSpace(line))
-		if len(parts) >= 1 {
-			if ok, algo := validate(parts[0]); ok {
-				return strings.ToLower(parts[0]), algo, nil
-			}
+		if len(parts) == 0 {
+			continue
 		}
+		ok, algo := validate(parts[0])
+		if !ok {
+			continue
+		}
+		hash := strings.ToLower(parts[0])
+		if only != "" && hash != only {
+			return "", "", fmt.Errorf("checksum file lists several files but none named %q", targetFile)
+		}
+		only, onlyAlgo = hash, algo
+	}
+	if only != "" {
+		return only, onlyAlgo, nil
 	}
 	return "", "", fmt.Errorf("could not parse checksum")
 }
