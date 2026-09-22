@@ -246,7 +246,7 @@ func renderExplainReport(p *ui.Printer, plan sandboxPlan, policy *PackageSandbox
 		project = "read-only"
 		if pathCoveredBy(plan.cwd, plan.context.WritableRoots) {
 			project = "read-write"
-		} else if pathCoveredBy(plan.cwd, plan.context.Hidden) || policy.FS.Cwd == "hidden" {
+		} else if plan.cwdMasked || pathCoveredBy(plan.cwd, plan.context.Hidden) || policy.FS.Cwd == "hidden" {
 			project = "hidden"
 		}
 		hostHome = "hidden"

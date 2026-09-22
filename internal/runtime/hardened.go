@@ -83,6 +83,7 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 		// package starts with no view of where it was launched, and its own
 		// error is all the user gets. fs.cwd: write refuses the same launch
 		// out loud; the default must not stay quiet about it.
+		plan.cwdMasked = true
 		plan.notices = append(plan.notices, fmt.Sprintf(
 			"%s: the working directory %s is a protected root, so it is not visible inside the sandbox; launch from a project directory instead",
 			p.Manifest.ID, env.cwd))

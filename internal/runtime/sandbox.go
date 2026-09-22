@@ -98,6 +98,9 @@ type sandboxPlan struct {
 	// forcedDBus records D-Bus cut off by a non-host network mode rather than
 	// by policy, for --explain.
 	forcedDBus bool
+	// cwdMasked records a hardened working directory left unbound because it
+	// is a protected root, so --explain reports it hidden, not read-only.
+	cwdMasked bool
 	// notices are things the user must hear about this launch even though it
 	// proceeds: a part of the policy bunny resolved but could not apply as
 	// written. They are collected during planning, which stays pure, and

@@ -600,3 +600,29 @@ func TestHardenedIntegrationSkipsEndpointsUnderTheResolvedHome(t *testing.T) {
 		t.Errorf("an endpoint under the resolved home must not be bound: %v", plan.args)
 	}
 }
+
+// Launching from the host home leaves the default read-only cwd unbound, so
+// the risk summary must say the project is hidden, not read-only.
+func TestExplainReportsAMaskedCwdAsHidden(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	policy := finalized(t, &PackageSandbox{Boundary: "hardened"})
+	projectRow := func(cwd string) string {
+		plan, err := buildSandboxPlan(p, policy, cwd, hostHome, sandboxContext{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for line := range strings.SplitSeq(renderExplainReport(plainPrinter(), plan, policy, nil), "\n") {
+			if strings.Contains(line, "project") {
+				return line
+			}
+		}
+		t.Fatal("no project row")
+		return ""
+	}
+	if row := projectRow(hostHome); !strings.Contains(row, "hidden") {
+		t.Errorf("a cwd at the host home is not bound and must read hidden: %q", row)
+	}
+	if row := projectRow("/work"); !strings.Contains(row, "read-only") {
+		t.Errorf("an ordinary cwd is bound read-only: %q", row)
+	}
+}
