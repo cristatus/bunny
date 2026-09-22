@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,5 +202,36 @@ func TestCompletionScript(t *testing.T) {
 		if sc == "complete-ids" {
 			t.Error("complete-ids must not be in completionSubcommands (it is hidden)")
 		}
+	}
+}
+
+// `bunny dev update <id>` with an id the catalog does not have used to match
+// nothing and report "all packages up to date", which passes catalog CI.
+func TestDevUpdateRefusesAnIDNotInTheCatalog(t *testing.T) {
+	checkout := filepath.Join(t.TempDir(), "catalog")
+	mdir := filepath.Join(checkout, catalog.PackagesDir, "node-22")
+	if err := os.MkdirAll(mdir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	man := `id: node-22
+name: Node 22
+version: "22.0.0"
+sources:
+  - {url: "https://x/y.tar.gz", sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+bin:
+  - {name: node, path: "{app}/bin/node"}
+`
+	if err := os.WriteFile(filepath.Join(mdir, "manifest.yaml"), []byte(man), 0644); err != nil {
+		t.Fatal(err)
+	}
+	a := &App{Paths: paths.At(t.TempDir()), State: state.Empty()}
+	local := catalog.NewLocal(checkout)
+
+	err := writeUpdates(context.Background(), a, local, "nod-22")
+	if err == nil || !strings.Contains(err.Error(), `"nod-22" is not in the catalog`) {
+		t.Errorf("dev update nod-22: got %v, want it refused", err)
+	}
+	if err := writeUpdates(context.Background(), a, local, "node-22"); err != nil {
+		t.Errorf("dev update node-22: %v", err)
 	}
 }

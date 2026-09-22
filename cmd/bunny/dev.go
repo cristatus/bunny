@@ -190,6 +190,11 @@ func writeUpdates(ctx context.Context, a *App, local *catalog.Local, id string) 
 	if err != nil {
 		return err
 	}
+	// A mistyped id matches nothing, which would otherwise read as "all
+	// packages up to date" and pass catalog CI.
+	if id != "" && !slices.ContainsFunc(pkgs, func(p catalog.PackageInfo) bool { return p.ID == id }) {
+		return fmt.Errorf("package %q is not in the catalog at %s", id, local.Root())
+	}
 
 	start := time.Now()
 	var jobs []*devJob
