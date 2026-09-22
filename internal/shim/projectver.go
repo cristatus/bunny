@@ -155,7 +155,8 @@ func WriteProjectVersion(dir, capability, version string) error {
 	if _, err := parseBunnyVersion(content); err != nil {
 		return fmt.Errorf("refusing to write invalid pin file %s: %w", path, err)
 	}
-	return fsutil.WriteFile(path, []byte(content), 0644)
+	target, _ := pinFileTarget(path)
+	return fsutil.WriteFile(target, []byte(content), 0644)
 }
 
 // RemoveProjectVersion removes capability's pin from dir's .bunny-version,
@@ -186,10 +187,31 @@ func RemoveProjectVersion(dir, capability string) (bool, error) {
 	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
 		out = out[:len(out)-1]
 	}
+	target, shared := pinFileTarget(path)
 	if len(out) == 0 {
+		if shared {
+			// Other directories link here too; emptied is enough.
+			return true, fsutil.WriteFile(target, nil, 0644)
+		}
 		return true, os.Remove(path)
 	}
-	return true, fsutil.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0644)
+	return true, fsutil.WriteFile(target, []byte(strings.Join(out, "\n")+"\n"), 0644)
+}
+
+// pinFileTarget is where a write to the pin file at path must land. A
+// monorepo can link sub/.bunny-version to ../.bunny-version to share pins,
+// and fsutil.WriteFile renames a temp file over its target, which replaces
+// the link itself with a regular file and quietly stops the sharing. shared
+// reports that path was such a link.
+func pinFileTarget(path string) (target string, shared bool) {
+	if info, err := os.Lstat(path); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return path, false
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return path, false
+	}
+	return real, true
 }
 
 // ResolveAllPins returns every pin from the nearest .bunny-version walking up

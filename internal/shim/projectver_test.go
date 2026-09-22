@@ -274,3 +274,44 @@ func TestExactPinRoundTripPreservesOtherPins(t *testing.T) {
 		t.Fatal("newline injection must fail")
 	}
 }
+
+// A monorepo can share pins by linking sub/.bunny-version to the root's.
+// Pinning in sub/ used to replace the link with a regular file, so the
+// shared pin quietly stopped propagating.
+func TestPinningWritesThroughASymlinkedPinFile(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(root, ProjectVersionFile)
+	if err := os.WriteFile(shared, []byte("node 22\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(sub, ProjectVersionFile)
+	if err := os.Symlink(filepath.Join("..", ProjectVersionFile), link); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteProjectVersion(sub, "jdk", "21"); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link must survive a pin: %v", err)
+	}
+	if data, _ := os.ReadFile(shared); !strings.Contains(string(data), "jdk 21") || !strings.Contains(string(data), "node 22") {
+		t.Errorf("the pin must land in the shared file: %q", data)
+	}
+
+	for _, capability := range []string{"jdk", "node"} {
+		if _, err := RemoveProjectVersion(sub, capability); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("unpinning must keep the link: %v", err)
+	}
+	if _, err := os.Stat(shared); err != nil {
+		t.Errorf("an emptied shared pin file must stay for the other links: %v", err)
+	}
+}
