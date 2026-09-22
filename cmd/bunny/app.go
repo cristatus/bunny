@@ -696,8 +696,15 @@ func (a *App) reshimCapabilities(capability string) (added, removed []string, er
 	current := map[string]string{}
 	for _, name := range a.State.GlobalCommandNames() {
 		c, _ := a.State.GlobalCommandCapability(name)
-		if capability == "" || c == capability {
+		switch {
+		case capability == "" || c == capability:
 			current[name] = c
+		default:
+			// A scoped reshim sees only its own capability's providers, so
+			// Plan cannot tell another capability already owns this name.
+			// Left unprotected it would be reassigned, and which capability
+			// owns it would depend on which command ran last.
+			protected[name] = true
 		}
 	}
 

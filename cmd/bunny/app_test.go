@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -358,5 +359,33 @@ func TestToolchainsSaysWhenThereIsNothingToConfigure(t *testing.T) {
 	}
 	if jdks != 1 || consumers != 0 {
 		t.Errorf("regenerateToolchains = %d JDKs, %d consumers; want 1 and 0", jdks, consumers)
+	}
+}
+
+// A scoped reshim (bunny use, reshim <capability>, an uninstall) sees only
+// its own capability's providers. A global command another capability owns
+// used to be reassigned silently, and flipped back on the next full reshim.
+func TestScopedReshimKeepsAnotherCapabilitysGlobalCommand(t *testing.T) {
+	root := t.TempDir()
+	a := &App{Paths: paths.At(root), State: state.Empty()}
+	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	cacheManifest(t, a.Paths.ManifestFile("node-24"), &manifest.Manifest{ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
+		Sources:    []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
+		Bin:        []manifest.Binary{{Name: "node", Path: "{app}/bin/node"}},
+		GlobalBins: []string{"{data}/npm-global/bin"}})
+	binDir := filepath.Join(root, "data", "node-24", "npm-global", "bin")
+	os.MkdirAll(binDir, 0755)
+	os.WriteFile(filepath.Join(binDir, "foo"), []byte("#!/bin/sh\n"), 0755)
+	os.MkdirAll(a.Paths.Bin(), 0755)
+	os.WriteFile(a.Paths.BunnyBinary(), []byte("#!/bin/sh\n"), 0755)
+	a.State.SetGlobalCommand("foo", "jdk")
+	os.Symlink(a.Paths.BunnyBinary(), a.Paths.Shim("foo"))
+
+	added, _, err := a.reshimCapabilities("node")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner, _ := a.State.GlobalCommandCapability("foo"); owner != "jdk" || slices.Contains(added, "foo") {
+		t.Errorf("foo now owned by %q (added %v); want it left with jdk", owner, added)
 	}
 }
