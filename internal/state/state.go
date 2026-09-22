@@ -297,6 +297,9 @@ func (s *State) SetInstalled(id, version, provides, kind, path string) {
 		Provides:  provides,
 		Kind:      kind,
 		Path:      path,
+		// Kept across a reinstall, as SetSource promises: a source that
+		// cannot name itself must not erase the one already known.
+		Source: s.Packages[id].Source,
 	}
 	if provides != "" {
 		if _, ok := s.Providers[provides]; !ok {

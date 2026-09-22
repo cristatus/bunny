@@ -340,3 +340,17 @@ func TestRecordedIntegrationFilesMustBeAbsolute(t *testing.T) {
 		t.Error("Validate must refuse a relative integration file")
 	}
 }
+
+// SetSource("") promises to keep a known source, but SetInstalled rebuilt
+// the package record first, so a reinstall from a catalog that cannot name
+// itself erased it anyway.
+func TestReinstallKeepsTheKnownSource(t *testing.T) {
+	s := Empty()
+	s.SetInstalled("rg", "14.0", "", "cli", "/x/rg")
+	s.SetSource("rg", "company")
+	s.SetInstalled("rg", "15.0", "", "cli", "/x/rg")
+	s.SetSource("rg", "")
+	if got := s.Packages["rg"].Source; got != "company" {
+		t.Errorf("source after reinstall = %q, want company", got)
+	}
+}
