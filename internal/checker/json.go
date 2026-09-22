@@ -34,8 +34,12 @@ func (j *JSON) Check(ctx context.Context, cfg *manifest.UpdateConfig, currentVer
 	if err != nil {
 		return nil, err
 	}
+	// UseNumber keeps a number's text: a version published as the JSON
+	// number 3.10 decodes to float64 3.1, which then compares below 3.9.
 	var data any
-	if err := json.Unmarshal([]byte(body), &data); err != nil {
+	dec := json.NewDecoder(strings.NewReader(body))
+	dec.UseNumber()
+	if err := dec.Decode(&data); err != nil {
 		return nil, err
 	}
 
@@ -178,8 +182,8 @@ func extractPath(data any, path string) (string, error) {
 	switch v := cur.(type) {
 	case string:
 		return v, nil
-	case float64:
-		return fmt.Sprintf("%v", v), nil
+	case json.Number:
+		return v.String(), nil
 	default:
 		return "", fmt.Errorf("unexpected type %T", cur)
 	}
@@ -230,8 +234,9 @@ func applyFilter(data any, expr string) (any, error) {
 				return item, nil
 			}
 		} else {
-			if n, ok := f.(float64); ok {
-				if want, err := strconv.ParseFloat(value, 64); err == nil && n == want {
+			if num, ok := f.(json.Number); ok {
+				n, nerr := num.Float64()
+				if want, err := strconv.ParseFloat(value, 64); nerr == nil && err == nil && n == want {
 					return item, nil
 				}
 			}
