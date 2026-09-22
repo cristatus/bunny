@@ -697,7 +697,13 @@ func (i *Installer) place(id, finalDir, pkgDir string, force bool) (*placement, 
 		if err := i.checkOwned(finalDir, id); err != nil {
 			return nil, err
 		}
+		// The sibling is cleared only when it is this package's own tree, left
+		// by an earlier run that died mid-swap: it sits in the same
+		// configurable root, so it may just as well be the user's.
 		backup := finalDir + ".old"
+		if err := i.checkOwned(backup, id); err != nil {
+			return nil, fmt.Errorf("backup path: %w", err)
+		}
 		os.RemoveAll(backup)
 		if err := os.Rename(finalDir, backup); err != nil {
 			return nil, fmt.Errorf("backup existing install: %w", err)
@@ -752,6 +758,10 @@ func (i *Installer) stageRemoveApp(id string) (*removalPlacement, error) {
 	}
 	if err := i.checkOwned(finalDir, id); err != nil {
 		return nil, err
+	}
+	// Cleared only when it is this package's own tree; see place.
+	if err := i.checkOwned(trashDir, id); err != nil {
+		return nil, fmt.Errorf("removal staging path: %w", err)
 	}
 	os.RemoveAll(trashDir)
 	if err := os.Rename(finalDir, trashDir); err != nil {
