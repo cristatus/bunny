@@ -158,3 +158,22 @@ func TestLocalLookup(t *testing.T) {
 		t.Errorf("absent package: got %v, want ErrNotFound", err)
 	}
 }
+
+// A catalog entry whose manifest names another package would be installed
+// under one id and launched under the other's {app} and {data}.
+func TestLocalRefusesAManifestForAnotherPackage(t *testing.T) {
+	root := t.TempDir()
+	writeTestManifest(t, filepath.Join(root, PackagesDir, "foo"), "node-22", "Node")
+
+	l := NewLocal(root)
+	if _, err := l.Load("foo"); err == nil || errors.Is(err, ErrNotFound) {
+		t.Errorf("Load(foo) = %v, want a hard error, not a fall-through", err)
+	}
+	pkgs, err := l.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 0 {
+		t.Errorf("List = %v, want the mismatched entry skipped", pkgs)
+	}
+}

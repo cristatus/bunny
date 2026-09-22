@@ -63,6 +63,10 @@ func (l *Local) List() ([]PackageInfo, error) {
 			log.Warn("Skipping catalog entry: invalid manifest", "path", path, "error", err)
 			continue
 		}
+		if err := checkID(pkg.Name(), m); err != nil {
+			log.Warn("Skipping catalog entry", "path", path, "error", err)
+			continue
+		}
 		pkgs = append(pkgs, InfoOf(m))
 	}
 	return pkgs, nil
@@ -96,7 +100,24 @@ func (l *Local) Load(id string) (*manifest.Manifest, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return manifest.Parse(f)
+	m, err := manifest.Parse(f)
+	if err != nil {
+		return nil, err
+	}
+	return m, checkID(id, m)
+}
+
+// checkID refuses a manifest that names a different package than the one it
+// was loaded for. The installer places a package by the requested id while
+// launch and the download cache use the manifest's, so a mismatch would run
+// one package against another's {app} and {data}, and let a lower-priority
+// catalog serve an id that a catalog above it owns. Not ErrNotFound: a broken
+// catalog entry must stop resolution rather than fall through.
+func checkID(id string, m *manifest.Manifest) error {
+	if m.ID != id {
+		return fmt.Errorf("catalog entry %q holds the manifest for %q", id, m.ID)
+	}
+	return nil
 }
 
 // LoadFile reads a sibling file in the package's directory. Once the package

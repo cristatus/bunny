@@ -217,7 +217,11 @@ func (r *Remote) Load(id string) (*manifest.Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	return manifest.ParseBytes(body)
+	m, err := manifest.ParseBytes(body)
+	if err != nil {
+		return nil, err
+	}
+	return m, checkID(id, m)
 }
 
 // LoadFile fetches a sibling file.
