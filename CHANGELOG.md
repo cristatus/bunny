@@ -25,8 +25,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `persist` could bind real files such as `~/.ssh`. A symlinked or
   non-directory isolated home is now refused.
 - Hardened sandbox: a write grant covering `~/.config` let the package
-  rewrite bunny's `config.yaml`, including its own sandbox policy. The file
-  now stays read-only under any writable grant.
+  rewrite bunny's `config.yaml`, including its own sandbox policy, or create
+  one where none existed. Bunny's config directory now stays read-only under
+  any writable grant, and a launch is refused when that directory is a
+  symlink inside the grant.
 - Hardened sandbox: an `SSH_AUTH_SOCK` naming a directory such as `/home` was
   bound back read-write. Only an actual socket is bound now.
 - Install-time `prepare:` steps could reach the session bus under `/run`
