@@ -671,11 +671,12 @@ func TestDisabledFeaturesMaskDocumentedEndpoints(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, file := range []string{busSocket, waylandSocket, waylandLock, pipewireSocket, sshSocket, xauthority} {
+	for _, file := range []string{busSocket, waylandSocket, waylandLock, pipewireSocket, xauthority} {
 		if err := os.WriteFile(file, nil, 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
+	listenUnix(t, sshSocket)
 
 	p := &Prepared{
 		Manifest: &manifest.Manifest{ID: "tool"},

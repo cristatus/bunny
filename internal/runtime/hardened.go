@@ -314,21 +314,24 @@ func autoReadGrants(p *Prepared, roots []string) []string {
 
 // hardenedIntegrationBinds binds the enabled integrations' documented
 // endpoints (the same catalog masking uses) back into the private /run and
-// /tmp, and records extra variables in overrides. Socket binds are plain
-// read-write binds: connect() on a Unix socket needs write permission on the
-// inode, so a read-only bind would fail with EROFS. Endpoints under the
-// hidden host home cannot be bound in place; the only such file, .Xauthority,
-// is redirected into the isolated home instead.
+// /tmp, and records extra variables in overrides. Endpoints are plain
+// read-write binds, so the directories among them stay writable. Endpoints
+// under the hidden host home cannot be bound in place; the only such file,
+// .Xauthority, is redirected into the isolated home instead. The home is
+// matched under both of its names, since the endpoint paths derive from the
+// merged package environment (XDG_RUNTIME_DIR, SSH_AUTH_SOCK).
 func hardenedIntegrationBinds(policy *PackageSandbox, env hardenedEnv, overrides map[string]string) []string {
+	homes := []string{env.hostHome, resolveReal(env.hostHome)}
 	var args []string
 	for _, feature := range featureEndpoints {
 		if feature.name == "dbus" || !policy.feature(feature.name) {
 			continue
 		}
 		for _, path := range feature.paths(env.runtimeDir, env.hostHome, env.envValues) {
-			if !strings.HasPrefix(path, env.hostHome+"/") {
-				args = bindIfExists(args, "--bind", path)
+			if pathCoveredBy(path, homes) || pathCoveredBy(resolveReal(path), homes) {
+				continue
 			}
+			args = bindIfExists(args, "--bind", path)
 		}
 	}
 	if policy.feature("x11") && env.isolatedHome != "" {

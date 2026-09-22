@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -530,5 +531,72 @@ func TestHardenedConfigStaysReadOnlyUnderAWriteGrant(t *testing.T) {
 	}
 	if indexSequence(plan.args, []string{"--ro-bind", p.ConfigFile, p.ConfigFile}) >= 0 {
 		t.Errorf("an ungranted config.yaml must stay hidden, not be bound back: %v", plan.args)
+	}
+}
+
+// listenUnix creates a real Unix socket at path for the test's duration.
+func listenUnix(t *testing.T, path string) {
+	t.Helper()
+	l, err := net.Listen("unix", path)
+	if err != nil {
+		t.Skip("cannot create a unix socket:", err)
+	}
+	t.Cleanup(func() { l.Close() })
+}
+
+// SSH_AUTH_SOCK comes from the merged package environment and is bound
+// read-write, so a manifest or config naming the home's parent would mount
+// the real home writable over its tmpfs. Only a real socket outside the home
+// and the protected roots is bound.
+func TestHardenedAgentSocketMustBeARealSocket(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	outsideDir := t.TempDir()
+	socket := filepath.Join(t.TempDir(), "agent.sock")
+	listenUnix(t, socket)
+	policy := finalized(t, &PackageSandbox{Boundary: "hardened", Features: map[string]bool{"agents": true}})
+	for sock, wantBound := range map[string]bool{
+		filepath.Dir(hostHome): false, // an ancestor of the hidden home
+		"/":                    false,
+		outsideDir:             false, // a directory, not a socket
+		socket:                 true,
+	} {
+		p.Env = []string{"XDG_RUNTIME_DIR=" + t.TempDir(), "SSH_AUTH_SOCK=" + sock}
+		plan, err := buildSandboxPlan(p, policy, "/work", hostHome, sandboxContext{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bound := indexSequence(plan.args, []string{"--bind", sock, sock}) >= 0; bound != wantBound {
+			t.Errorf("SSH_AUTH_SOCK=%s: bound = %v, want %v: %v", sock, bound, wantBound, plan.args)
+		}
+	}
+}
+
+// Endpoints under the hidden home are never bound in place, and the home has
+// two names on a host where /home is a symlink: a runtime directory under the
+// resolved one must not bind a piece of the real home back.
+func TestHardenedIntegrationSkipsEndpointsUnderTheResolvedHome(t *testing.T) {
+	p, _ := hardenedPrepared(t)
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	realHome := filepath.Join(base, "var", "home", "user")
+	pulse := filepath.Join(realHome, "rt", "pulse")
+	if err := os.MkdirAll(pulse, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(base, "var", "home"), filepath.Join(base, "home")); err != nil {
+		t.Fatal(err)
+	}
+	hostHome := filepath.Join(base, "home", "user")
+	p.Env = []string{"XDG_RUNTIME_DIR=" + filepath.Join(realHome, "rt")}
+
+	policy := finalized(t, &PackageSandbox{Boundary: "hardened", Features: map[string]bool{"audio": true}})
+	plan, err := buildSandboxPlan(p, policy, "/work", hostHome, sandboxContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexSequence(plan.args, []string{"--bind", pulse, pulse}) >= 0 {
+		t.Errorf("an endpoint under the resolved home must not be bound: %v", plan.args)
 	}
 }

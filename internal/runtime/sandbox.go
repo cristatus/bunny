@@ -386,12 +386,20 @@ var featureEndpoints = []struct {
 		env:  []string{"SSH_AUTH_SOCK", "GPG_AGENT_INFO"},
 		paths: func(runtimeDir, _ string, env map[string]string) []string {
 			paths := []string{filepath.Join(runtimeDir, "gnupg"), filepath.Join(runtimeDir, "keyring")}
-			if sock := env["SSH_AUTH_SOCK"]; sock != "" {
+			// The variable reaches here from the merged package environment,
+			// so only an actual socket counts: anything else, a directory
+			// such as the host home included, would be bound read-write.
+			if sock := env["SSH_AUTH_SOCK"]; isUnixSocket(sock) {
 				paths = append(paths, sock)
 			}
 			return paths
 		},
 	},
+}
+
+func isUnixSocket(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
 func globPaths(pattern string) []string {
