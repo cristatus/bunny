@@ -307,3 +307,35 @@ func TestRequireInCatalogHit(t *testing.T) {
 		t.Fatalf("unexpected err: %v", err)
 	}
 }
+
+// A target that names neither an installed package nor a capability reshim
+// can act on is a typo: it used to print "reshimmed: 0 added, 0 removed".
+func TestReshimRefusesAnUnknownTarget(t *testing.T) {
+	root := t.TempDir()
+	a := &App{Paths: paths.At(root), State: state.Empty()}
+	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	cacheManifest(t, a.Paths.ManifestFile("node-24"), &manifest.Manifest{
+		ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
+		Sources: []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
+		Bin:     []manifest.Binary{{Name: "node", Path: "{app}/bin/node"}},
+	})
+	os.MkdirAll(a.Paths.Bin(), 0755)
+	os.WriteFile(a.Paths.BunnyBinary(), []byte("#!/bin/sh\n"), 0755)
+	a.State.SetGlobalCommand("tsc", "deno") // left by a provider since removed
+	for _, capability := range []string{"node", "deno"} {
+		if !a.knownCapability(capability) {
+			t.Errorf("%s: a provided capability, or one with recorded global shims, is a valid target", capability)
+		}
+	}
+
+	// Run reloads state under the mutation lock, so it has to be on disk.
+	if err := os.MkdirAll(filepath.Dir(a.Paths.StateFile()), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.State.Save(a.Paths.StateFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&ReshimCmd{Target: "nod"}).Run(a); err == nil || !strings.Contains(err.Error(), `"nod" is neither`) {
+		t.Errorf("reshim nod: got %v, want it refused as an unknown target", err)
+	}
+}

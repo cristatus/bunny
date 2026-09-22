@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/log"
 )
 
@@ -24,8 +26,10 @@ func (c *ReshimCmd) Run(a *App) error {
 				} else {
 					capability = c.Target
 				}
-			} else {
+			} else if a.knownCapability(c.Target) {
 				capability = c.Target
+			} else {
+				return fmt.Errorf("%q is neither an installed package nor a capability one provides", c.Target)
 			}
 		}
 		added, removed, err := a.reshimCapabilities(capability)
@@ -39,4 +43,19 @@ func (c *ReshimCmd) Run(a *App) error {
 		p.Printf("reshimmed: %d added, %d removed\n", len(added), len(removed))
 		return nil
 	})
+}
+
+// knownCapability reports whether reshim has anything to act on for
+// capability: an installed provider, or global shims still recorded for it,
+// which a reshim prunes once their provider is gone.
+func (a *App) knownCapability(capability string) bool {
+	if _, ok := a.State.Providers[capability]; ok {
+		return true
+	}
+	for _, name := range a.State.GlobalCommandNames() {
+		if c, _ := a.State.GlobalCommandCapability(name); c == capability {
+			return true
+		}
+	}
+	return false
 }
