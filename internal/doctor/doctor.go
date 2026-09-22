@@ -506,6 +506,12 @@ func ShimsCheck(p *paths.Paths, s ShimState) Result {
 	}
 	slices.Sort(names)
 	names = slices.Compact(names)
+	// Shadowing only means something once the bin dir is on PATH at all;
+	// until then every lookup finds some other copy, and the PATH check
+	// already reports the real problem.
+	onPath := slices.ContainsFunc(filepath.SplitList(os.Getenv("PATH")), func(dir string) bool {
+		return dir != "" && filepath.Clean(dir) == p.Bin()
+	})
 	var gone, foreign, shadowed []string
 	for _, n := range names {
 		path := p.Shim(n)
@@ -517,6 +523,9 @@ func ShimsCheck(p *paths.Paths, s ShimState) Result {
 		}
 		if _, err := os.Stat(path); err != nil {
 			gone = append(gone, n)
+			continue
+		}
+		if !onPath {
 			continue
 		}
 		if found, err := exec.LookPath(n); err == nil && filepath.Clean(found) != path {

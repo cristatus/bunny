@@ -65,7 +65,7 @@ func renderDoctor(p *ui.Printer, results []doctor.Result) (warnings, failures in
 		}
 		p.Printf("%s %s%s  %s\n", p.PaintStatus(glyph, style), r.Name, pad, r.Detail)
 		if r.Fix != "" {
-			p.Println(p.Faint(fmt.Sprintf("  fix: run '%s'", r.Fix)))
+			p.Println(p.Faint("  fix: " + fixLine(r.Fix)))
 		}
 	}
 	p.Println()
@@ -76,4 +76,13 @@ func renderDoctor(p *ui.Printer, results []doctor.Result) (warnings, failures in
 		p.Printf("%d warnings, %d errors\n", warnings, failures)
 	}
 	return warnings, failures
+}
+
+// fixLine quotes a fix that is a command to run and leaves prose as written:
+// "run 'check your kernel version'" is not a command.
+func fixLine(fix string) string {
+	if strings.HasPrefix(fix, "bunny ") || strings.HasPrefix(fix, "export ") {
+		return "run '" + fix + "'"
+	}
+	return fix
 }

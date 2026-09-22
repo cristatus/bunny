@@ -487,3 +487,22 @@ func TestPathCheckIgnoresATrailingSlash(t *testing.T) {
 		t.Errorf("got %+v, want OK", r)
 	}
 }
+
+// With the bin dir not on PATH at all, every lookup finds some other copy of
+// the command. That is the PATH check's finding, not shadowing.
+func TestShimsCheckSkipsShadowingWhenBinIsNotOnPath(t *testing.T) {
+	p := paths.At(t.TempDir())
+	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	bunny := filepath.Join(p.Bin(), "bunny")
+	os.WriteFile(bunny, []byte{}, 0755)
+	os.Symlink(bunny, filepath.Join(p.Bin(), "node"))
+	elsewhere := t.TempDir()
+	os.WriteFile(filepath.Join(elsewhere, "node"), []byte("#!/bin/sh\n"), 0755)
+	t.Setenv("PATH", elsewhere)
+
+	if r := ShimsCheck(p, &stubShimState{commands: []string{"node"}}); r.Severity != OK {
+		t.Errorf("got %+v, want OK: the bin dir is not on PATH to be shadowed", r)
+	}
+}

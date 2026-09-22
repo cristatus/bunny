@@ -28,3 +28,20 @@ func TestRenderDoctorPlain(t *testing.T) {
 		t.Fatalf("missing summary: %q", got)
 	}
 }
+
+// Every fix used to render as "run '<fix>'", which made prose read as a
+// command: "run 'check your kernel version and ...'".
+func TestRenderDoctorQuotesOnlyCommandFixes(t *testing.T) {
+	var b bytes.Buffer
+	renderDoctor(ui.NewWithColor(&b, false), []doctor.Result{
+		{Name: "PATH", Severity: doctor.Warn, Fix: "bunny setup"},
+		{Name: "sandbox", Severity: doctor.Fail, Fix: "check your kernel version"},
+	})
+	out := b.String()
+	if !strings.Contains(out, "fix: run 'bunny setup'") {
+		t.Errorf("a command fix is quoted as one to run:\n%s", out)
+	}
+	if !strings.Contains(out, "fix: check your kernel version") || strings.Contains(out, "run 'check") {
+		t.Errorf("a prose fix is printed as written:\n%s", out)
+	}
+}
