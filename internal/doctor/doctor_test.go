@@ -85,32 +85,47 @@ func TestPathCheckMissing(t *testing.T) {
 	}
 }
 
-func TestShimsCheck(t *testing.T) {
-	root := t.TempDir()
-	p := paths.At(root)
+// The bin directory is ~/.local/bin under XDG, shared with other tools. A
+// dangling link of theirs is not a broken bunny shim, and a managed shim
+// that was deleted outright is missing even though nothing in the directory
+// looks wrong.
+func TestShimsCheckJudgesOnlyManagedNames(t *testing.T) {
+	p := paths.At(t.TempDir())
+	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", p.Bin())
+	bunny := filepath.Join(p.Bin(), "bunny")
+	os.WriteFile(bunny, []byte{}, 0755)
+	os.Symlink(bunny, filepath.Join(p.Bin(), "node"))
+	os.Symlink("/nowhere/pipx-tool", filepath.Join(p.Bin(), "httpie")) // another tool's stale link
+
+	if r := ShimsCheck(p, &stubShimState{commands: []string{"node"}}); r.Severity != OK {
+		t.Errorf("a foreign dangling link must not fail the check: %+v", r)
+	}
+	r := ShimsCheck(p, &stubShimState{commands: []string{"node", "npm"}})
+	if r.Severity != Fail || !strings.Contains(r.Detail, "npm") {
+		t.Errorf("a managed shim that is gone must be reported: %+v", r)
+	}
+}
+
+// A managed command can be installed and bunny's, yet never run: an earlier
+// PATH entry resolves it first.
+func TestShimsCheckWarnsWhenAnEarlierPathEntryWins(t *testing.T) {
+	p := paths.At(t.TempDir())
 	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
 		t.Fatal(err)
 	}
 	bunny := filepath.Join(p.Bin(), "bunny")
 	os.WriteFile(bunny, []byte{}, 0755)
+	os.Symlink(bunny, filepath.Join(p.Bin(), "node"))
+	system := t.TempDir()
+	os.WriteFile(filepath.Join(system, "node"), []byte("#!/bin/sh\n"), 0755)
+	t.Setenv("PATH", system+string(os.PathListSeparator)+p.Bin())
 
-	// Good symlink
-	good := filepath.Join(p.Bin(), "node")
-	os.Symlink(bunny, good)
-	// Broken symlink
-	broken := filepath.Join(p.Bin(), "java")
-	os.Symlink("/nowhere/bunny", broken)
-
-	r := shimsCheck(p)
-	if r.Severity != Fail {
-		t.Errorf("expected Fail due to broken shim, got %+v", r)
-	}
-
-	// Remove broken; should be OK
-	os.Remove(broken)
-	r = shimsCheck(p)
-	if r.Severity != OK {
-		t.Errorf("expected OK, got %+v", r)
+	r := ShimsCheck(p, &stubShimState{commands: []string{"node"}})
+	if r.Severity != Warn || !strings.Contains(r.Detail, filepath.Join(system, "node")) {
+		t.Errorf("a shadowed shim must be reported with what wins: %+v", r)
 	}
 }
 
@@ -121,7 +136,7 @@ type stubShimState struct {
 func (s *stubShimState) CommandNames() []string       { return s.commands }
 func (s *stubShimState) GlobalCommandNames() []string { return s.global }
 
-func TestShimOwnershipCheckAllOwnedIsOK(t *testing.T) {
+func TestShimsCheckAllOwnedIsOK(t *testing.T) {
 	root := t.TempDir()
 	p := paths.At(root)
 	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
@@ -130,8 +145,9 @@ func TestShimOwnershipCheckAllOwnedIsOK(t *testing.T) {
 	bunny := filepath.Join(p.Bin(), "bunny")
 	os.WriteFile(bunny, []byte{}, 0755)
 	os.Symlink(bunny, filepath.Join(p.Bin(), "node"))
+	t.Setenv("PATH", p.Bin())
 
-	r := ShimOwnershipCheck(p, &stubShimState{commands: []string{"node"}})
+	r := ShimsCheck(p, &stubShimState{commands: []string{"node"}})
 	if r.Severity != OK {
 		t.Errorf("expected OK, got %+v", r)
 	}
@@ -139,9 +155,9 @@ func TestShimOwnershipCheckAllOwnedIsOK(t *testing.T) {
 
 // A foreign symlink occupying a name Bunny's state says it manages — e.g.
 // corepack's own install script overwriting the pnpm shim — is exactly the
-// case shimsCheck cannot see, since the name still resolves; it's just not
+// case a directory scan cannot see, since the name still resolves; it's just not
 // resolving to Bunny.
-func TestShimOwnershipCheckDetectsForeignFile(t *testing.T) {
+func TestShimsCheckDetectsForeignFile(t *testing.T) {
 	root := t.TempDir()
 	p := paths.At(root)
 	if err := os.MkdirAll(p.Bin(), 0755); err != nil {
@@ -155,7 +171,7 @@ func TestShimOwnershipCheckDetectsForeignFile(t *testing.T) {
 	os.WriteFile(foreign, []byte{}, 0755)
 	os.Symlink(foreign, filepath.Join(p.Bin(), "pnpm"))
 
-	r := ShimOwnershipCheck(p, &stubShimState{commands: []string{"node"}, global: []string{"pnpm"}})
+	r := ShimsCheck(p, &stubShimState{commands: []string{"node"}, global: []string{"pnpm"}})
 	if r.Severity != Fail {
 		t.Fatalf("expected Fail, got %+v", r)
 	}
@@ -460,5 +476,14 @@ func TestSandboxPolicyChecksSayWhenNothingIsArmed(t *testing.T) {
 	results := SandboxPolicyChecks(&config.Config{}, stubInstalled{})
 	if len(results) != 1 || results[0].Severity != OK || !strings.Contains(results[0].Detail, "no packages armed") {
 		t.Fatalf("an unarmed config must say so plainly: %+v", results)
+	}
+}
+
+// PATH entries are compared cleaned: a trailing slash names the same
+// directory and must not read as missing.
+func TestPathCheckIgnoresATrailingSlash(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/home/u/.local/bin/")
+	if r := pathOnPathCheck("/home/u/.local/bin"); r.Severity != OK {
+		t.Errorf("got %+v, want OK", r)
 	}
 }

@@ -25,7 +25,7 @@ func (c *DoctorCmd) Run(a *App) error {
 		})
 	}
 	results := doctor.RunAll(a.Paths, cats)
-	results = append(results, doctor.ShimOwnershipCheck(a.Paths, a.State))
+	results = append(results, doctor.ShimsCheck(a.Paths, a.State))
 	results = append(results, doctor.SandboxPolicyChecks(a.Config, a.State)...)
 	results = append(results, doctor.SandboxToolingChecks(doctor.SandboxNeedsFrom(a.Config))...)
 	if cwd, err := os.Getwd(); err == nil {

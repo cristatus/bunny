@@ -72,7 +72,6 @@ func RunAll(p *paths.Paths, cats []CatalogSource) []Result {
 		x11Check(),
 		audioCheck(),
 		gpuCheck(),
-		shimsCheck(p),
 	})
 }
 
@@ -197,7 +196,7 @@ func tilde(path string) string {
 
 func pathOnPathCheck(binDir string) Result {
 	for _, p := range filepath.SplitList(os.Getenv("PATH")) {
-		if p == binDir {
+		if p != "" && filepath.Clean(p) == filepath.Clean(binDir) {
 			return Result{Name: "PATH", Detail: fmt.Sprintf("contains %s", binDir), Severity: OK}
 		}
 	}
@@ -482,21 +481,21 @@ func PinResolution(state PinState, cwd string) []Result {
 	return out
 }
 
-// ShimOwnershipState is the slice of state.State ShimOwnershipCheck needs.
-type ShimOwnershipState interface {
+// ShimState is the slice of state.State ShimsCheck needs.
+type ShimState interface {
 	CommandNames() []string
 	GlobalCommandNames() []string
 }
 
-// ShimOwnershipCheck reports command names bunny's state says it manages
-// that are actually occupied by a file it cannot prove it created — another
-// tool's install script (e.g. corepack) having overwritten the shim being
-// the common case. Unlike shimsCheck, which only catches a shim that
-// vanished, this catches one that is still present but foreign, which is
-// exactly what makes `bunny update`/`bunny reshim` keep failing on it until
-// the user manually clears the name.
-func ShimOwnershipCheck(p *paths.Paths, s ShimOwnershipState) Result {
-	const name = "Shim ownership"
+// ShimsCheck walks the command names bunny's state says it manages, and only
+// those: the bin directory is ~/.local/bin under XDG, shared with pipx, cargo
+// and hand-made links that are not bunny's to judge. A managed name can be
+// missing (deleted), broken (pointing at a bunny binary that moved), occupied
+// by a file another tool wrote over it (corepack's pnpm, say, which makes
+// `bunny update` and `bunny reshim` keep failing on it), or shadowed by an
+// earlier PATH entry, so the shell never reaches it.
+func ShimsCheck(p *paths.Paths, s ShimState) Result {
+	const name = "Shims"
 	bunnyPath, err := shim.BunnyBinaryPath(p.Bin())
 	if err != nil {
 		return Result{Name: name, Detail: "cannot determine the running binary: " + err.Error(), Severity: Warn}
@@ -506,50 +505,42 @@ func ShimOwnershipCheck(p *paths.Paths, s ShimOwnershipState) Result {
 		return Result{Name: name, Detail: "no managed commands yet", Severity: OK}
 	}
 	slices.Sort(names)
-	var conflicts []string
-	for _, n := range slices.Compact(names) {
-		if err := shim.CheckOwnership(p.Bin(), n, bunnyPath); err != nil {
-			conflicts = append(conflicts, n)
-		}
-	}
-	if len(conflicts) == 0 {
-		return Result{Name: name, Detail: fmt.Sprintf("%d managed command(s) resolve to bunny", len(names)), Severity: OK}
-	}
-	return Result{
-		Name:     name,
-		Detail:   fmt.Sprintf("%d occupied by another tool: %s", len(conflicts), strings.Join(conflicts, ", ")),
-		Severity: Fail,
-		Fix:      "remove or rename the listed file(s) in " + tilde(p.Bin()) + ", then re-run bunny update or bunny reshim",
-	}
-}
-
-func shimsCheck(p *paths.Paths) Result {
-	entries, err := os.ReadDir(p.Bin())
-	if err != nil {
-		return Result{Name: "Shims", Detail: "no bin dir yet — install something first", Severity: Warn}
-	}
-	var broken []string
-	count := 0
-	for _, e := range entries {
-		if e.Name() == "bunny" {
+	names = slices.Compact(names)
+	var gone, foreign, shadowed []string
+	for _, n := range names {
+		path := p.Shim(n)
+		// Ownership first: a missing name passes it, and then fails to
+		// resolve just as a shim pointing at a moved binary does.
+		if shim.CheckOwnership(p.Bin(), n, bunnyPath) != nil {
+			foreign = append(foreign, n)
 			continue
 		}
-		if _, err := os.Stat(filepath.Join(p.Bin(), e.Name())); err != nil {
-			broken = append(broken, e.Name())
+		if _, err := os.Stat(path); err != nil {
+			gone = append(gone, n)
 			continue
 		}
-		count++
-	}
-	if len(broken) > 0 {
-		return Result{
-			Name:     "Shims",
-			Detail:   fmt.Sprintf("%d broken: %s", len(broken), strings.Join(broken, ", ")),
-			Severity: Fail,
-			Fix:      "bunny reshim",
+		if found, err := exec.LookPath(n); err == nil && filepath.Clean(found) != path {
+			shadowed = append(shadowed, n+" ("+found+")")
 		}
 	}
-	if count == 0 {
-		return Result{Name: "Shims", Detail: "no shims installed yet", Severity: OK}
+	var details, fixes []string
+	if len(gone) > 0 {
+		details = append(details, fmt.Sprintf("%d missing or broken: %s", len(gone), strings.Join(gone, ", ")))
+		fixes = append(fixes, "reinstall the owning package with bunny install --force, or run bunny reshim for global tools")
 	}
-	return Result{Name: "Shims", Detail: fmt.Sprintf("%d shim(s) resolve", count), Severity: OK}
+	if len(foreign) > 0 {
+		details = append(details, fmt.Sprintf("%d occupied by another tool: %s", len(foreign), strings.Join(foreign, ", ")))
+		fixes = append(fixes, "remove or rename the listed file(s) in "+tilde(p.Bin())+", then re-run bunny update or bunny reshim")
+	}
+	if len(shadowed) > 0 {
+		details = append(details, fmt.Sprintf("%d shadowed by an earlier PATH entry: %s", len(shadowed), strings.Join(shadowed, ", ")))
+		fixes = append(fixes, "put "+tilde(p.Bin())+" ahead of other directories on PATH")
+	}
+	switch {
+	case len(gone)+len(foreign) > 0:
+		return Result{Name: name, Detail: strings.Join(details, "; "), Severity: Fail, Fix: strings.Join(fixes, "; ")}
+	case len(shadowed) > 0:
+		return Result{Name: name, Detail: strings.Join(details, "; "), Severity: Warn, Fix: strings.Join(fixes, "; ")}
+	}
+	return Result{Name: name, Detail: fmt.Sprintf("%d managed command(s) resolve to bunny", len(names)), Severity: OK}
 }
