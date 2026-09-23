@@ -98,7 +98,9 @@ func readPackageMarker(dir string) (*packageMarker, error) {
 // recording this package at this path is equally bunny's own word, and
 // accepting it keeps trees installed before markers existed removable.
 func (i *Installer) checkOwned(dir, id string) error {
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	// Lstat keeps a dangling symlink visible: it is still a user-owned path
+	// that clearing a swap sibling would otherwise delete.
+	if _, err := os.Lstat(dir); os.IsNotExist(err) {
 		return nil
 	}
 	if i.State.IsInstalled(id) && i.Paths.AppDir(id) == dir {

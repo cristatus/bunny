@@ -635,6 +635,45 @@ func TestForceInstallRollsBackWhenNewDesktopIntegrationFails(t *testing.T) {
 	}
 }
 
+func TestSwapPathsLeaveDanglingSymlinksAlone(t *testing.T) {
+	for _, suffix := range []string{".old", ".delete"} {
+		t.Run(suffix, func(t *testing.T) {
+			src := filepath.Join(t.TempDir(), "payload")
+			if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			m := &manifest.Manifest{
+				ID: "tool", Name: "tool", Version: "1",
+				Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+				Bin:     []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
+			}
+			i := installerWith(t, map[string]*manifest.Manifest{"tool": m}, nil)
+			if err := i.Install(context.Background(), "tool", false, nil); err != nil {
+				t.Fatal(err)
+			}
+			swap := i.Paths.AppDir("tool") + suffix
+			if err := os.Symlink("missing", swap); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if suffix == ".old" {
+				err = i.Install(context.Background(), "tool", true, nil)
+			} else {
+				err = i.Uninstall("tool", false)
+			}
+			if err == nil {
+				t.Fatal("expected the swap path to be refused")
+			}
+			if info, statErr := os.Lstat(swap); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
+				t.Fatalf("dangling symlink was removed: %v", statErr)
+			}
+			if !i.State.IsInstalled("tool") {
+				t.Fatal("failed operation changed installed state")
+			}
+		})
+	}
+}
+
 func TestUninstallRejectsBreakingLastRequiredProvider(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "x")
 	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
