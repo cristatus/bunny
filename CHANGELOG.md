@@ -45,8 +45,12 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   path as its own afterwards. It now records the files it actually writes
   (`files` in `state.json`) and touches only those. Packages installed before
   this change keep the old behaviour until their next install.
-- A reinstall or uninstall no longer deletes a directory named `<package>.old`
-  or `<package>.delete` next to the install tree unless bunny created it. With
+- A reinstall or update whose desktop integration fails now rolls back instead
+  of warning and keeping a partial integration. A rolled-back update restores
+  the previous version's desktop entry and icons from its own tree.
+- A reinstall or uninstall no longer deletes a directory or symlink named
+  `<package>.old` or `<package>.delete` next to the install tree unless bunny
+  created it. With
   an install root such as `~/Applications`, such a directory may be yours.
 - `bunny update` and `bunny dev update` missed new releases of packages whose
   latest GitHub release falls outside their tag pattern and whose asset name
@@ -59,7 +63,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of its packages reported "not found in catalog", and `bunny update`
   skipped its packages and could report everything up to date. Install now
   says the catalog is unavailable, and the update check reports the packages
-  it could not check and exits non-zero.
+  it could not check and exits non-zero. A package installed before bunny
+  recorded its catalog is reported as unchecked too, rather than compared
+  against whichever catalog answered.
 - `bunny update <id>` for a package that is not installed said "all packages
   are up to date"; it now says the package is not installed.
 - `bunny reshim <typo>` and `bunny dev update <typo>` reported success. Both
