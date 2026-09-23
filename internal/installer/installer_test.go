@@ -479,17 +479,27 @@ func TestForceInstallRestoresPreviousAppOnStateSaveError(t *testing.T) {
 	m1 := &manifest.Manifest{
 		ID: "tool", Name: "tool", Version: "1",
 		Sources: []manifest.Source{{URL: "file://" + srcA, SHA256: sha256Of("a")}},
+		Prepare: []string{"prepare"},
 		Bin:     []manifest.Binary{{Name: "oldcmd", Path: "{app}/oldcmd"}},
 		Desktop: []manifest.DesktopEntry{{ID: "bunny-old.desktop", Name: "old", Exec: "oldcmd"}},
+		Icons:   []manifest.Icon{{Src: "{app}/tool.png", Name: "tool", Size: "48x48"}},
 	}
 	m2 := &manifest.Manifest{
 		ID: "tool", Name: "tool", Version: "2",
 		Sources: []manifest.Source{{URL: "file://" + srcB, SHA256: sha256Of("b")}},
+		Prepare: []string{"prepare"},
 		Bin:     []manifest.Binary{{Name: "newcmd", Path: "{app}/newcmd"}},
 		Desktop: []manifest.DesktopEntry{{ID: "bunny-new.desktop", Name: "new", Exec: "newcmd"}},
+		Icons:   []manifest.Icon{{Src: "{app}/tool.png", Name: "tool", Size: "48x48"}},
 	}
 	manifests := map[string]*manifest.Manifest{"tool": m1}
 	i := installerWith(t, manifests, nil)
+	i.Prepare = func(ctx context.Context, workDir, srcDir string, shadow map[string]string, commands []string, vars map[string]string) error {
+		if err := noopPrepare(ctx, workDir, srcDir, shadow, commands, vars); err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(workDir, "pkg", "tool.png"), []byte(vars["version"]), 0644)
+	}
 	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -527,6 +537,10 @@ func TestForceInstallRestoresPreviousAppOnStateSaveError(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(i.Paths.Desktop(), "bunny-new.desktop")); !os.IsNotExist(err) {
 		t.Fatalf("new desktop entry should be removed: %v", err)
 	}
+	icon := filepath.Join(i.Paths.Icons(), "hicolor", "48x48", "apps", "tool.png")
+	if data, err := os.ReadFile(icon); err != nil || string(data) != "1" {
+		t.Fatalf("old icon should be restored from the old app tree: %q, %v", data, err)
+	}
 	cached, err := os.ReadFile(i.Paths.ManifestFile("tool"))
 	if err != nil {
 		t.Fatal(err)
@@ -537,6 +551,87 @@ func TestForceInstallRestoresPreviousAppOnStateSaveError(t *testing.T) {
 	}
 	if cachedManifest.Version != "1" {
 		t.Fatalf("cached manifest version = %q, want 1", cachedManifest.Version)
+	}
+}
+
+func TestForceInstallRollsBackWhenNewDesktopIntegrationFails(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "payload")
+	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m1 := &manifest.Manifest{
+		ID: "tool", Name: "tool", Version: "1",
+		Sources:     []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+		Prepare:     []string{"prepare"},
+		Bin:         []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
+		Desktop:     []manifest.DesktopEntry{{ID: "bunny-old.desktop", Name: "old", Exec: "tool"}},
+		Icons:       []manifest.Icon{{Src: "{app}/tool.png", Name: "tool", Size: "48x48"}},
+		Completions: &manifest.Completions{Bash: "{app}/tool.bash"},
+	}
+	m2 := &manifest.Manifest{
+		ID: "tool", Name: "tool", Version: "2",
+		Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
+		Prepare: []string{"prepare"},
+		Bin:     []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
+		Desktop: []manifest.DesktopEntry{{ID: "bunny-new.desktop", Name: "new", Exec: "tool"}},
+		Icons:   []manifest.Icon{{Src: filepath.Join(t.TempDir(), "missing.png"), Name: "tool", Size: "48x48"}},
+	}
+	manifests := map[string]*manifest.Manifest{"tool": m1}
+	i := installerWith(t, manifests, nil)
+	i.Prepare = func(ctx context.Context, workDir, srcDir string, shadow map[string]string, commands []string, vars map[string]string) error {
+		if err := noopPrepare(ctx, workDir, srcDir, shadow, commands, vars); err != nil {
+			return err
+		}
+		if vars["version"] != "1" {
+			return nil
+		}
+		for _, name := range []string{"tool.png", "tool.bash"} {
+			if err := os.WriteFile(filepath.Join(workDir, "pkg", name), []byte("old "+name), 0644); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	manifests["tool"] = m2
+	if err := i.Install(context.Background(), "tool", true, nil); err == nil {
+		t.Fatal("update with failed desktop integration succeeded")
+	}
+	if got := i.State.Packages["tool"].Version; got != "1" {
+		t.Errorf("installed version = %q, want 1", got)
+	}
+	cached, err := os.ReadFile(i.Paths.ManifestFile("tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := manifest.ParseBytes(cached)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if installed.Version != "1" {
+		t.Errorf("cached version = %q, want 1", installed.Version)
+	}
+	if _, err := os.Stat(filepath.Join(i.Paths.Desktop(), "bunny-old.desktop")); err != nil {
+		t.Errorf("old desktop entry missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(i.Paths.Desktop(), "bunny-new.desktop")); !os.IsNotExist(err) {
+		t.Errorf("new desktop entry remains: %v", err)
+	}
+	for path, want := range map[string]string{
+		filepath.Join(i.Paths.Icons(), "hicolor", "48x48", "apps", "tool.png"): "old tool.png",
+		filepath.Join(i.Paths.BashCompletions(), "tool.bash"):                  "old tool.bash",
+	} {
+		if data, err := os.ReadFile(path); err != nil || string(data) != want {
+			t.Errorf("old integration file %s was not restored: %q, %v", path, data, err)
+		}
+	}
+	if err := i.Uninstall("tool", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(i.Paths.Desktop(), "bunny-old.desktop")); !os.IsNotExist(err) {
+		t.Errorf("old desktop entry remains after uninstall: %v", err)
 	}
 }
 
