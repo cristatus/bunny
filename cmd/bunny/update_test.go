@@ -169,3 +169,22 @@ func TestUpdateCheckIgnoresAnotherCatalogsCopyWhileTheOwnerIsDown(t *testing.T) 
 		t.Errorf("failures = %v, want node-22 reported as unchecked", report.Failures)
 	}
 }
+
+func TestUpdateCheckLeavesLegacyInstallUncheckedDuringPartialListing(t *testing.T) {
+	st := state.Empty()
+	st.SetInstalled("node-22", "22.5", "", "", "")
+	a := &App{State: st, Catalog: reportCatalog{
+		packages: []catalog.PackageInfo{{ID: "node-22", Version: "22.3", Source: "upstream"}},
+		err:      &catalog.PartialError{Catalogs: []string{"company"}, Err: catalog.ErrUnavailable},
+	}}
+	report, err := a.checkUpdates(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Results) != 0 {
+		t.Errorf("results = %v, want no update from an unknown source", report.Results)
+	}
+	if len(report.Failures) != 1 || !strings.HasPrefix(report.Failures[0].Error(), "node-22:") {
+		t.Errorf("failures = %v, want node-22 unchecked", report.Failures)
+	}
+}

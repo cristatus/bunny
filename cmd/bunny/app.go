@@ -665,9 +665,10 @@ func uncheckedPackages(st *state.State, listed []catalog.PackageInfo, partial *c
 // fromADownCatalog reports whether a listing entry comes from some other
 // catalog than the one the package was installed from, while that one did not
 // answer. Comparing against it would offer a lower catalog's copy, older or
-// not, as this package's update, and applying it would switch catalogs.
+// not, as this package's update, and applying it would switch catalogs. An
+// install with no recorded source counts too: its catalog may be the down one.
 func fromADownCatalog(installedFrom, listedFrom string, partial *catalog.PartialError) bool {
-	return installedFrom != "" && installedFrom != listedFrom && slices.Contains(partial.Catalogs, installedFrom)
+	return installedFrom == "" || (installedFrom != listedFrom && slices.Contains(partial.Catalogs, installedFrom))
 }
 
 // reshimCapabilities rebuilds global-tool shims. capability=="" covers every
