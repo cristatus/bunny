@@ -14,6 +14,10 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nowhere else: a skipped integration file, a rollback that could not
   restore shims, an unreachable catalog, or a pin of a version that is not
   installed. `-l` still enables full diagnostics.
+- `bunny dev validate` rejects a `{version}`-templated source url whenever the
+  update backend takes the download url from upstream (`github`, `debian`,
+  `foojay`, or `json` with `url-query`). Such a url must be literal; the
+  updater rewrites it on every bump.
 
 ### Fixed
 

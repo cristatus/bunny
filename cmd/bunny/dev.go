@@ -126,12 +126,11 @@ func validateCatalog(root string) (int, error) {
 		}
 
 		for i, s := range m.Sources {
-			if s.Update != nil && s.Update.Type == "github" && strings.Contains(s.URL, "{version}") {
+			if resolvesUpstreamURL(s.Update) && strings.Contains(s.URL, "{version}") {
 				return 0, fmt.Errorf(
-					"%s: sources[%d].url templates {version}, but the github checker "+
-						"always resolves the actual matched asset url and overwrites it; "+
-						"pin a literal url instead (use update.url-template if the download "+
-						"host genuinely needs a reconstructed url)", m.ID, i)
+					"%s: sources[%d].url templates {version}, but the %s checker "+
+						"takes the download url from upstream and overwrites it; "+
+						"pin a literal url instead", m.ID, i, s.Update.Type)
 			}
 		}
 
@@ -390,6 +389,22 @@ func runDevChecks(ctx context.Context, jobs []*devJob) {
 		}(j)
 	}
 	wg.Wait()
+}
+
+// resolvesUpstreamURL reports whether cfg's checker takes the download url
+// from upstream rather than rendering a template, so the updater rewrites a
+// literal url and a templated one can only drift out of step with it.
+func resolvesUpstreamURL(cfg *manifest.UpdateConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	switch cfg.Type {
+	case "github", "debian", "foojay":
+		return true
+	case "json":
+		return cfg.URLQuery != ""
+	}
+	return false
 }
 
 // resolveSourceUpdate runs the checker, picks a download URL, and produces

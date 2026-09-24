@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/cristatus/bunny/internal/catalog"
+	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/state"
 )
@@ -59,5 +60,24 @@ func TestDevUpdateSkipsSecondariesWhenThePrimaryRewriteFails(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(path); string(got) != manifest {
 		t.Errorf("no source may be rewritten when the primary rewrite fails:\n%s", got)
+	}
+}
+
+func TestResolvesUpstreamURL(t *testing.T) {
+	for _, tc := range []struct {
+		cfg  *manifest.UpdateConfig
+		want bool
+	}{
+		{nil, false},
+		{&manifest.UpdateConfig{Type: "github"}, true},
+		{&manifest.UpdateConfig{Type: "debian"}, true},
+		{&manifest.UpdateConfig{Type: "foojay"}, true},
+		{&manifest.UpdateConfig{Type: "json", URLQuery: "url"}, true},
+		{&manifest.UpdateConfig{Type: "json", URLTemplate: "https://x/{version}.tgz"}, false},
+		{&manifest.UpdateConfig{Type: "html"}, false},
+	} {
+		if got := resolvesUpstreamURL(tc.cfg); got != tc.want {
+			t.Errorf("resolvesUpstreamURL(%+v) = %v, want %v", tc.cfg, got, tc.want)
+		}
 	}
 }
