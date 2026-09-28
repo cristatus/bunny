@@ -21,9 +21,12 @@ filesystem except for paths explicitly listed under `hide`. It is a
 compatibility environment for trusted packages, not a boundary for hostile
 software.
 
-The hardened mode is deny-by-default: the host root is read-only, the real
-home, `/run`, `/tmp`, `/var/tmp`, `/mnt`, and `/media` are hidden or private,
-and only the package's own state plus explicitly granted paths are reachable.
+The hardened mode restricts writes: the host root is read-only, and the real
+home, `/run`, `/tmp`, `/var/tmp`, `/mnt`, and `/media` are hidden or private.
+Package state, runtime dependencies, and explicit grants are mounted back.
+Other readable host files remain readable; this is not a read allowlist.
+Host environment variables are inherited unless an `env.keep` or `env.hide`
+policy filters them, so hiding credential files alone does not hide tokens.
 PID, IPC, and UTS isolation, a new session, a fresh `/proc`, a minimal
 `/dev`, and a full capability drop are part of the boundary, not options. It
 materially limits unexpected or malicious user-space behaviour; a VM remains
@@ -168,12 +171,12 @@ bunny run --sandbox-profile clean codex       # same, but always from blank
 that grants `fs.cwd: write`. It is the shape agent vendors converge on: the
 working directory is writable, the rest of the host is read-only, the host home
 is hidden, and the network stays up because the model is behind it. Credential
-agents are off, so a tool acting on a prompt cannot push, publish, or sign as
-you.
+agent sockets are off. Credentials in the environment, project, or package
+home can still authorize pushes, publishing, or signing.
 
 ```bash
 cd ~/Projects/thing
-bunny run --sandbox-profile agent claude   # can edit this project, nothing else
+bunny run --sandbox-profile agent claude   # can edit this project and its own package state
 ```
 
 Because `home` is `isolated`, the tool gets a durable private home under
@@ -948,11 +951,11 @@ For a command typed in Code's integrated terminal, the common cases are:
 | Code | Child package | Child HOME | Execution |
 | --- | --- | --- | --- |
 | Direct | No entry | Host HOME | Direct |
-| Direct | `always` | Child `{data}/home` | Top-level child sandbox |
+| Direct | Entry in `sandbox.packages` | Child `{data}/home` | Top-level child sandbox |
 | Sandboxed | No entry | Code's isolated HOME | Direct inside Code's sandbox |
-| Sandboxed | `always` | Child `{data}/home` | Reuses Code's sandbox unless the child adds mount/network restrictions |
+| Sandboxed | Entry in `sandbox.packages` | Child `{data}/home` if writable | Reuses Code's sandbox; additional restrictions are reported as unapplied |
 
-An explicit `bunny run --sandbox <child>` behaves like `always` for that invocation.
+An explicit `bunny run --sandbox <child>` activates the child's policy for that invocation.
 Configured `env:` values still apply in every row; activation only determines
 whether the child's sandbox policy is applied.
 
@@ -1111,7 +1114,7 @@ disabled integrations at their documented endpoints. It does not:
 
 Use it as state and integration isolation for software you already trust.
 
-The hardened boundary is a kernel-enforced allowlist and materially limits
+The hardened boundary enforces mounts and namespaces and materially limits
 unexpected or malicious user-space behaviour. It still does not claim
 VM-equivalent isolation: when the host kernel itself is inside the threat
 model, a VM remains the answer. Neither boundary applies policy to binaries

@@ -344,3 +344,23 @@ echo "exec-child: $(env true >/dev/null 2>&1 && echo ok || echo broken)"`
 		t.Errorf("bunny's own launch variables must survive a keep list:\n%s", out)
 	}
 }
+
+func TestPersistCannotUnmaskHiddenDescendant(t *testing.T) {
+	have(t, "bwrap")
+	for _, boundary := range []string{"scoped", "hardened"} {
+		t.Run(boundary, func(t *testing.T) {
+			home := t.TempDir()
+			cfg := "sandbox:\n  packages:\n    probe:\n      boundary: " + boundary + "\n"
+			out, code := probeIn(t, home, cfg, `mkdir -p "$HOME/keep"; echo SECRET > "$HOME/keep/secret"`)
+			if code != 0 {
+				t.Fatalf("seed failed (%d): %s", code, out)
+			}
+			secret := filepath.Join(home, ".local/share/bunny/data/probe/home/keep/secret")
+			cfg += "      home: ephemeral\n      persist: [keep]\n      hide: [\"" + secret + "\"]\n"
+			out, code = probeIn(t, home, cfg, `if test -s "$HOME/keep/secret"; then echo LEAK; else echo HIDDEN; fi`)
+			if code != 0 || !strings.Contains(out, "HIDDEN") || strings.Contains(out, "LEAK") {
+				t.Fatalf("persist bypassed hide (%d): %s", code, out)
+			}
+		})
+	}
+}

@@ -259,7 +259,7 @@ func execUnderPasta(p *Prepared, plan sandboxPlan, bwrapArgv []string) error {
 	// pasta and the inner bubblewrap run with a trusted, loader-sanitized
 	// environment; the payload's own environment is delivered by bwrap
 	// --clearenv/--setenv baked into bwrapArgv.
-	log.Debug("pasta exec", "argv", strings.Join(argv, " "))
+	log.Debug("pasta exec", "package", p.Manifest.ID)
 	return syscall.Exec(pastaPath, argv, trustedHelperEnv())
 }
 

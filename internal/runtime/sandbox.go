@@ -294,9 +294,6 @@ func (p *PackageSandbox) finalize(id string) error {
 	if len(p.Persist) > 0 && p.Home != "ephemeral" {
 		return fmt.Errorf("sandbox package %q: persist is meaningful only with home: ephemeral (got %q)", id, p.Home)
 	}
-	// Cleaned-path compare: the two can be set in different layers, and
-	// persist binds mount after mask mounts, so a missed conflict would
-	// re-expose through persist exactly what hide masked.
 	for _, path := range p.Persist {
 		if manifest.PathConflictsWithHide(p.Hide, path) {
 			return fmt.Errorf("sandbox package %q: %q cannot be both hidden and persisted", id, path)
@@ -661,65 +658,30 @@ func homeOverrides(p *Prepared, policy *PackageSandbox, cwd string) (map[string]
 	return overrides, isolatedHome
 }
 
-// nestedDirectPlan is the whole of Bunny's nesting model: the outermost
-// sandbox owns the boundary, and a launch inside one runs directly under it.
-//
-// Nothing is negotiated. A child cannot loosen the enclosing restrictions —
-// the kernel already sees to that, since a new layer can only add mounts and
-// namespaces, never remove the parent's — and it does not try to tighten them
-// either, because a second layer buys coverage only for the rare case of two
-// separately sandboxed packages launching one another, and cannot be built at
-// all inside a private network namespace. What a child still gets is its own
-// redirected home, which is environment rather than mounts.
-//
-// Restrictions the policy asked for and this launch cannot apply are reported,
-// never silently dropped.
-func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContext, facts launchFacts) sandboxPlan {
-	// A parent's restrictions and this policy's both apply, so the payload
-	// environment reflects their union even though no new layer enforces it.
-	disabled := stringSet(current.DisabledFeatures)
-	for name := range facts.disabled {
+// nestedDirectPlan reuses the enclosing boundary and reports unapplied policy.
+func nestedDirectPlan(p *Prepared, policy *PackageSandbox, current sandboxContext, cwd string, disabled map[string]bool) sandboxPlan {
+	ignored := nestedIgnored(policy, current, disabled)
+	for _, name := range current.DisabledFeatures {
 		disabled[name] = true
 	}
-	overrides, isolatedHome := homeOverrides(p, policy, facts.cwd)
-	ignored := nestedIgnored(policy, current, facts.disabled)
-	var notices []string
-	if len(ignored) > 0 {
-		// The user wrote restrictions that this launch does not apply, and
-		// only they can decide whether that is acceptable. It has to reach
-		// them: the enclosing boundary is the one in force either way, but a
-		// policy silently not applied is a policy they think they have.
-		notices = append(notices, fmt.Sprintf(
-			"%s: already inside the %s sandbox, so its own policy is not applied (%s); the enclosing boundary still holds",
-			p.Manifest.ID, strings.Join(current.Packages, ", "), strings.Join(ignored, ", ")))
-	}
-	// Everything the parent enforced still holds, so the reported context is
-	// the parent's with this launch's identity written over it. Copying the
-	// struct keeps a new field inherited by default instead of silently
-	// dropping out of the nested path.
-	context := current
-	context.Packages = facts.packages
-	context.HostHome = facts.hostHome
-	context.Boundary = facts.boundary
-	context.DisabledFeatures = sortedMapKeys(disabled)
-	return sandboxPlan{
+	overrides, isolatedHome := homeOverrides(p, policy, cwd)
+	plan := sandboxPlan{
 		env:          sandboxEnv(p.Env, overrides, disabled, newEnvFilter(policy.Env, p.Injected)),
-		notices:      notices,
 		isolatedHome: isolatedHome,
 		nestedUnder:  strings.Join(current.Packages, ", "),
 		ignored:      ignored,
-		context:      context,
-		cwd:          facts.cwd,
+		context:      current,
+		cwd:          cwd,
 	}
-}
-
-// launchFacts are the values both plan paths resolve before they diverge.
-type launchFacts struct {
-	packages []string
-	hostHome string
-	boundary string
-	cwd      string
-	disabled map[string]bool // what this policy disables, parent aside
+	if !slices.Contains(current.Packages, p.Manifest.ID) {
+		plan.context.Packages = append(slices.Clone(current.Packages), p.Manifest.ID)
+	}
+	if len(ignored) > 0 {
+		plan.notices = []string{fmt.Sprintf(
+			"%s: already inside the %s sandbox, so its own policy is not applied (%s); the enclosing boundary still holds",
+			p.Manifest.ID, plan.nestedUnder, strings.Join(ignored, ", "))}
+	}
+	return plan
 }
 
 // nestedIgnored lists what a nested policy asked for that only a new layer
@@ -774,16 +736,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		hostHome = current.HostHome
 	}
 	nested := len(current.Packages) > 0
-	packages := slices.Clone(current.Packages)
-	if !slices.Contains(packages, p.Manifest.ID) {
-		packages = append(packages, p.Manifest.ID)
-	}
-
-	// Boundary is monotonic: a child of a hardened parent remains hardened.
 	boundary := policy.Boundary
-	if nested && current.Boundary == "hardened" {
-		boundary = "hardened"
-	}
 	hardened := boundary == "hardened"
 
 	disabled := map[string]bool{}
@@ -801,10 +754,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		if current.Boundary == "hardened" && redirectsHome(policy.Home) && !nestedHomeAvailable(p, current) {
 			return sandboxPlan{}, fmt.Errorf("sandbox package %q: home: %s is unavailable inside hardened package %q because %s is not writable; use home: shared, grant the child data directory in the enclosing policy's fs.write, or launch the child outside that sandbox", p.Manifest.ID, policy.Home, strings.Join(current.Packages, ","), filepath.Join(p.Vars["data"], "home"))
 		}
-		return nestedDirectPlan(p, policy, current, launchFacts{
-			packages: packages, hostHome: hostHome, boundary: boundary,
-			cwd: cwd, disabled: disabled,
-		}), nil
+		return nestedDirectPlan(p, policy, current, cwd, disabled), nil
 	}
 
 	net := resolveNetwork(policy)
@@ -824,7 +774,7 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 
 	next := sandboxContext{
 		Version:          sandboxContextVersion,
-		Packages:         packages,
+		Packages:         []string{p.Manifest.ID},
 		HostHome:         hostHome,
 		Boundary:         boundary,
 		DisabledFeatures: sortedMapKeys(disabled),
@@ -952,12 +902,13 @@ func buildSandboxPlan(p *Prepared, policy *PackageSandbox, cwd, hostHome string,
 		return sandboxPlan{}, err
 	}
 	args = append(args, configArgs...)
-	args = append(args, maskMountArgs(masks)...)
 	persistArgs, err := ephemeralPersistArgs(policy, isolatedHome)
 	if err != nil {
 		return sandboxPlan{}, err
 	}
 	args = append(args, persistArgs...)
+	// Hide mounts win over persisted directories, including their descendants.
+	args = append(args, maskMountArgs(masks)...)
 	// After the resolver mask, so a target under /run/systemd/resolve lands
 	// inside the bwrap-owned tmpfs rather than the unwritable host directory.
 	if plan.pasta != nil {
@@ -1455,16 +1406,30 @@ func checkIsolatedHome(home string) error {
 	return nil
 }
 
+// ensureIsolatedHome confines setup to the package data directory, including
+// when a previous payload left symlinks in HOME or its XDG directories.
 func ensureIsolatedHome(home string) error {
 	if home == "" {
 		return nil
 	}
-	for _, dir := range []string{
-		filepath.Join(home, ".config"),
-		filepath.Join(home, ".cache"),
-		filepath.Join(home, ".local", "share"),
-	} {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := checkIsolatedHome(home); err != nil {
+		return err
+	}
+	data, err := os.OpenRoot(filepath.Dir(home))
+	if err != nil {
+		return fmt.Errorf("open sandbox data directory: %w", err)
+	}
+	defer data.Close()
+	if err := data.MkdirAll(filepath.Base(home), 0755); err != nil {
+		return fmt.Errorf("create sandbox home: %w", err)
+	}
+	root, err := data.OpenRoot(filepath.Base(home))
+	if err != nil {
+		return fmt.Errorf("open sandbox home: %w", err)
+	}
+	defer root.Close()
+	for _, dir := range []string{".config", ".cache", ".local/share"} {
+		if err := root.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("create sandbox data directory %s: %w", dir, err)
 		}
 	}

@@ -160,12 +160,13 @@ func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, ne
 	if plan.pasta != nil {
 		args = append(args, "--ro-bind", plan.pasta.resolvPath, resolvConfBindTarget())
 	}
-	args = append(args, maskMountArgs(env.masks)...)
 	persistArgs, err := ephemeralPersistArgs(policy, env.isolatedHome)
 	if err != nil {
 		return sandboxPlan{}, err
 	}
 	args = append(args, persistArgs...)
+	// Hide mounts win over persisted directories, including their descendants.
+	args = append(args, maskMountArgs(env.masks)...)
 	if net.unsharesNet() {
 		args = append(args, "--unshare-net")
 	}
@@ -291,7 +292,7 @@ func effectiveGrants(policy *PackageSandbox, hostHome string) (read, write []str
 // Bunny's own settings that breaks when they change or when the config moves
 // to another machine.
 //
-// A layout path that would re-expose a protected root is dropped rather than
+// An automatic grant that would re-expose a protected root is dropped rather than
 // refused: an install root of $HOME is a legal `install:` setting, and losing
 // shim re-entry is the containable failure. Explicit grants still error,
 // because there the user named the path and means it.
@@ -304,13 +305,14 @@ func autoReadGrants(p *Prepared, roots []string) []string {
 	if exe, err := os.Executable(); err == nil {
 		grants = append(grants, exe)
 	}
-	for _, path := range p.LayoutRoots {
-		if grantEscapesBaseline(path, roots) || grantEscapesBaseline(resolveReal(path), roots) {
-			log.Debug("Skipping sandbox layout grant that would re-expose a protected root", "path", path)
-			continue
+	grants = append(grants, p.LayoutRoots...)
+	grants = slices.DeleteFunc(grants, func(path string) bool {
+		unsafe := grantEscapesBaseline(path, roots) || grantEscapesBaseline(resolveReal(path), roots)
+		if unsafe {
+			log.Debug("Skipping sandbox automatic grant that would re-expose a protected root", "path", path)
 		}
-		grants = append(grants, path)
-	}
+		return unsafe
+	})
 	return dedupSorted(grants)
 }
 
