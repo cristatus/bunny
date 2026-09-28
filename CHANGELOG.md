@@ -7,6 +7,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-28
+
 ### Changed
 
 - Warnings are shown by default, as `WARN …` lines on stderr. Before, they
@@ -41,6 +43,13 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   one where none existed. Bunny's config directory now stays read-only under
   any writable grant, and a launch is refused when that directory is a
   symlink inside the grant.
+- Hardened sandbox: a path hidden with `hide` could reappear through a
+  `persist` mount, and a package could point symlinks inside its isolated
+  home at host files while bunny prepared that home. Hidden paths stay masked
+  across persistence mounts, home setup no longer follows such links, and the
+  protected-root check covers every automatic grant.
+- Sandbox debug logs no longer print environment values when a private
+  network is set up.
 - Hardened sandbox: an `SSH_AUTH_SOCK` naming a directory such as `/home` was
   bound back read-write. Only an actual socket is bound now.
 - Install-time `prepare:` steps could reach the session bus under `/run`
@@ -62,8 +71,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the previous version's desktop entry and icons from its own tree.
 - A reinstall or uninstall no longer deletes a directory or symlink named
   `<package>.old` or `<package>.delete` next to the install tree unless bunny
-  created it. With
-  an install root such as `~/Applications`, such a directory may be yours.
+  created it. With an install root such as `~/Applications`, such a directory
+  may be yours.
 - `bunny update` and `bunny dev update` missed new releases of packages whose
   latest GitHub release falls outside their tag pattern and whose asset name
   contains `{version}`, reporting "no update" instead. This affected
@@ -612,7 +621,8 @@ Initial public release.
   validation.
 - Install-time `prepare:` steps isolated via Bubblewrap where required.
 
-[Unreleased]: https://github.com/cristatus/bunny/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/cristatus/bunny/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/cristatus/bunny/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/cristatus/bunny/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/cristatus/bunny/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/cristatus/bunny/compare/v0.5.0...v0.6.0
