@@ -35,6 +35,9 @@ func (c *UseCmd) Run(a *App) error {
 			names = append(names, b.Name)
 		}
 		sort.Strings(names)
+		if err := a.State.CheckCommandConflicts(c.ID, m.Provides, names); err != nil {
+			return err
+		}
 		previous := a.State.Providers[m.Provides]
 		oldNames := a.State.CommandsForCapability(m.Provides)
 		stateBefore := a.State.Clone()

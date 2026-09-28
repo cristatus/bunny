@@ -184,6 +184,19 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve paths: %w", err)
 	}
+	if _, err := os.Lstat(filepath.Join(p.Data(), "install-transaction.json")); err == nil {
+		lock, err := state.AcquireLock(context.Background(), p.MutationLock())
+		if err != nil {
+			return nil, fmt.Errorf("lock interrupted install: %w", err)
+		}
+		recoverErr := installer.RecoverPendingInstall(p)
+		closeErr := lock.Close()
+		if err := errors.Join(recoverErr, closeErr); err != nil {
+			return nil, fmt.Errorf("recover interrupted install: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect install transaction: %w", err)
+	}
 	st, err := state.Load(p.StateFile())
 	if err != nil {
 		return nil, fmt.Errorf("load state: %w", err)

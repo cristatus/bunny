@@ -21,6 +21,14 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Installs refuse missing or non-executable commands and symlinked package
+  roots. Uninstall refuses a symlinked install root rather than following it.
+- An interrupted install or upgrade recovers its previous package tree,
+  commands, manifest and desktop integration on the next run. If state was
+  already committed, recovery finishes deleting the old tree.
+- Switching providers with `bunny use`, or activating a fallback on uninstall,
+  refuses to take a command owned by an unrelated package.
+- Tagged releases run CI on the tagged commit before publishing artifacts.
 - Hardened sandbox: on hosts where `/home` is a symlink (Fedora Silverblue,
   Kinoite), launching from `$HOME` or granting `/var/home` exposed the real
   home. Both are now recognised as the host home.

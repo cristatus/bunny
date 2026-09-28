@@ -98,6 +98,7 @@ func installerWith(t *testing.T, manifests map[string]*manifest.Manifest, files 
 	cat := &fakeCatalog{manifests: manifests, files: files}
 	i := New(paths, cat, st)
 	i.Prepare = noopPrepare
+	i.ValidateBinaries = func(*manifest.Manifest, map[string]string, string) error { return nil }
 	i.Download = NewDownloader() // file:// only — no network
 	i.BunnyPath = func(binDir string) (string, error) {
 		return paths.BunnyBinary(), nil

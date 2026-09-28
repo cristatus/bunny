@@ -100,8 +100,14 @@ func readPackageMarker(dir string) (*packageMarker, error) {
 func (i *Installer) checkOwned(dir, id string) error {
 	// Lstat keeps a dangling symlink visible: it is still a user-owned path
 	// that clearing a swap sibling would otherwise delete.
-	if _, err := os.Lstat(dir); os.IsNotExist(err) {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
 		return nil
+	} else if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a package directory", dir)
 	}
 	if i.State.IsInstalled(id) && i.Paths.AppDir(id) == dir {
 		return nil
@@ -127,6 +133,16 @@ func (i *Installer) checkOwned(dir, id string) error {
 // marker kept until the rest is gone, the leftover stays recognisable and
 // the next swap clears it.
 func removeOwnedTree(dir string) error {
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a package directory", dir)
+	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {

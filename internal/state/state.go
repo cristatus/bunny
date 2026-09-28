@@ -379,6 +379,21 @@ func (s *State) SetCommand(name, pkgID string) {
 	s.Commands[name] = pkgID
 }
 
+// CheckCommandConflicts allows packages with the same capability to share a
+// command name, but rejects ownership by an unrelated package.
+func (s *State) CheckCommandConflicts(id, capability string, names []string) error {
+	for _, name := range names {
+		owner, ok := s.Commands[name]
+		if !ok || owner == id {
+			continue
+		}
+		if capability == "" || s.Packages[owner].Provides != capability {
+			return fmt.Errorf("command %q is already provided by %q", name, owner)
+		}
+	}
+	return nil
+}
+
 // SetCommands replaces every command owned by pkgID with names.
 func (s *State) SetCommands(pkgID string, names []string) {
 	for cmd, owner := range s.Commands {

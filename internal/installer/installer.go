@@ -39,6 +39,8 @@ type BunnyPathFn func(binDir string) (string, error)
 // not accidentally degrade state persistence errors into warnings.
 type SaveStateFn func(st *state.State, path string) error
 
+type ValidateBinaryFn func(m *manifest.Manifest, vars map[string]string, seedDir string) error
+
 // Installer holds the long-lived dependencies the install workflow needs.
 type Installer struct {
 	Paths     *paths.Paths
@@ -47,9 +49,10 @@ type Installer struct {
 	State     *state.State
 	Download  *Downloader
 
-	Prepare   PrepareFn
-	BunnyPath BunnyPathFn
-	SaveState SaveStateFn
+	Prepare          PrepareFn
+	BunnyPath        BunnyPathFn
+	SaveState        SaveStateFn
+	ValidateBinaries ValidateBinaryFn
 
 	// Version is stamped into each install tree's marker, as provenance for
 	// working out later which bunny put a directory there.
@@ -59,13 +62,14 @@ type Installer struct {
 // New returns an Installer wired with default Download + Prepare + BunnyPath.
 func New(paths *paths.Paths, cat catalog.Loader, st *state.State) *Installer {
 	return &Installer{
-		Paths:     paths,
-		Catalog:   cat,
-		Installed: catalog.NewInstalled(cat, paths.ManifestFile),
-		State:     st,
-		Download:  NewDownloader(),
-		Prepare:   runtime.PrepareStepsContext,
-		BunnyPath: shim.BunnyBinaryPath,
+		Paths:            paths,
+		Catalog:          cat,
+		Installed:        catalog.NewInstalled(cat, paths.ManifestFile),
+		State:            st,
+		Download:         NewDownloader(),
+		Prepare:          runtime.PrepareStepsContext,
+		ValidateBinaries: validateBinaries,
+		BunnyPath:        shim.BunnyBinaryPath,
 		SaveState: func(st *state.State, path string) error {
 			return st.Save(path)
 		},
@@ -75,6 +79,9 @@ func New(paths *paths.Paths, cat catalog.Loader, st *state.State) *Installer {
 // Install runs the full workflow for a single package ID. force=true
 // re-installs even if the same version is already present.
 func (i *Installer) Install(ctx context.Context, id string, force bool, hook ProgressHook) error {
+	if err := RecoverPendingInstall(i.Paths); err != nil {
+		return fmt.Errorf("recover interrupted install: %w", err)
+	}
 	if hook == nil {
 		hook = noopHook{}
 	}
@@ -125,7 +132,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if err := i.checkRequires(m); err != nil {
 		return err
 	}
-	if err := i.checkCommandConflicts(id, m); err != nil {
+	if err := i.State.CheckCommandConflicts(id, m.Provides, binNames(m)); err != nil {
 		return err
 	}
 	if err := i.checkIntegrationConflicts(id, m); err != nil {
@@ -192,6 +199,19 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		cleanup()
 		return err
 	}
+	info, err := os.Lstat(pkgDir)
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("inspect prepared package directory %s: %w", pkgDir, err)
+	}
+	if !info.IsDir() {
+		cleanup()
+		return fmt.Errorf("prepared package directory %s must be a directory", pkgDir)
+	}
+	if err := i.ValidateBinaries(m, i.Paths.VarsAt(id, m.Version, pkgDir), seedDir); err != nil {
+		cleanup()
+		return err
+	}
 
 	if err := writePackageMarker(pkgDir, packageMarker{
 		ID: id, Version: m.Version, Kind: kind, Bunny: i.Version,
@@ -199,12 +219,28 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		cleanup()
 		return fmt.Errorf("mark install tree: %w", err)
 	}
+	if err := i.preflightPlacement(id, destDir, force); err != nil {
+		cleanup()
+		return err
+	}
+	_, hadExisting := i.State.Packages[id]
+	journal, err := startInstallTransaction(i, id, destDir, workDir, m.Version, hadExisting,
+		appendMissing(slices.Clone(replacedCommands), newCommands...))
+	if err != nil {
+		cleanup()
+		return fmt.Errorf("record install transaction: %w", err)
+	}
 
 	hook.Phase("installing")
 	placed, err := i.place(id, destDir, pkgDir, force)
 	if err != nil {
 		cleanup()
 		return err
+	}
+	if err := journal.captureIntegration(i, oldManifest, m); err != nil {
+		_ = placed.Rollback()
+		cleanup()
+		return fmt.Errorf("record integration transaction: %w", err)
 	}
 
 	// Shims are how the user actually launches the app — failure here is a
@@ -282,8 +318,9 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		cleanup()
 		return fmt.Errorf("save state: %w", err)
 	}
-	if err := placed.Commit(); err != nil {
-		log.Warn("Failed to remove previous install backup", "package", id, "error", err)
+	commitErr := placed.Commit()
+	if commitErr != nil {
+		log.Warn("Failed to remove previous install backup", "package", id, "error", commitErr)
 	}
 
 	// Merge what prepare wrote through the {data} shadow, once nothing can roll
@@ -295,9 +332,41 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	cleanup()
+	if commitErr == nil {
+		if err := os.Remove(transactionPath(i.Paths)); err != nil {
+			log.Warn("Failed to clear committed install transaction", "package", id, "error", err)
+		}
+	}
 	log.Info("Installed", "package", m.Name, "version", m.Version)
 	log.Debug("Install complete", "package", id, "path", placed.finalDir,
 		"manifest", i.Paths.ManifestFile(id))
+	return nil
+}
+
+func validateBinaries(m *manifest.Manifest, vars map[string]string, seedDir string) error {
+	for _, bin := range m.Bin {
+		path := manifest.Expand(bin.Path, vars)
+		candidates := []string{path}
+		if data := vars["data"]; data != "" {
+			if rel, err := filepath.Rel(data, path); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+				candidates = append(candidates, filepath.Join(seedDir, rel))
+			}
+		}
+		var info os.FileInfo
+		var err error
+		for _, candidate := range candidates {
+			info, err = os.Stat(candidate)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("binary %q at %s: %w", bin.Name, path, err)
+		}
+		if !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+			return fmt.Errorf("binary %q at %s is not an executable file", bin.Name, path)
+		}
+	}
 	return nil
 }
 
@@ -350,6 +419,9 @@ func (i *Installer) loadInstalledManifest(id string) (*manifest.Manifest, error)
 
 // Uninstall removes a package. purge=true also removes the per-app data dir.
 func (i *Installer) Uninstall(id string, purge bool) error {
+	if err := RecoverPendingInstall(i.Paths); err != nil {
+		return fmt.Errorf("recover interrupted install: %w", err)
+	}
 	if !i.State.IsInstalled(id) {
 		return fmt.Errorf("package %q is not installed", id)
 	}
@@ -411,6 +483,11 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 				return fmt.Errorf("load fallback provider %s: %w", fallbackID, err)
 			}
 			fallbackNames = binNames(fallback)
+			if err := i.State.CheckCommandConflicts(fallbackID, capability, fallbackNames); err != nil {
+				*i.State = *stateBefore
+				i.rollbackUninstall(removed, manifest, id, names, nil)
+				return fmt.Errorf("activate fallback provider %s: %w", fallbackID, err)
+			}
 			if err := i.installShims(fallback); err != nil {
 				*i.State = *stateBefore
 				i.rollbackUninstall(removed, manifest, id, names, fallbackNames)
@@ -509,23 +586,6 @@ func (i *Installer) checkRequires(m *manifest.Manifest) error {
 			if !i.State.IsSatisfied(req) {
 				return fmt.Errorf("%s requires %q which is not installed", m.ID, req)
 			}
-		}
-	}
-	return nil
-}
-
-// checkCommandConflicts rejects installs where a binary name is already owned
-// by an unrelated package. Two packages that share a `provides:` capability
-// (e.g. node-22 and node-24) are allowed to share command names.
-func (i *Installer) checkCommandConflicts(id string, m *manifest.Manifest) error {
-	for _, bin := range m.Bin {
-		owner, ok := i.State.CommandOwner(bin.Name)
-		if !ok || owner == id {
-			continue
-		}
-		ownerInfo := i.State.Packages[owner]
-		if m.Provides == "" || ownerInfo.Provides != m.Provides {
-			return fmt.Errorf("command %q is already provided by %q", bin.Name, owner)
 		}
 	}
 	return nil
@@ -677,6 +737,24 @@ func (i *Installer) destination(id, kind string) string {
 	return i.Paths.InstallDir(id, kind)
 }
 
+func (i *Installer) preflightPlacement(id, finalDir string, force bool) error {
+	if _, err := os.Lstat(finalDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if !force {
+		return fmt.Errorf("%s already exists (use --force to reinstall)", finalDir)
+	}
+	if err := i.checkOwned(finalDir, id); err != nil {
+		return err
+	}
+	if err := i.checkOwned(finalDir+".old", id); err != nil {
+		return fmt.Errorf("backup path: %w", err)
+	}
+	return nil
+}
+
 // place atomically swaps pkgDir into finalDir. For non-force installs
 // an existing target is an error. For force installs the existing dir is
 // renamed aside and kept there until the caller commits after state save. If
@@ -685,7 +763,7 @@ func (i *Installer) place(id, finalDir, pkgDir string, force bool) (*placement, 
 	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
 		return nil, err
 	}
-	if _, err := os.Stat(finalDir); err == nil {
+	if _, err := os.Lstat(finalDir); err == nil {
 		if !force {
 			return nil, fmt.Errorf("%s already exists (use --force to reinstall)", finalDir)
 		}
@@ -714,6 +792,8 @@ func (i *Installer) place(id, finalDir, pkgDir string, force bool) (*placement, 
 			return nil, fmt.Errorf("place app dir: %w", err)
 		}
 		return &placement{finalDir: finalDir, backupDir: backup, hadExisting: true}, nil
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("inspect install destination %s: %w", finalDir, err)
 	}
 	if err := os.Rename(pkgDir, finalDir); err != nil {
 		return nil, fmt.Errorf("place app dir: %w", err)
@@ -749,7 +829,7 @@ func (p *removalPlacement) Rollback() error {
 func (i *Installer) stageRemoveApp(id string) (*removalPlacement, error) {
 	finalDir := i.Paths.AppDir(id)
 	trashDir := finalDir + ".delete"
-	if _, err := os.Stat(finalDir); os.IsNotExist(err) {
+	if _, err := os.Lstat(finalDir); os.IsNotExist(err) {
 		return &removalPlacement{finalDir: finalDir, trashDir: trashDir}, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("stat app dir: %w", err)
