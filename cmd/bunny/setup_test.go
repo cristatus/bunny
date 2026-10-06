@@ -71,12 +71,19 @@ func defaultPaths(t *testing.T) *paths.Paths {
 	return p
 }
 
-// stubDesktop decides whether setup sees a graphical session.
+// stubDesktop decides whether setup sees a graphical session, with a systemd
+// user manager behind it.
 func stubDesktop(t *testing.T, desktop bool) {
 	t.Helper()
-	prev := desktopSession
+	stubSession(t, desktop, true)
+}
+
+func stubSession(t *testing.T, desktop, systemd bool) {
+	t.Helper()
+	prevDesktop, prevSystemd := desktopSession, systemdSession
 	desktopSession = func() bool { return desktop }
-	t.Cleanup(func() { desktopSession = prev })
+	systemdSession = func() bool { return systemd }
+	t.Cleanup(func() { desktopSession, systemdSession = prevDesktop, prevSystemd })
 }
 
 func TestRcHasBunnyInit(t *testing.T) {
@@ -282,6 +289,29 @@ func TestSetupCmdHeadlessSkipsSessionEnv(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "environment.d", "bunny.conf")); err != nil {
 		t.Errorf("--desktop must write environment.d: %v", err)
+	}
+}
+
+// A desktop without a systemd user manager never reads environment.d, so
+// setup reaches it through ~/.profile instead, with the POSIX snippet.
+func TestSetupCmdWithoutSystemdUsesTheProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	stubSession(t, true, false)
+	a := &App{Paths: paths.At(t.TempDir())}
+
+	for range 2 {
+		if err := (&SetupCmd{Shell: "zsh"}).Run(a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "environment.d", "bunny.conf")); !os.IsNotExist(err) {
+		t.Errorf("environment.d is pointless without systemd: %v", err)
+	}
+	data, _ := os.ReadFile(filepath.Join(home, ".profile"))
+	if strings.Count(string(data), "init sh)") != 1 {
+		t.Errorf("~/.profile should run the sh snippet exactly once:\n%s", data)
 	}
 }
 

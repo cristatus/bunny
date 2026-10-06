@@ -117,11 +117,12 @@ func TestInitSnippetSetsManpath(t *testing.T) {
 // The snippet and the rc line are shell code with paths in them. A HOME or
 // $BUNNY_HOME holding a space or a quote split PATH or broke the eval, and
 // zsh's compinit guard left status 1 behind when compinit had not run, which a
-// prompt showing $? reports on every new shell. Run both for real.
+// prompt showing $? reports on every new shell. Run each for real, sh
+// included: it is what reads ~/.profile on a desktop without systemd.
 func TestInitSnippetSurvivesTheShell(t *testing.T) {
 	root := filepath.Join(t.TempDir(), `it's a $dir "x"`)
 	p := paths.At(root)
-	for _, shell := range []string{"bash", "zsh"} {
+	for _, shell := range []string{"bash", "zsh", "sh"} {
 		exe, err := exec.LookPath(shell)
 		if err != nil {
 			t.Logf("%s not installed", shell)

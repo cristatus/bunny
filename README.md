@@ -200,7 +200,8 @@ A path a tool resolved through the link, such as a JVM's `java.home`, keeps
 working until then.
 
 Outside the root, `bunny setup` adds one line to your shell rc and, on a
-desktop, `~/.config/environment.d/bunny.conf`, which puts `~/.bunny/share` on
+desktop, `~/.config/environment.d/bunny.conf` (or, without a systemd user
+session, a line in `~/.profile`), which puts `~/.bunny/share` on
 `XDG_DATA_DIRS` so the desktop finds bunny's applications. Log out and back in
 once after the first setup; later installs appear without it.
 

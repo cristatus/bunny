@@ -248,6 +248,16 @@ func SessionEnvFile() (string, error) {
 	return filepath.Join(cfg, "environment.d", "bunny.conf"), nil
 }
 
+// ProfileFile is the login profile display managers source, which setup
+// writes to when there is no systemd user manager to read SessionEnvFile.
+func ProfileFile() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".profile"), nil
+}
+
 // CurrentDir holds one link per capability to its active provider, a path
 // that follows `bunny use` for an IDE or script to point at.
 func (p *Paths) CurrentDir() string { return filepath.Join(p.Root, "current") }

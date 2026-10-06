@@ -31,7 +31,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   log out and back in once after the first setup. Existing installs under the
   XDG directories are not migrated: reinstall.
 - `bunny setup` writes the desktop session env only in a graphical session, or
-  with `--desktop`.
+  with `--desktop`: to environment.d under a systemd user session, otherwise
+  as a `bunny init sh` line in `~/.profile`.
 - `bunny info` shows where an installed package is.
 - Pins select package IDs and follow updates in place. Removed `--exact` and
   `package@version` pins.

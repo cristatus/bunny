@@ -14,7 +14,7 @@ import (
 // (no side effects): `bunny setup` wires it into the rc as an eval, so it runs
 // on every shell start.
 type InitCmd struct {
-	Shell string `arg:"" optional:"" enum:"bash,zsh,fish" default:"bash" help:"Shell type (bash, zsh, or fish)"`
+	Shell string `arg:"" optional:"" enum:"bash,zsh,fish,sh" default:"bash" help:"Shell type (bash, zsh, fish, or sh for ~/.profile)"`
 }
 
 func (c *InitCmd) Run(a *App) error {

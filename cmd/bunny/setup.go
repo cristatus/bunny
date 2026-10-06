@@ -6,26 +6,26 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/log"
 
+	"github.com/cristatus/bunny/internal/doctor"
 	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/ui"
 )
 
-// desktopSession reports whether setup runs inside a graphical session, the
-// only place the session env matters: the desktop finds bunny's entries and
-// icons through XDG_DATA_DIRS. A var so tests can drive both branches.
-var desktopSession = func() bool {
-	for _, name := range []string{"XDG_CURRENT_DESKTOP", "WAYLAND_DISPLAY", "DISPLAY"} {
-		if os.Getenv(name) != "" {
-			return true
-		}
-	}
-	return false
+// desktopSession is doctor.DesktopSession, a var so tests can drive both
+// branches.
+var desktopSession = doctor.DesktopSession
+
+// systemdSession reports whether a systemd user manager is there to read
+// environment.d. Without one, setup reaches the desktop through ~/.profile,
+// which display managers source at login. A var so tests can drive both.
+var systemdSession = func() bool {
+	_, ok := doctor.SessionDataDirs()
+	return ok
 }
 
 // sessionEnvContent is bunny's environment.d file. The system data dirs are
@@ -95,10 +95,9 @@ func rcPathForShell(shell string) (string, error) {
 	}
 }
 
-var bunnyInitRe = regexp.MustCompile(`bunny\s+init`)
-
-// rcHasBunnyInit reports whether an rc already invokes `bunny init` in any form.
-func rcHasBunnyInit(content string) bool { return bunnyInitRe.MatchString(content) }
+// rcHasBunnyInit reports whether an rc mentions `bunny init` in any form, a
+// commented-out line included: setup leaves a line the user disabled alone.
+func rcHasBunnyInit(content string) bool { return doctor.BunnyInitRe.MatchString(content) }
 
 // initEvalLine is the line setup appends to the rc. Absolute bunny path so it
 // resolves before PATH is set; fish uses `| source`, others `eval`.
@@ -191,7 +190,7 @@ func staleRcInit(rcPath, root, shell string) string {
 	var stale string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") || !bunnyInitRe.MatchString(line) {
+		if strings.HasPrefix(line, "#") || !doctor.BunnyInitRe.MatchString(line) {
 			continue
 		}
 		pinned := strings.Contains(line, paths.EnvHome+"=")
@@ -206,7 +205,8 @@ func staleRcInit(rcPath, root, shell string) string {
 }
 
 // SetupCmd is the one-shot installer: shell completions, the shell rc `bunny
-// init` line and, on a desktop, the session env (environment.d).
+// init` line and, on a desktop, the session env (environment.d, or ~/.profile
+// without a systemd user manager).
 type SetupCmd struct {
 	Shell   string `help:"Shell to configure: bash, zsh, or fish (auto-detected from $SHELL if omitted)"`
 	Desktop bool   `help:"Write the desktop session env even when no graphical session is detected"`
@@ -235,7 +235,8 @@ func (c *SetupCmd) Run(a *App) error {
 
 		desktop := c.Desktop || desktopSession()
 		wroteEnv := false
-		if desktop {
+		switch {
+		case desktop && systemdSession():
 			envPath, wrote, err := writeEnvironmentD(a.Paths)
 			if err != nil {
 				return fmt.Errorf("write environment.d: %w", err)
@@ -246,6 +247,22 @@ func (c *SetupCmd) Run(a *App) error {
 				p.Println("wrote session env to " + tildePath(envPath))
 			} else {
 				p.Println("session env " + tildePath(envPath) + " up to date")
+			}
+		case desktop:
+			profile, err := paths.ProfileFile()
+			if err != nil {
+				return err
+			}
+			added, err := ensureRcInit(profile, pinnedRoot(a.Paths), filepath.Join(bin, "bunny"), "sh")
+			if err != nil {
+				return fmt.Errorf("configure %s: %w", profile, err)
+			}
+			wroteEnv = added
+			if added {
+				log.Info("Added bunny init to the login profile", "path", profile)
+				p.Println("added bunny init to " + tildePath(profile) + " for the desktop session")
+			} else {
+				p.Println(tildePath(profile) + " already configured")
 			}
 		}
 

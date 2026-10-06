@@ -20,6 +20,7 @@ func stubSession(t *testing.T, desktop bool, dirs string, known bool) {
 // something the desktop should find.
 func withEntry(t *testing.T) *paths.Paths {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	p := paths.At(t.TempDir())
 	if err := os.MkdirAll(p.Desktop(), 0755); err != nil {
@@ -60,9 +61,29 @@ func TestSessionCheckFindsTheShareDir(t *testing.T) {
 	if got := SessionCheck(p); len(got) != 1 || got[0].Severity != OK {
 		t.Errorf("got %+v, want OK", got)
 	}
+}
+
+// Without a systemd user manager, ~/.profile running `bunny init` is how
+// setup reaches the session, so it is what doctor looks for.
+func TestSessionCheckWithoutSystemdLooksAtTheProfile(t *testing.T) {
+	p := withEntry(t)
 	stubSession(t, true, "", false)
+	if got := SessionCheck(p); len(got) != 1 || got[0].Severity != Warn || got[0].Fix != "bunny setup" {
+		t.Fatalf("no profile line: got %+v, want a warning to run setup", got)
+	}
+	profile := filepath.Join(os.Getenv("HOME"), ".profile")
+	// A commented-out line runs nothing, so the session never gets the env.
+	if err := os.WriteFile(profile, []byte(`# eval "$(/h/.bunny/bin/bunny init sh)"`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := SessionCheck(p); len(got) != 1 || got[0].Severity != Warn {
+		t.Fatalf("commented-out profile line: got %+v, want a warning", got)
+	}
+	if err := os.WriteFile(profile, []byte(`eval "$(/h/.bunny/bin/bunny init sh)"`+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if got := SessionCheck(p); len(got) != 1 || got[0].Severity != OK {
-		t.Errorf("an unaskable session is not a finding: got %+v", got)
+		t.Errorf("profile line present: got %+v, want OK", got)
 	}
 }
 
