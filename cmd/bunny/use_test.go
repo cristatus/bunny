@@ -57,6 +57,9 @@ func TestUseSwitchesProviderCommandShims(t *testing.T) {
 	if _, err := os.Lstat(p.Shim("new-only")); err != nil {
 		t.Fatalf("new provider shim missing: %v", err)
 	}
+	if target, err := os.Readlink(p.Current("node")); err != nil || target != "../cli/node-24" {
+		t.Errorf("current/node = %q, %v; want it to follow the switch to node-24", target, err)
+	}
 	if owner, ok := a.State.CommandOwner("new-only"); !ok || owner != "node-24" {
 		t.Fatalf("new provider command owner = %q, %v", owner, ok)
 	}

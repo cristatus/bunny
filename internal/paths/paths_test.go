@@ -81,8 +81,11 @@ func TestSingleRootLayout(t *testing.T) {
 		{p.AppData("vscode"), "/x/data/vscode"},
 		{p.Cache(), "/x/cache"},
 		{p.AppDownloadCache("vscode"), "/x/cache/vscode"},
-		{p.Staging(manifest.KindSDK), "/x/sdk/.staging"},
-		{p.StagingBeside("/x/app/vscode"), "/x/app/.staging/vscode"},
+		{p.Store(), "/x/store"},
+		{p.PackageStore("jdk-21"), "/x/store/jdk-21"},
+		{p.VersionDir("jdk-21", "21.0.9"), "/x/store/jdk-21/21.0.9"},
+		{p.Staging(), "/x/staging"},
+		{p.StagingDir("jdk-21"), "/x/staging/jdk-21"},
 		{p.StateFile(), "/x/state/state.json"},
 		{p.MutationLock(), "/x/state/mutation.lock"},
 		{p.ManifestFile("vscode"), "/x/state/manifests/vscode.yaml"},
@@ -154,32 +157,11 @@ func TestResolveCleansAbsoluteRoot(t *testing.T) {
 	}
 }
 
-// Staging must sit inside the root it will be renamed into. Installing
-// finishes with rename(2), which cannot cross filesystems, so this has to hold
-// for every kind.
-func TestStagingIsSiblingOfInstallTarget(t *testing.T) {
-	for _, p := range []*Paths{At("/x")} {
-		for _, kind := range manifest.Kinds {
-			root := p.InstallRoot(kind)
-			if got := filepath.Dir(p.Staging(kind)); got != root {
-				t.Errorf("%s: staging parent = %q, want %q", kind, got, root)
-			}
-			staged := p.StagingBeside(p.InstallDir("node-22", kind))
-			if got := filepath.Dir(staged); got != p.Staging(kind) {
-				t.Errorf("%s: per-app staging parent = %q, want %q", kind, got, p.Staging(kind))
-			}
-			if filepath.Dir(staged) == filepath.Dir(p.InstallDir("node-22", kind)) {
-				t.Errorf("%s: staging must not collide with the install dirs it is renamed into", kind)
-			}
-		}
-	}
-}
-
 // A sandbox grants LayoutRoots read-only, so it has to name every place a
 // shim looks.
 func TestLayoutRoots(t *testing.T) {
 	p := At("/x")
-	want := []string{"/x/app", "/x/bin", "/x/cli", "/x/sdk", "/x/state/manifests", "/x/state/state.json"}
+	want := []string{"/x/app", "/x/bin", "/x/cli", "/x/sdk", "/x/state/manifests", "/x/state/state.json", "/x/store"}
 	if got := p.LayoutRoots(); !slices.Equal(got, want) {
 		t.Errorf("LayoutRoots() = %v, want %v", got, want)
 	}

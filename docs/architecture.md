@@ -25,6 +25,15 @@ moves the root. A package installs under the root for its kind (`sdk/`, `cli/`,
 `app/`), and `state.json` records the kind it was installed as, so a package
 whose kind later changes in the catalog is still found where it is.
 
+A package's path is a relative link into `store/<id>/<version>`, one tree per
+installed version. An install builds in `staging/<id>/`, moves the tree into
+the store, then switches the link with a rename; the install journal records
+the old link, so an interrupted install restores it. Updates remove no version:
+a process started from one may still be running, and a path a tool resolved
+through the link stays valid until `bunny clean` removes the versions no link
+points at. `current/<capability>` links to each capability's active provider and
+is rebuilt from state after every install, uninstall, and `bunny use`.
+
 `internal/config` is the source of truth for activation and user policy: it
 decides whether tool data is redirected and which exact package IDs run in the
 optional sandbox. Manifests carry no sandbox policy at all: it is the user's
@@ -87,8 +96,9 @@ reverse-dependency discovery fast without fetching remote manifests.
 
 ## Mutation transactions
 
-An install stages downloads and extracted files in a `.staging` directory on the
-destination filesystem before swapping the app directory into place. Shims,
+An install stages downloads and extracted files in `~/.bunny/staging`, on the
+same filesystem as the store, before moving the tree into the store and
+switching the package's link to it. Shims,
 desktop entries, manifest snapshots, and state are then committed with
 compensating rollback for failures. State acts as the commit record: it is never
 persisted until runnable binaries and manifest snapshots are verified.

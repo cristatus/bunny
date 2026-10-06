@@ -404,3 +404,34 @@ func TestPrepareDependencyHonorsProjectPin(t *testing.T) {
 		})
 	}
 }
+
+// {app} at launch is the version the package's link points at, so a process
+// keeps that tree when an update switches the link underneath it.
+func TestPrepareResolvesAppToTheLinkedVersion(t *testing.T) {
+	root := t.TempDir()
+	p := paths.At(root)
+	tree := p.VersionDir("foo", "1.0")
+	for _, dir := range []string{tree, p.InstallRoot(manifest.KindCLI)} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join("..", "store", "foo", "1.0"), p.InstallDir("foo", manifest.KindCLI)); err != nil {
+		t.Fatal(err)
+	}
+	m := &manifest.Manifest{
+		ID: "foo", Version: "1.0",
+		Bin: []manifest.Binary{{Name: "foo", Path: "{app}/foo"}},
+		Env: map[string]string{"FOO_HOME": "{app}"},
+	}
+	prep, err := (&Launcher{Paths: p, Catalog: stubCat{}, State: state.Empty()}).Prepare(m, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(tree, "foo"); prep.BinPath != want {
+		t.Errorf("BinPath = %q, want %q", prep.BinPath, want)
+	}
+	if !envHas(prep.Env, "FOO_HOME="+tree) {
+		t.Errorf("FOO_HOME should name the version tree %s: %v", tree, lastEntries(prep.Env, 3))
+	}
+}

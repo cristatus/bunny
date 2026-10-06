@@ -45,8 +45,8 @@ func NewCleaner(p *paths.Paths, cat catalog.Loader, st *state.State) *Cleaner {
 
 // Clean runs the cleanup pass.
 //
-//	id == "":  scan everything under the cache and staging roots.
-//	id != "":  scope to one app (cache + staging for that id only).
+//	id == "":  scan everything under the cache, staging and store roots.
+//	id != "":  scope to one app (cache, staging and store for that id only).
 //	all:       drop all download cache, including for installed apps.
 func (c *Cleaner) Clean(id string, all bool) (*Report, error) {
 	r := &Report{}
@@ -57,10 +57,12 @@ func (c *Cleaner) Clean(id string, all bool) (*Report, error) {
 		}
 		c.cleanOneCache(r, id, all)
 		c.cleanOneStaging(r, id)
+		c.cleanStore(r, id)
 		return r, errors.Join(r.Errors...)
 	}
 
 	c.cleanAllStaging(r)
+	c.cleanStore(r, "")
 	c.cleanAllCache(r, all)
 	return r, errors.Join(r.Errors...)
 }
@@ -82,17 +84,33 @@ func (c *Cleaner) cleanOneCache(r *Report, id string, all bool) {
 	c.pruneCacheDir(r, id, dir)
 }
 
-// cleanOneStaging drops a package's abandoned staging dir. The kind that chose
-// the root is not recorded for a failed install, so every root is swept: a
-// staging dir named after the package is bunny's under any of them.
+// cleanOneStaging drops a package's abandoned staging dir.
 func (c *Cleaner) cleanOneStaging(r *Report, id string) {
-	for _, root := range c.Paths.StagingRoots() {
-		dir := filepath.Join(root, id)
-		if _, err := os.Stat(dir); err == nil {
-			c.removeAll(r, dir)
-		} else if !os.IsNotExist(err) {
-			r.Errors = append(r.Errors, fmt.Errorf("inspect staging directory %s: %w", dir, err))
+	dir := c.Paths.StagingDir(id)
+	if _, err := os.Stat(dir); err == nil {
+		c.removeAll(r, dir)
+	} else if !os.IsNotExist(err) {
+		r.Errors = append(r.Errors, fmt.Errorf("inspect staging directory %s: %w", dir, err))
+	}
+}
+
+// cleanStore drops every tree in the store no package link points at: the
+// versions updates left behind for processes that might still run them, and
+// the trees of packages no longer installed. only, when set, limits it to one
+// package.
+func (c *Cleaner) cleanStore(r *Report, only string) {
+	stale, err := StaleVersions(c.Paths, c.State)
+	if err != nil {
+		r.Errors = append(r.Errors, fmt.Errorf("read store: %w", err))
+		return
+	}
+	for _, path := range stale {
+		pkg := filepath.Dir(path)
+		if only != "" && filepath.Base(pkg) != only {
+			continue
 		}
+		c.removeAll(r, path)
+		_ = os.Remove(pkg) // the package's store dir, once nothing is left in it
 	}
 }
 
@@ -141,20 +159,19 @@ func (c *Cleaner) cleanAllCache(r *Report, all bool) {
 }
 
 func (c *Cleaner) cleanAllStaging(r *Report) {
-	for _, stagingRoot := range c.Paths.StagingRoots() {
-		entries, err := os.ReadDir(stagingRoot)
-		if err != nil {
-			if !os.IsNotExist(err) {
-				r.Errors = append(r.Errors, fmt.Errorf("read staging directory %s: %w", stagingRoot, err))
-			}
-			continue
+	staging := c.Paths.Staging()
+	entries, err := os.ReadDir(staging)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			r.Errors = append(r.Errors, fmt.Errorf("read staging directory %s: %w", staging, err))
 		}
-		for _, e := range entries {
-			if isDisposableMarker(e.Name()) {
-				continue // keep the dir tagged disposable even when empty
-			}
-			c.removeAll(r, filepath.Join(stagingRoot, e.Name()))
+		return
+	}
+	for _, e := range entries {
+		if isDisposableMarker(e.Name()) {
+			continue // keep the dir tagged disposable even when empty
 		}
+		c.removeAll(r, filepath.Join(staging, e.Name()))
 	}
 }
 

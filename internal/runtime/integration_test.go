@@ -90,13 +90,19 @@ func probeIn(t *testing.T, home, configYAML, script string, env ...string) (stri
 		}
 	}
 	must(os.MkdirAll(filepath.Join(root, "state", "manifests"), 0o755))
-	must(os.MkdirAll(filepath.Join(root, "cli", "probe"), 0o755))
+	// The package's path is a link into the store, as an install leaves it.
+	tree := filepath.Join(root, "store", "probe", "1.0")
+	must(os.MkdirAll(tree, 0o755))
+	must(os.MkdirAll(filepath.Join(root, "cli"), 0o755))
+	if _, err := os.Lstat(filepath.Join(root, "cli", "probe")); os.IsNotExist(err) {
+		must(os.Symlink(filepath.Join("..", "store", "probe", "1.0"), filepath.Join(root, "cli", "probe")))
+	}
 	must(os.MkdirAll(filepath.Join(root, "config"), 0o755))
 	must(os.WriteFile(filepath.Join(root, "state", "manifests", "probe.yaml"), []byte(
 		"id: probe\nname: Probe\nversion: \"1.0\"\n"+
 			"sources:\n  - url: https://example.invalid/p.tar.gz\n    sha256: \""+strings.Repeat("0", 64)+"\"\n"+
 			"bin:\n  - name: probe\n    path: \"{app}/probe.sh\"\n"), 0o644))
-	must(os.WriteFile(filepath.Join(root, "cli", "probe", "probe.sh"),
+	must(os.WriteFile(filepath.Join(tree, "probe.sh"),
 		[]byte("#!/bin/sh\n"+script+"\n"), 0o755))
 	must(os.WriteFile(filepath.Join(root, "state", "state.json"), []byte(
 		`{"version":1,"updated":"2026-01-01T00:00:00Z","packages":{"probe":`+
@@ -148,6 +154,52 @@ echo "write-data: $(touch "$HOME/ok" && echo yes || echo no)"`
 	}
 	if !strings.Contains(out, "write-data: yes") {
 		t.Errorf("package data must stay writable:\n%s", out)
+	}
+}
+
+// A shim inside the boundary re-enters bunny and runs another package through
+// its link in an install root, which points into the store. Both have to be
+// readable for that link to resolve.
+func TestHardenedResolvesAnotherPackageThroughItsLink(t *testing.T) {
+	have(t, "bwrap")
+	home := t.TempDir()
+	root := filepath.Join(home, ".bunny")
+	other := filepath.Join(root, "store", "other", "1.0")
+	for _, dir := range []string{other, filepath.Join(root, "cli")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(other, "data"), []byte("reached"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "store", "other", "1.0"), filepath.Join(root, "cli", "other")); err != nil {
+		t.Fatal(err)
+	}
+	out, code := probeIn(t, home, "sandbox:\n  packages:\n    probe:\n      boundary: hardened\n",
+		`cat "$OTHER"`, "OTHER="+filepath.Join(root, "cli", "other", "data"))
+	if code != 0 || !strings.Contains(out, "reached") {
+		t.Fatalf("another package's link did not resolve inside the boundary (%d):\n%s", code, out)
+	}
+}
+
+// A ~/.bunny that links to another disk keeps working inside the boundary:
+// the package's tree is bound at its version, and everything else at the
+// paths its BUNNY_HOME names.
+func TestHardenedRunsFromALinkedRoot(t *testing.T) {
+	have(t, "bwrap")
+	home := t.TempDir()
+	elsewhere := filepath.Join(t.TempDir(), "bunny")
+	if err := os.MkdirAll(elsewhere, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(home, ".bunny")); err != nil {
+		t.Fatal(err)
+	}
+	out, code := probeIn(t, home, "sandbox:\n  packages:\n    probe:\n      boundary: hardened\n",
+		`test -r "$BUNNY_HOME/state/state.json" && echo "root: reachable"`)
+	if code != 0 || !strings.Contains(out, "root: reachable") {
+		t.Fatalf("hardened launch from a linked root failed (%d):\n%s", code, out)
 	}
 }
 

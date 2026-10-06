@@ -10,6 +10,7 @@ import (
 
 	"github.com/cristatus/bunny/internal/catalog"
 	"github.com/cristatus/bunny/internal/config"
+	"github.com/cristatus/bunny/internal/fsutil"
 	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/shim"
@@ -87,7 +88,7 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 		}
 	}
 
-	vars := l.Paths.Vars(m.ID, m.Version)
+	vars := l.launchVars(m.ID, m.Version)
 	binPath := manifest.Expand(bin.Path, vars)
 
 	if err := os.MkdirAll(vars["data"], 0755); err != nil {
@@ -127,12 +128,25 @@ func (l *Launcher) Prepare(m *manifest.Manifest, name string, userArgs []string)
 	}, nil
 }
 
+// launchVars is Vars for a launch: {app} names the version the package's link
+// points at now, not the link. A process keeps that tree for its whole run,
+// so a JAVA_HOME or a classpath built from {app} does not move to another
+// version when an update switches the link underneath it. Without a link to
+// resolve, {app} stays the package's path.
+func (l *Launcher) launchVars(id, version string) map[string]string {
+	vars := l.Paths.Vars(id, version)
+	if tree, err := fsutil.LinkTarget(vars["app"]); err == nil {
+		vars["app"] = tree
+	}
+	return vars
+}
+
 // PrepareGlobal builds a Prepared for a runtime-installed global executable
 // (e.g. an `npm -g` binary) owned by provider package m. It applies the
 // provider's env (+ requires chain) and execs exePath directly — no manifest
 // bin: lookup, since the executable was installed at runtime, not by bunny.
 func (l *Launcher) PrepareGlobal(m *manifest.Manifest, exePath string, userArgs []string) (*Prepared, error) {
-	vars := l.Paths.Vars(m.ID, m.Version)
+	vars := l.launchVars(m.ID, m.Version)
 	env, depRoots, injected, err := l.buildEnv(m, vars)
 	if err != nil {
 		return nil, err
@@ -211,7 +225,7 @@ func (l *Launcher) mergeDepEnv(builder *envBuilder, reqs []string) ([]string, er
 			log.Debug("Launching without required dependency env (manifest unavailable)", "requires", req, "provider", providerID, "error", err)
 			continue
 		}
-		depVars := l.Paths.Vars(providerID, dep.Version)
+		depVars := l.launchVars(providerID, dep.Version)
 		if app := depVars["app"]; app != "" {
 			depRoots = append(depRoots, app)
 		}

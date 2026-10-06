@@ -180,15 +180,24 @@ Everything bunny installs lives under one root, `~/.bunny`:
 ```
 ~/.bunny/
 ├── bin/                    Bunny binary and symlink shims (argv[0] dispatch)
-├── sdk/{id}/               SDKs and toolchains (JDKs, Node, Maven, Gradle)
-├── cli/{id}/               Standalone CLI tools (ripgrep, jq, gh)
-├── app/{id}/               GUI applications (code, zed, idea)
+├── sdk/{id}                SDKs and toolchains (JDKs, Node, Maven, Gradle)
+├── cli/{id}                Standalone CLI tools (ripgrep, jq, gh)
+├── app/{id}                GUI applications (code, zed, idea)
+├── store/{id}/{version}/   One tree per installed version; {kind}/{id} links to one
+├── staging/                Installs in progress
+├── current/{capability}    The active provider, e.g. current/jdk → sdk/jdk-21
 ├── data/{id}/              Per-package data directories ({data} placeholder)
 ├── share/                  Desktop entries, icons, man pages, completions
 ├── cache/                  Downloads and catalog index
 ├── state/                  state.json, manifest snapshots, mutation lock
 └── config/config.yaml      User configuration
 ```
+
+An update unpacks the new version beside the old ones and switches the link, so
+a running IDE or Gradle daemon keeps the tree it started from. Old versions stay
+until `bunny clean` removes them; `bunny doctor` counts them.
+A path a tool resolved through the link, such as a JVM's `java.home`, keeps
+working until then.
 
 Outside the root, `bunny setup` adds one line to your shell rc and, on a
 desktop, `~/.config/environment.d/bunny.conf`, which puts `~/.bunny/share` on
@@ -197,10 +206,12 @@ once after the first setup; later installs appear without it.
 
 Set `$BUNNY_HOME` to an absolute path to use another root.
 
-For a shorter path, such as a JDK home to pick in an IDE, link to bunny's:
+Point an IDE or script at `~/.bunny/sdk/jdk-21` to keep that JDK across
+updates, or at `~/.bunny/current/jdk` to follow `bunny use`. For a shorter
+path, link to bunny's:
 
 ```bash
-ln -s ~/.bunny/sdk/jdk-21 ~/opt/jdk-21
+ln -s ~/.bunny/current/jdk ~/opt/jdk
 ```
 
 Links you create are yours: bunny never updates or removes them, so a link to

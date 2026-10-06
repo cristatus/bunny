@@ -636,45 +636,6 @@ func TestForceInstallRollsBackWhenNewDesktopIntegrationFails(t *testing.T) {
 	}
 }
 
-func TestSwapPathsLeaveDanglingSymlinksAlone(t *testing.T) {
-	for _, suffix := range []string{".old", ".delete"} {
-		t.Run(suffix, func(t *testing.T) {
-			src := filepath.Join(t.TempDir(), "payload")
-			if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
-				t.Fatal(err)
-			}
-			m := &manifest.Manifest{
-				ID: "tool", Name: "tool", Version: "1",
-				Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
-				Bin:     []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
-			}
-			i := installerWith(t, map[string]*manifest.Manifest{"tool": m}, nil)
-			if err := i.Install(context.Background(), "tool", false, nil); err != nil {
-				t.Fatal(err)
-			}
-			swap := i.Paths.AppDir("tool") + suffix
-			if err := os.Symlink("missing", swap); err != nil {
-				t.Fatal(err)
-			}
-			var err error
-			if suffix == ".old" {
-				err = i.Install(context.Background(), "tool", true, nil)
-			} else {
-				err = i.Uninstall("tool", false)
-			}
-			if err == nil {
-				t.Fatal("expected the swap path to be refused")
-			}
-			if info, statErr := os.Lstat(swap); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
-				t.Fatalf("dangling symlink was removed: %v", statErr)
-			}
-			if !i.State.IsInstalled("tool") {
-				t.Fatal("failed operation changed installed state")
-			}
-		})
-	}
-}
-
 func TestUninstallRejectsBreakingLastRequiredProvider(t *testing.T) {
 	src := filepath.Join(t.TempDir(), "x")
 	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
@@ -1248,71 +1209,6 @@ func TestIntegrationFilesFallBackToTheManifestForAnUnrecordedInstall(t *testing.
 	}
 	if _, err := os.Stat(filepath.Join(i.Paths.BashCompletions(), "marker")); !os.IsNotExist(err) {
 		t.Errorf("an unrecorded install's declared completion must still be removed: %v", err)
-	}
-}
-
-// A swap parks the current tree at <dir>.old (reinstall) or <dir>.delete
-// (uninstall) and cleared whatever already sat there first. Install roots are
-// configurable, so that sibling may be the user's: only a tree carrying this
-// package's marker, left by a run that died mid-swap, may be cleared.
-func TestSwapSiblingsBunnyDidNotCreateAreRefused(t *testing.T) {
-	src := filepath.Join(t.TempDir(), "payload")
-	if err := os.WriteFile(src, []byte("x"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	m := &manifest.Manifest{
-		ID: "tool", Name: "Tool", Version: "1",
-		Sources: []manifest.Source{{URL: "file://" + src, SHA256: sha256Of("x")}},
-		Bin:     []manifest.Binary{{Name: "tool", Path: "{app}/tool"}},
-	}
-	i := installerWith(t, map[string]*manifest.Manifest{"tool": m}, nil)
-	if err := i.Install(context.Background(), "tool", false, nil); err != nil {
-		t.Fatal(err)
-	}
-	appDir := i.Paths.AppDir("tool")
-
-	for _, tc := range []struct {
-		suffix string
-		run    func() error
-	}{
-		{".old", func() error { return i.Install(context.Background(), "tool", true, nil) }},
-		{".delete", func() error { return i.Uninstall("tool", false) }},
-	} {
-		sibling := appDir + tc.suffix
-		keep := filepath.Join(sibling, "notes.txt")
-		if err := os.MkdirAll(sibling, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(keep, []byte("mine"), 0644); err != nil {
-			t.Fatal(err)
-		}
-		if err := tc.run(); err == nil {
-			t.Errorf("%s: a sibling bunny did not create must be refused", tc.suffix)
-		}
-		if data, err := os.ReadFile(keep); err != nil || string(data) != "mine" {
-			t.Errorf("%s: the user's directory was destroyed: %q, %v", tc.suffix, data, err)
-		}
-		if !i.State.IsInstalled("tool") {
-			t.Fatalf("%s: a refused swap must leave the install in place", tc.suffix)
-		}
-
-		// The same path holding this package's own tree is a leftover from an
-		// interrupted swap, and clearing it is what lets the next run proceed.
-		if err := os.RemoveAll(sibling); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(sibling, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := writePackageMarker(sibling, packageMarker{ID: "tool", Version: "1"}); err != nil {
-			t.Fatal(err)
-		}
-		if err := tc.run(); err != nil {
-			t.Errorf("%s: a leftover of this package's own tree must be cleared: %v", tc.suffix, err)
-		}
-	}
-	if i.State.IsInstalled("tool") {
-		t.Error("the final uninstall should have gone through")
 	}
 }
 

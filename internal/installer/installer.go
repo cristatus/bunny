@@ -145,7 +145,10 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 
 	kind := m.KindOf()
 	destDir := i.destination(id, kind)
-	workDir := i.Paths.StagingBeside(destDir)
+	// The build has its own directory under the package's staging dir, which
+	// also holds what a reinstall sets aside: clearing the build must never
+	// reach the only copy of the tree being replaced.
+	workDir := filepath.Join(i.Paths.StagingDir(id), "build")
 	srcDir := filepath.Join(workDir, "src")
 	pkgDir := filepath.Join(workDir, "pkg")
 	// seedDir stands in for {data} inside the sandbox: prepare writes to the
@@ -153,7 +156,12 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	// the install commits.
 	seedDir := filepath.Join(workDir, "seed")
 	dataDir := i.Paths.AppData(id)
-	cleanup := func() { os.RemoveAll(workDir) }
+	// Removing the package's staging dir succeeds only once it is empty, so
+	// a tree a reinstall set aside there is never swept with the build.
+	cleanup := func() {
+		os.RemoveAll(workDir)
+		os.Remove(filepath.Dir(workDir))
+	}
 
 	log.Debug("Install layout", "package", id, "kind", kind,
 		"target", destDir, "staging", workDir,
@@ -176,7 +184,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	// Tag the download cache and the staging root as disposable so backup
 	// tools skip them.
 	markDisposable(i.Paths.Cache())
-	markDisposable(filepath.Dir(workDir))
+	markDisposable(i.Paths.Staging())
 
 	// {data} expands to the path the package will really see at run time, so a
 	// manifest can bake it into a config file and seed that same directory in
@@ -223,12 +231,11 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		cleanup()
 		return fmt.Errorf("mark install tree: %w", err)
 	}
-	if err := i.preflightPlacement(id, destDir, force); err != nil {
+	if err := i.preflightPlacement(id, m.Version, destDir, force); err != nil {
 		cleanup()
 		return err
 	}
-	_, hadExisting := i.State.Packages[id]
-	journal, err := startInstallTransaction(i, id, destDir, workDir, m.Version, hadExisting,
+	journal, err := startInstallTransaction(i, id, destDir, workDir, m.Version,
 		appendMissing(slices.Clone(replacedCommands), changedCommands...))
 	if err != nil {
 		cleanup()
@@ -236,7 +243,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 
 	hook.Phase("installing")
-	placed, err := i.place(id, destDir, pkgDir, force)
+	placed, err := i.place(id, m.Version, destDir, pkgDir)
 	if err != nil {
 		cleanup()
 		return err
@@ -322,7 +329,10 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 	commitErr := placed.Commit()
 	if commitErr != nil {
-		log.Warn("Failed to remove previous install backup", "package", id, "error", commitErr)
+		log.Warn("Failed to remove replaced versions", "package", id, "error", commitErr)
+	}
+	if err := SyncCurrent(i.Paths, i.State); err != nil {
+		log.Warn("Failed to update current links", "error", err)
 	}
 
 	// Merge what prepare wrote through the {data} shadow, once nothing can roll
@@ -513,7 +523,10 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 	}
 	var cleanupErrs []error
 	if err := removed.Commit(); err != nil {
-		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove staged app directory: %w", err))
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove installed versions: %w", err))
+	}
+	if err := SyncCurrent(i.Paths, i.State); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("update current links: %w", err))
 	}
 	// Drop the manifest cache so a future Manager.loadInstalledManifest doesn't
 	// keep returning a stale view of an uninstalled package. Best effort —
@@ -706,31 +719,47 @@ func (i *Installer) runPrepare(ctx context.Context, m *manifest.Manifest, workDi
 	return i.Prepare(ctx, workDir, srcDir, shadow, m.Prepare, vars)
 }
 
-// placement tracks a staged app-dir swap until state has been saved.
+// placement tracks a version swap until state has been saved.
 type placement struct {
-	finalDir    string
-	backupDir   string
-	hadExisting bool
+	finalDir string // the package's path, a link into the store
+	storeDir string // the tree this install placed
+	// prevTarget is what the link held before, "" when there was none.
+	prevTarget string
+	// storeBackup is the same version's earlier tree, set aside by --force.
+	storeBackup string
+	tmpLink     string
 }
 
+// Commit drops a tree --force replaced. Other versions stay: a process
+// started from one may still be running, and `bunny clean` removes them.
 func (p *placement) Commit() error {
-	if !p.hadExisting {
+	if p.storeBackup == "" {
 		return nil
 	}
-	return removeOwnedTree(p.backupDir)
+	return removeOwnedTree(p.storeBackup)
 }
 
 func (p *placement) Rollback() error {
-	if p.hadExisting {
-		if err := os.RemoveAll(p.finalDir); err != nil {
-			return err
-		}
-		return os.Rename(p.backupDir, p.finalDir)
+	var linkErr error
+	if p.prevTarget != "" {
+		linkErr = pointLink(p.finalDir, p.prevTarget, p.tmpLink)
+	} else if err := os.Remove(p.finalDir); err != nil && !os.IsNotExist(err) {
+		linkErr = err
 	}
-	return os.RemoveAll(p.finalDir)
+	return errors.Join(linkErr, p.restoreStore())
 }
 
-// destination is where an install lands: the tree a package already occupies,
+func (p *placement) restoreStore() error {
+	if err := removeOwnedTree(p.storeDir); err != nil {
+		return err
+	}
+	if p.storeBackup != "" {
+		return os.Rename(p.storeBackup, p.storeDir)
+	}
+	return nil
+}
+
+// destination is where an install lands: the path a package already occupies,
 // otherwise the root for its kind. An installed package is updated in place
 // because the catalog can change its kind, which would otherwise build a
 // second tree and abandon the first, still recorded and still on disk.
@@ -741,115 +770,126 @@ func (i *Installer) destination(id, kind string) string {
 	return i.Paths.InstallDir(id, kind)
 }
 
-func (i *Installer) preflightPlacement(id, finalDir string, force bool) error {
-	if _, err := os.Lstat(finalDir); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	if !force {
-		return fmt.Errorf("%s already exists (use --force to reinstall)", finalDir)
-	}
-	if err := i.checkOwned(finalDir, id); err != nil {
-		return err
-	}
-	if err := i.checkOwned(finalDir+".old", id); err != nil {
-		return fmt.Errorf("backup path: %w", err)
-	}
-	return nil
-}
-
-// place atomically swaps pkgDir into finalDir. For non-force installs
-// an existing target is an error. For force installs the existing dir is
-// renamed aside and kept there until the caller commits after state save. If
-// the swap itself fails, the previous install is restored before returning.
-func (i *Installer) place(id, finalDir, pkgDir string, force bool) (*placement, error) {
-	if err := os.MkdirAll(filepath.Dir(finalDir), 0755); err != nil {
-		return nil, err
-	}
+func (i *Installer) preflightPlacement(id, version, finalDir string, force bool) error {
 	if _, err := os.Lstat(finalDir); err == nil {
 		if !force {
-			return nil, fmt.Errorf("%s already exists (use --force to reinstall)", finalDir)
+			return fmt.Errorf("%s already exists (use --force to reinstall)", finalDir)
 		}
-		// --force replaces bunny's own install, never whatever else happens to
-		// be sitting at that path: install roots are configurable, so the
-		// target may be a directory the user keeps things in.
-		if err := i.checkOwned(finalDir, id); err != nil {
+		if err := i.checkLink(finalDir, id); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	return i.checkOwned(i.Paths.VersionDir(id, version), id)
+}
+
+// place moves pkgDir into the store as version, then points finalDir at it,
+// after preflightPlacement has accepted both. Reinstalling the same version
+// sets its tree aside until the caller commits after state save. If the swap
+// fails, the previous install is restored before returning.
+func (i *Installer) place(id, version, finalDir, pkgDir string) (*placement, error) {
+	stage := i.Paths.StagingDir(id)
+	p := &placement{
+		finalDir: finalDir,
+		storeDir: i.Paths.VersionDir(id, version),
+		tmpLink:  filepath.Join(stage, "build", "link"),
+	}
+	for _, dir := range []string{filepath.Dir(p.storeDir), filepath.Dir(finalDir)} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, err
 		}
-		// The sibling is cleared only when it is this package's own tree, left
-		// by an earlier run that died mid-swap: it sits in the same
-		// configurable root, so it may just as well be the user's.
-		backup := finalDir + ".old"
-		if err := i.checkOwned(backup, id); err != nil {
-			return nil, fmt.Errorf("backup path: %w", err)
-		}
-		os.RemoveAll(backup)
-		if err := os.Rename(finalDir, backup); err != nil {
-			return nil, fmt.Errorf("backup existing install: %w", err)
-		}
-		if err := os.Rename(pkgDir, finalDir); err != nil {
-			// Restore the backup so the user isn't left with no install at all.
-			if rerr := os.Rename(backup, finalDir); rerr != nil {
-				log.Error("Failed to restore previous install", "error", rerr, "backup", backup)
-			}
-			return nil, fmt.Errorf("place app dir: %w", err)
-		}
-		return &placement{finalDir: finalDir, backupDir: backup, hadExisting: true}, nil
+	}
+	if target, err := os.Readlink(finalDir); err == nil {
+		p.prevTarget = target
 	} else if !os.IsNotExist(err) {
 		return nil, fmt.Errorf("inspect install destination %s: %w", finalDir, err)
 	}
-	if err := os.Rename(pkgDir, finalDir); err != nil {
+	if _, err := os.Lstat(p.storeDir); err == nil {
+		backup := filepath.Join(stage, "replaced")
+		os.RemoveAll(backup)
+		if err := os.Rename(p.storeDir, backup); err != nil {
+			return nil, fmt.Errorf("backup existing install: %w", err)
+		}
+		p.storeBackup = backup
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err := os.Rename(pkgDir, p.storeDir); err != nil {
+		if rerr := p.restoreStore(); rerr != nil {
+			log.Error("Failed to restore previous install", "error", rerr, "backup", p.storeBackup)
+		}
 		return nil, fmt.Errorf("place app dir: %w", err)
 	}
-	return &placement{finalDir: finalDir}, nil
+	target, err := versionLinkTarget(finalDir, p.storeDir)
+	if err == nil {
+		err = pointLink(finalDir, target, p.tmpLink)
+	}
+	if err != nil {
+		if rerr := p.Rollback(); rerr != nil {
+			log.Error("Failed to restore previous install", "error", rerr)
+		}
+		return nil, fmt.Errorf("switch %s to the new version: %w", finalDir, err)
+	}
+	return p, nil
 }
 
 type removalPlacement struct {
+	id       string
+	store    string
 	finalDir string
 	trashDir string
 	existed  bool
 }
 
+// Commit deletes the moved-aside link and every tree of the package. The
+// trees go even when there was no link to move: one deleted by hand, or left
+// in staging by an earlier uninstall, must not strand them in the store.
 func (p *removalPlacement) Commit() error {
-	if !p.existed {
-		return nil
+	if err := os.Remove(p.trashDir); err != nil && !os.IsNotExist(err) {
+		return err
 	}
-	return removeOwnedTree(p.trashDir)
+	_ = os.Remove(filepath.Dir(p.trashDir)) // the package's staging dir, once empty
+	return removeVersions(p.store, p.id)
 }
 
 func (p *removalPlacement) Rollback() error {
 	if !p.existed {
 		return nil
 	}
-	if _, err := os.Stat(p.finalDir); err == nil {
-		if err := os.RemoveAll(p.finalDir); err != nil {
-			return err
-		}
-	}
 	return os.Rename(p.trashDir, p.finalDir)
 }
 
+// stageRemoveApp moves the package's link into its staging dir, leaving its
+// trees in place until the uninstall commits, so a rollback is one rename.
 func (i *Installer) stageRemoveApp(id string) (*removalPlacement, error) {
 	finalDir := i.Paths.AppDir(id)
-	trashDir := finalDir + ".delete"
+	p := &removalPlacement{
+		id:       id,
+		store:    i.Paths.PackageStore(id),
+		finalDir: finalDir,
+		trashDir: filepath.Join(i.Paths.StagingDir(id), "removed"),
+	}
 	if _, err := os.Lstat(finalDir); os.IsNotExist(err) {
-		return &removalPlacement{finalDir: finalDir, trashDir: trashDir}, nil
+		return p, nil
 	} else if err != nil {
 		return nil, fmt.Errorf("stat app dir: %w", err)
 	}
-	if err := i.checkOwned(finalDir, id); err != nil {
+	if err := i.checkLink(finalDir, id); err != nil {
 		return nil, err
 	}
-	// Cleared only when it is this package's own tree; see place.
-	if err := i.checkOwned(trashDir, id); err != nil {
-		return nil, fmt.Errorf("removal staging path: %w", err)
+	if err := os.MkdirAll(filepath.Dir(p.trashDir), 0755); err != nil {
+		return nil, err
 	}
-	os.RemoveAll(trashDir)
-	if err := os.Rename(finalDir, trashDir); err != nil {
+	// A link left by an uninstall that died mid-swap is cleared.
+	if err := os.Remove(p.trashDir); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err := os.Rename(finalDir, p.trashDir); err != nil {
 		return nil, fmt.Errorf("stage app removal: %w", err)
 	}
-	return &removalPlacement{finalDir: finalDir, trashDir: trashDir, existed: true}, nil
+	p.existed = true
+	return p, nil
 }
 
 func (i *Installer) installShims(m *manifest.Manifest) error {

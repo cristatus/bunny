@@ -8,7 +8,8 @@ import (
 	"github.com/cristatus/bunny/internal/installer"
 )
 
-// CleanCmd prunes the download cache and abandoned staged installs.
+// CleanCmd prunes the download cache, abandoned staged installs, and versions
+// no package links to.
 //
 // Default: drop cache files for uninstalled apps + everything staged.
 // `--all` widens to include caches for installed apps (forces a re-download

@@ -91,12 +91,11 @@ func readPackageMarker(dir string) (*packageMarker, error) {
 
 // checkOwned refuses dir unless bunny put it there. A missing directory is
 // fine: there is nothing to protect. This is what stands between a destructive
-// operation and a user directory that happens to share a package's name, now
-// that install roots can point anywhere.
+// operation and a user directory that happens to share a package's name. A
+// link must point into the package's own store.
 //
-// Either record counts as proof. The marker is the durable one, but state
-// recording this package at this path is equally bunny's own word, and
-// accepting it keeps trees installed before markers existed removable.
+// For a directory either record counts as proof: its marker, or state
+// recording this package at this path.
 func (i *Installer) checkOwned(dir, id string) error {
 	// Lstat keeps a dangling symlink visible: it is still a user-owned path
 	// that clearing a swap sibling would otherwise delete.
@@ -107,8 +106,7 @@ func (i *Installer) checkOwned(dir, id string) error {
 		return err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s is a symlink, and bunny only manages packages inside its own root\n"+
-			"hint: move the package back to %s", dir, dir)
+		return i.checkOwnedLink(dir, id)
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a package directory", dir)

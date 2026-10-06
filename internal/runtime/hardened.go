@@ -27,15 +27,6 @@ type hardenedEnv struct {
 // part of the boundary, not optional toggles. Descendant user namespaces stay
 // permitted so Chromium can build its own zygote sandbox.
 func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, net netPlan, env hardenedEnv) (sandboxPlan, error) {
-	// The install tree is bound back at its own path, and bwrap cannot mount
-	// onto a symlink: a package moved out of the root and linked back would
-	// otherwise fail with bwrap's bare error.
-	if app := p.Vars["app"]; app != "" {
-		if info, err := os.Lstat(app); err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return sandboxPlan{}, fmt.Errorf("%s is a symlink, and bunny only runs packages inside its own root\n"+
-				"hint: move the package back to %s", app, app)
-		}
-	}
 	read, write, err := effectiveGrants(policy, env.hostHome)
 	if err != nil {
 		return sandboxPlan{}, err
@@ -305,6 +296,11 @@ func effectiveGrants(policy *PackageSandbox, hostHome string) (read, write []str
 // refused: a $BUNNY_HOME inside one is legal, and losing shim re-entry is the
 // containable failure. Explicit grants still error,
 // because there the user named the path and means it.
+//
+// Grants are bound at the paths they name, which is where the package and its
+// shims look for them. {app} and the providers' trees arrive resolved to their
+// version in the store, since bwrap cannot mount onto a package's link; the
+// link itself still resolves inside, through the install root's grant.
 func autoReadGrants(p *Prepared, roots []string) []string {
 	grants := make([]string, 0, len(p.DepRoots)+len(p.LayoutRoots)+2)
 	if app := p.Vars["app"]; app != "" {

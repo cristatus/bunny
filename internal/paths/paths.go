@@ -121,6 +121,22 @@ func (p *Paths) InstallDir(id, kind string) string {
 	return filepath.Join(p.InstallRoot(kind), id)
 }
 
+// --- Versioned store ---
+
+// Store holds every installed tree: store/<id>/<version>, one directory per
+// package and one per version. A package's own path, InstallDir, is a link
+// into it, so an update switches the link and a process started from the
+// previous version keeps its tree until `bunny clean` removes it.
+func (p *Paths) Store() string { return filepath.Join(p.Root, "store") }
+
+// PackageStore is everything bunny holds of one package's versions.
+func (p *Paths) PackageStore(id string) string { return filepath.Join(p.Store(), id) }
+
+// VersionDir is where one version of a package lives.
+func (p *Paths) VersionDir(id, version string) string {
+	return filepath.Join(p.PackageStore(id), version)
+}
+
 // --- Per-resource dirs ---
 
 // AppDir is where an installed package lives, and the {app} placeholder. The
@@ -167,33 +183,15 @@ func (p *Paths) TransactionFile() string {
 
 // --- staging ---
 
-// stagingDirName is the in-progress install directory inside an install root.
-const stagingDirName = ".staging"
+// Staging holds everything in progress, so the install roots and the store
+// only ever hold finished links and trees. It sits under the root with them:
+// an install ends by renaming into the store and onto the link, and rename(2)
+// cannot cross filesystems.
+func (p *Paths) Staging() string { return filepath.Join(p.Root, "staging") }
 
-// Staging holds in-progress installs, inside the install root rather than
-// beside the cache: an install ends by renaming the staged tree into place,
-// and rename(2) cannot cross filesystems. Downloads stay in the cache, which
-// may live anywhere, since they are copied rather than renamed.
-func (p *Paths) Staging(kind string) string {
-	return filepath.Join(p.InstallRoot(kind), stagingDirName)
-}
-
-// StagingBeside is where to stage a tree destined for dir, keeping the rename
-// that completes the install on one filesystem.
-func (p *Paths) StagingBeside(dir string) string {
-	return filepath.Join(filepath.Dir(dir), stagingDirName, filepath.Base(dir))
-}
-
-// StagingRoots returns the staging dir for every install root, so cleanup can
-// sweep them all.
-func (p *Paths) StagingRoots() []string {
-	roots := p.InstallRoots()
-	out := make([]string, 0, len(roots))
-	for _, root := range roots {
-		out = append(out, filepath.Join(root, stagingDirName))
-	}
-	return out
-}
+// StagingDir is one package's corner of Staging: the build in progress, and
+// what a reinstall or an uninstall sets aside until it commits.
+func (p *Paths) StagingDir(id string) string { return filepath.Join(p.Staging(), id) }
 
 // Manifests holds one snapshot per installed package, beside state.json.
 // Bunny's record of what it installed has to survive a user clearing a
@@ -209,12 +207,12 @@ func (p *Paths) ManifestFile(id string) string {
 
 // LayoutRoots are the paths a launched process must be able to read for a shim
 // to re-enter Bunny and resolve another package: the shim directory, the record
-// of what is installed, and the install roots themselves. Callers that
-// restrict filesystem access grant them read-only;
+// of what is installed, the install roots, and the store their links point
+// into. Callers that restrict filesystem access grant them read-only;
 // nothing here needs to be writable, so a package still cannot install,
 // uninstall, or rewrite state from inside a sandbox.
 func (p *Paths) LayoutRoots() []string {
-	roots := append([]string{p.Bin(), p.StateFile(), p.Manifests()}, p.InstallRoots()...)
+	roots := append([]string{p.Bin(), p.StateFile(), p.Manifests(), p.Store()}, p.InstallRoots()...)
 	return slices.Sorted(slices.Values(roots))
 }
 
@@ -237,6 +235,15 @@ func (p *Paths) FishCompletions() string {
 // own man{N} subdirectory, so `man` finds them once MANPATH includes this
 // root (see the MANPATH guard in cmd/bunny/init.go).
 func (p *Paths) ManPages() string { return filepath.Join(p.Share(), "man") }
+
+// CurrentDir holds one link per capability to its active provider, a path
+// that follows `bunny use` for an IDE or script to point at.
+func (p *Paths) CurrentDir() string { return filepath.Join(p.Root, "current") }
+
+// Current is the link for one capability.
+func (p *Paths) Current(capability string) string {
+	return filepath.Join(p.CurrentDir(), capability)
+}
 
 // VarsAt is Vars with {app} pinned to a known directory. Integration expands
 // placeholders before state records where the package went, so a lookup would

@@ -41,7 +41,7 @@ type CLI struct {
 	Unpin      UnpinCmd      `cmd:"" help:"Remove a capability's pin from ./.bunny-version"`
 	Run        RunCmd        `cmd:"" help:"Run an installed package"`
 	Doctor     DoctorCmd     `cmd:"" help:"Run health checks"`
-	Clean      CleanCmd      `cmd:"" help:"Prune cache and tmp dirs"`
+	Clean      CleanCmd      `cmd:"" help:"Prune the download cache, abandoned installs, and old versions"`
 	Reshim     ReshimCmd     `cmd:"" help:"Regenerate shims for globally-installed executables (npm -g, etc.)"`
 	Toolchains ToolchainsCmd `cmd:"" help:"Regenerate Gradle/Maven JDK toolchain config from installed JDKs"`
 	Setup      SetupCmd      `cmd:"" help:"Install session env, completions, and shell rc integration"`

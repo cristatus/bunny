@@ -19,24 +19,24 @@ import (
 // The saved state bytes are the commit marker: state.Save replaces the file
 // atomically, so recovery can distinguish a committed install from a rollback.
 type installTransaction struct {
-	ID, FinalDir, WorkDir, NewVersion string
-	HadExisting                       bool
-	TargetExisted                     bool
-	StateBefore                       []byte
-	Manifest                          fileRecord
-	OldMarker                         fileRecord
-	Shims                             []fileRecord
-	Integration                       []fileRecord
+	ID, FinalDir, StoreDir, WorkDir, NewVersion string
+	// StoreExisted marks a reinstall of the same version, whose earlier
+	// tree waits at Backup until the install commits.
+	StoreExisted bool
+	Backup       string
+	StateBefore  []byte
+	// Link is the package's path as it was: the link to the previous
+	// version, or missing for a first install.
+	Link        fileRecord
+	Manifest    fileRecord
+	Shims       []fileRecord
+	Integration []fileRecord
 }
 
 type fileRecord struct {
 	Path, Kind, Target string
 	Data               []byte
 	Mode               os.FileMode
-}
-
-func transactionPath(p *paths.Paths) string {
-	return filepath.Join(p.State(), "install-transaction.json")
 }
 
 func captureFile(path string) (fileRecord, error) {
@@ -92,7 +92,7 @@ func (j *installTransaction) save(p *paths.Paths) error {
 	return fsutil.WriteFile(p.TransactionFile(), data, 0600)
 }
 
-func startInstallTransaction(i *Installer, id, finalDir, workDir, newVersion string, hadExisting bool, shimNames []string) (*installTransaction, error) {
+func startInstallTransaction(i *Installer, id, finalDir, workDir, newVersion string, shimNames []string) (*installTransaction, error) {
 	stateBefore, err := os.ReadFile(i.Paths.StateFile())
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
@@ -101,18 +101,17 @@ func startInstallTransaction(i *Installer, id, finalDir, workDir, newVersion str
 	if err != nil {
 		return nil, err
 	}
-	j := &installTransaction{ID: id, FinalDir: finalDir, WorkDir: workDir, NewVersion: newVersion,
-		HadExisting: hadExisting, StateBefore: stateBefore, Manifest: manifestBefore}
-	if _, err := os.Lstat(finalDir); err == nil {
-		j.TargetExisted = true
-	} else if !os.IsNotExist(err) {
+	link, err := captureFile(finalDir)
+	if err != nil {
 		return nil, err
 	}
-	if hadExisting {
-		j.OldMarker, err = captureFile(filepath.Join(finalDir, packageMarkerName))
-		if err != nil {
-			return nil, err
-		}
+	j := &installTransaction{ID: id, FinalDir: finalDir, StoreDir: i.Paths.VersionDir(id, newVersion),
+		Backup: filepath.Join(i.Paths.StagingDir(id), "replaced"), WorkDir: workDir, NewVersion: newVersion,
+		StateBefore: stateBefore, Link: link, Manifest: manifestBefore}
+	if _, err := os.Lstat(j.StoreDir); err == nil {
+		j.StoreExisted = true
+	} else if !os.IsNotExist(err) {
+		return nil, err
 	}
 	for _, name := range shimNames {
 		record, err := captureFile(i.Paths.Shim(name))
@@ -181,35 +180,16 @@ func (j *installTransaction) captureIntegration(i *Installer, old, next *manifes
 	return j.save(i.Paths)
 }
 
-// checkNewTree refuses FinalDir unless its marker names this transaction's
-// package and version.
-func (j *installTransaction) checkNewTree() error {
-	marker, err := readPackageMarker(j.FinalDir)
-	if err != nil {
-		return err
-	}
-	if marker.ID != j.ID || marker.Version != j.NewVersion {
-		return fmt.Errorf("marker is %s %s, want %s %s", marker.ID, marker.Version, j.ID, j.NewVersion)
-	}
-	return nil
+// isNewTree reports whether path holds this transaction's package and version.
+func (j *installTransaction) isNewTree(path string) bool {
+	marker, err := readPackageMarker(path)
+	return err == nil && marker.ID == j.ID && marker.Version == j.NewVersion
 }
 
-func (j *installTransaction) checkPreviousTree(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("previous installation %s is not a directory", path)
-	}
-	marker, err := captureFile(filepath.Join(path, packageMarkerName))
-	if err != nil {
-		return err
-	}
-	if marker.Kind != j.OldMarker.Kind || !bytes.Equal(marker.Data, j.OldMarker.Data) || marker.Target != j.OldMarker.Target {
-		return fmt.Errorf("previous installation %s does not match its recorded marker", path)
-	}
-	return nil
+// isOwnTree reports whether path holds a tree of this transaction's package.
+func (j *installTransaction) isOwnTree(path string) bool {
+	marker, err := readPackageMarker(path)
+	return err == nil && marker.ID == j.ID
 }
 
 // RecoverPendingInstall must run while the mutation lock is held. It either
@@ -233,61 +213,35 @@ func RecoverPendingInstall(p *paths.Paths) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	backup := j.FinalDir + ".old"
+	backup := j.Backup
 	if !bytes.Equal(current, j.StateBefore) {
-		// State is the durable commit. The old tree may still await deletion.
-		marker, err := readPackageMarker(j.FinalDir)
-		if err != nil || marker.ID != j.ID || marker.Version != j.NewVersion {
-			return fmt.Errorf("committed transaction destination %s is inconsistent: %v", j.FinalDir, err)
+		// State is the durable commit. What it replaced may still await deletion.
+		if !j.isNewTree(j.StoreDir) {
+			return fmt.Errorf("committed transaction destination %s is inconsistent", j.StoreDir)
 		}
-		if _, err := os.Lstat(backup); err == nil {
-			if err := j.checkPreviousTree(backup); err != nil {
-				return err
-			}
+		if j.isOwnTree(backup) {
 			if err := removeOwnedTree(backup); err != nil {
 				return err
 			}
-		} else if !os.IsNotExist(err) {
-			return err
 		}
 	} else {
-		if j.HadExisting {
-			if _, err := os.Lstat(backup); err == nil {
-				if err := j.checkPreviousTree(backup); err != nil {
-					return err
-				}
-				if _, err := os.Lstat(j.FinalDir); err == nil {
-					marker, err := readPackageMarker(j.FinalDir)
-					if err != nil || marker.ID != j.ID || marker.Version != j.NewVersion {
-						return fmt.Errorf("cannot replace transaction destination %s: %v", j.FinalDir, err)
-					}
-					if err := removeOwnedTree(j.FinalDir); err != nil {
-						return err
-					}
-				} else if !os.IsNotExist(err) {
-					return err
-				}
-				if err := os.Rename(backup, j.FinalDir); err != nil {
-					return err
-				}
-			} else if !os.IsNotExist(err) {
-				return err
-			} else if _, err := os.Lstat(j.FinalDir); err != nil {
-				return fmt.Errorf("previous installation %s has no backup to restore: %w", j.FinalDir, err)
-			} else if err := j.checkPreviousTree(j.FinalDir); err != nil {
-				return err
-			}
-		} else if info, err := os.Lstat(j.FinalDir); err == nil && !j.TargetExisted {
-			if info.IsDir() {
-				marker, err := readPackageMarker(j.FinalDir)
-				if err == nil && marker.ID == j.ID && marker.Version == j.NewVersion {
-					if err := removeOwnedTree(j.FinalDir); err != nil {
-						return err
-					}
-				}
-			}
-		} else if err != nil && !os.IsNotExist(err) {
+		if err := j.Link.restore(); err != nil {
 			return err
+		}
+		switch {
+		case j.isOwnTree(backup):
+			if j.isNewTree(j.StoreDir) {
+				if err := removeOwnedTree(j.StoreDir); err != nil {
+					return err
+				}
+			}
+			if err := os.Rename(backup, j.StoreDir); err != nil {
+				return err
+			}
+		case !j.StoreExisted && j.isNewTree(j.StoreDir):
+			if err := removeOwnedTree(j.StoreDir); err != nil {
+				return err
+			}
 		}
 		for _, record := range j.Integration {
 			if err := record.restore(); err != nil {
@@ -306,6 +260,7 @@ func RecoverPendingInstall(p *paths.Paths) error {
 	if err := os.RemoveAll(j.WorkDir); err != nil {
 		return err
 	}
+	_ = os.Remove(filepath.Dir(j.WorkDir)) // the package's staging dir, once empty
 	if err := os.Remove(p.TransactionFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

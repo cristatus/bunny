@@ -14,6 +14,11 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `bunny pin --init` captures inherited SDK pins and active SDK providers without
   overwriting an existing pin file.
 - Maven and Gradle capabilities allow project selection of these build tools.
+- Each installed version has its own tree in `~/.bunny/store`, and an update
+  switches the package's path to the new one, so running processes keep
+  theirs. Old versions stay until `bunny clean`; doctor counts them.
+- `~/.bunny/current/<capability>` links to the active provider, following
+  `bunny use`.
 
 ### Changed
 

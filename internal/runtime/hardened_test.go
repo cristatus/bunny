@@ -497,18 +497,23 @@ func TestHardenedRefusesASymlinkedIsolatedHome(t *testing.T) {
 	}
 }
 
-// A package moved out of the root and linked back cannot be bound at its own
-// path, so the launch is refused with the same hint install and uninstall give.
-func TestHardenedRefusesAPackageLinkedFromOutside(t *testing.T) {
+// Grants are bound at the paths they name. A root reached through a link,
+// such as a ~/.bunny that points at another disk, has to appear at that path
+// inside, where the package's own BUNNY_HOME and shims look for it.
+func TestHardenedGrantsKeepTheirLiteralPaths(t *testing.T) {
 	p, hostHome := hardenedPrepared(t)
-	moved := t.TempDir()
-	p.Vars["app"] = filepath.Join(t.TempDir(), "tool")
-	if err := os.Symlink(moved, p.Vars["app"]); err != nil {
+	real := t.TempDir()
+	root := filepath.Join(t.TempDir(), ".bunny")
+	if err := os.Symlink(real, root); err != nil {
 		t.Fatal(err)
 	}
-	_, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Boundary: "hardened", Home: "isolated"}), "/work", hostHome, sandboxContext{})
-	if err == nil || !strings.Contains(err.Error(), "move the package back") {
-		t.Errorf("a linked package must be refused with a hint, got %v", err)
+	p.LayoutRoots = []string{filepath.Join(root, "bin")}
+	if err := os.MkdirAll(filepath.Join(real, "bin"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	grants := autoReadGrants(p, protectedRoots(hostHome))
+	if !slices.Contains(grants, filepath.Join(root, "bin")) {
+		t.Errorf("grants = %v, want the literal %s", grants, filepath.Join(root, "bin"))
 	}
 }
 

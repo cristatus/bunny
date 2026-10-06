@@ -169,16 +169,16 @@ internal artifact mirrors.
 
 ## Backups
 
-Back up `~/.bunny/`. The download cache
-(`~/.bunny/cache/`) and staging directories (`.staging/`) are ephemeral and
-tagged with `CACHEDIR.TAG` and `.nobackup` markers.
+Back up `~/.bunny/`. The download cache (`~/.bunny/cache/`) and
+`~/.bunny/staging/` are ephemeral and tagged with `CACHEDIR.TAG` and `.nobackup`
+markers.
 
 Backup tools with cache-tag support (Borg, Restic, GNU `tar --exclude-caches`)
 automatically skip these directories; tools with `--exclude-if-present` can
 point it at `.nobackup`.
 
 Tools without cache-tag support (rsync, `cp`, Time Machine) need an explicit
-exclude of `~/.bunny/cache` and any `.staging` directory.
+exclude of `~/.bunny/cache` and `~/.bunny/staging`.
 
 ## Logging and audit trails
 

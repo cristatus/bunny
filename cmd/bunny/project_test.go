@@ -121,7 +121,9 @@ func TestProjectInstallInheritsSDKsAndPreservesGlobalProvider(t *testing.T) {
 		}
 		found := false
 		for _, v := range prep.Env {
-			found = found || v == "JAVA_HOME="+a.Paths.AppDir("jdk-21")
+			// The version the link points at now, not the link: a running
+			// build keeps its JDK when an update switches the link.
+			found = found || v == "JAVA_HOME="+a.Paths.VersionDir("jdk-21", a.State.VersionOf("jdk-21"))
 		}
 		if !found {
 			t.Fatal("project Java environment missing", id, prep.Env)

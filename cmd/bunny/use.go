@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/log"
 
+	"github.com/cristatus/bunny/internal/installer"
 	"github.com/cristatus/bunny/internal/shim"
 	"github.com/cristatus/bunny/internal/state"
 )
@@ -65,6 +66,9 @@ func (c *UseCmd) Run(a *App) error {
 			return errors.Join(fmt.Errorf("reshim after provider switch: %w", err), saveErr)
 		} else if len(added)+len(removed) > 0 {
 			log.Debug("Reshimmed global tools", "capability", m.Provides, "added", len(added), "removed", len(removed))
+		}
+		if err := installer.SyncCurrent(a.Paths, a.State); err != nil {
+			log.Warn("Failed to update current links", "error", err)
 		}
 		log.Info("Activated provider", "capability", m.Provides, "package", c.ID,
 			"version", m.Version, "replaced", previous)
