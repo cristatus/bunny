@@ -37,8 +37,9 @@ alone.
 
 `runtime.Launcher` resolves project pins for required capabilities and checks
 minimum versions before launch. An explicit incompatible pin is an error; no
-other installed provider silently replaces it. Exact pins also check the
-installed release. The launcher layers environment variables in a fixed precedence order
+other installed provider silently replaces it. Pins select package IDs and
+continue to apply after updates replace an installation in place. The launcher
+layers environment variables in a fixed precedence order
 (host, dependency env, manifest env, config env). Normal execution ends in a
 direct `execve` unless the exact package is listed under sandbox.packages or
 the user invoked `bunny run --sandbox`.
@@ -126,3 +127,12 @@ establish mutation boundaries, call internal operations, and format results.
 For mutating workflows, test both the success path and failure at the state-save
 boundary, verifying that filesystem artifacts and in-memory state are restored
 together.
+
+## Project SDK provisioning
+
+`install --project` uses the shared pin walker to collect the nearest selection
+for each capability. It checks SDK kinds, capabilities, command conflicts,
+minimum dependency versions, and cycles before installing in dependency order.
+Existing packages are skipped unless forced; global provider selections stay
+in place. `pin --init` captures inherited selections and active SDK providers
+in a new file, without overwriting an existing file.

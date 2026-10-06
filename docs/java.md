@@ -85,7 +85,7 @@ Bunny enforces constraints at two points:
 - **Install time**: Refuses installation unless a satisfying JDK is present.
 - **Run time**: Dynamically sets `JAVA_HOME` to a qualifying JDK (preferring the
   project pin when present, otherwise the active default or the newest installed
-  satisfying version). A missing, incompatible, or changed exact pin fails
+  satisfying version). A missing or incompatible pin fails
   instead of silently choosing another JDK.
 
 This is not theoretical: the Micronaut CLI ships class files compiled for Java
@@ -111,6 +111,6 @@ project pin for JDK 17: update that project's pin or invoke it from a compatible
 project. Explicit user configuration for `JAVA_HOME` still takes precedence.
 Scripts or IDEs using absolute JDK paths bypass Bunny's shim resolution.
 
-Use `bunny pin --exact jdk corretto-21` to write the installed release, for
-example `jdk corretto-21@21.0.4+7`. The launch fails if that package is upgraded
-to a different release. See [pinning limits](pinning.md#exact-release-pins).
+A pin such as `jdk corretto-21` keeps selecting that provider after patch and
+security updates. Use `bunny install --project` to install missing SDKs from
+project pins. See [per-project pinning](pinning.md).

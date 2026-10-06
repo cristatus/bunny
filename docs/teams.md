@@ -98,7 +98,7 @@ catalogs:
 
 Use this to:
 
-- pin a specific package version locally while the team catalog evolves
+- select a package ID locally while the team catalog evolves
 - test manifest modifications before submitting an upstream pull request
 - patch a `prepare:` build step for local platform experiments
 
@@ -136,8 +136,7 @@ bin:
 Because it declares `provides: jdk`, it can occupy the standard Java capability
 slot. Select it globally with `bunny use jdk-21-corp`, or write
 `jdk jdk-21-corp` in a project's `.bunny-version`. A bare `jdk 21` always selects
-`jdk-21`; it does not search vendors. Use `bunny pin --exact jdk jdk-21-corp` to
-also record the installed release.
+`jdk-21`; it does not search vendors. Use `bunny pin jdk jdk-21-corp` to select that provider.
 
 ## Pre-configured tools (Maven, Gradle)
 
@@ -187,10 +186,10 @@ catalogs:
 
 Keep the downloaded artifacts in a durable internal mirror when upstream
 retention is uncertain. A `.bunny-version` line such as `jdk 21` selects a
-package ID, so it can follow updates in a moving catalog. An exact pin such as
-`jdk jdk-21@21.0.4+7` rejects release drift at launch time, but does not download
-that historical release automatically. Restore it from the pinned catalog with
-`bunny install --force jdk-21`, or deliberately update the project's pin.
+package ID, so it follows updates in a moving catalog. Pins do not retain a
+patch release. Use `bunny install --project` to install missing SDKs, or
+`bunny install --force jdk-21` to replace an existing installation from the
+configured catalog snapshot.
 
 Only one release per package ID can be installed at a time. Teams needing two
 patch releases simultaneously must publish them under distinct package IDs.

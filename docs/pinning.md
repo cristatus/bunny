@@ -20,8 +20,9 @@ node 22
 ```
 
 Only a capability some package declares with `provides:` can be pinned —
-`bunny complete-capabilities` lists them. Maven and Gradle, for instance,
-declare none, so there is no `maven 3.9` to pin.
+`bunny complete-capabilities` lists them. Maven and Gradle declare
+`provides: maven` and `provides: gradle`; select them with `maven maven` and
+`gradle gradle`. Their catalog IDs do not include a version.
 
 Comments (`#`) and blank lines are allowed.
 
@@ -57,29 +58,36 @@ A pinned package must actually provide the capability, or the launch fails.
 Keys are taken literally: `java 21` pins a `java` capability that nothing
 provides, not `jdk`.
 
-## Exact release pins
+## Provisioning project SDKs
 
 ```bash
-# Capture the currently installed vendor and release
-bunny pin --exact jdk corretto-21
-# Example result: jdk corretto-21@21.0.4+7
+# Capture inherited SDK pins and active SDK providers without overwriting a file
+bunny pin --init
 
-# Or write an explicit release guard
-bunny pin jdk corretto-21@21.0.4+7
+# Install missing SDKs selected by effective pins, including inherited pins
+bunny install --project
 ```
 
-`--exact` requires the selected package to be installed. An explicit release
-must match if that package is already installed. Exact pins compare the entire
-installed manifest version, including build suffixes. An update to a different
-release makes subsequent launches fail until you restore that release or
-explicitly change the pin. The same check applies to dependent tools and
-runtime-installed global commands.
+Project installation is restricted to packages of kind `sdk`. It validates
+capabilities, dependency versions, command conflicts, and dependency cycles
+before installing anything, then installs dependencies first. Unpinned
+dependencies must already be installed. Existing packages are skipped; use
+`bunny update` to replace them with the latest catalog release. Installing a
+second provider preserves the active global provider. Project pins select it
+inside the project. SDKs run on the host with the usual access.
 
-Bare pins still track a package ID: `jdk 21` means whichever release is currently
-installed as `jdk-21`. Exact pins do not lock artifact checksums, fetch historical
-releases, or add side-by-side patch installations. To provision the same release,
-use a catalog pinned to a Git commit and keep its artifacts available. Restore
-with `bunny install --force <id>`. Only one release per package ID is installed.
+`pin --init` writes sorted package IDs, with inherited pins taking precedence
+over global defaults. It refuses to overwrite an existing `.bunny-version`.
+
+## Package updates
+
+A pin selects a package ID, such as `jdk-21` or `corretto-21`. Each package has
+one installation. Patch and security updates replace it in place, and the pin
+continues to select that package. Bunny's catalog lists latest releases and
+has no historical release archive.
+
+For repeatable provisioning, use a catalog pinned to a Git commit and retain
+its artifacts. See [team deployment](teams.md#lockfiles-and-reproducibility).
 
 ## How resolution works
 
@@ -92,8 +100,7 @@ When a shim like `java`, `mvn`, or `node` is invoked:
    that names other capabilities does not stop the walk, so a subproject
    overrides only what it names and inherits the rest from ancestors.
 4. If nothing pins it, the global default from `bunny use` applies.
-5. A missing package, wrong capability, incompatible minimum version, or exact
-   release mismatch fails with an explanation rather than falling back.
+5. A missing package, wrong capability, incompatible minimum version fails with an explanation rather than falling back.
 6. Unreadable or malformed pin files also fail. Duplicate keys are rejected;
    comments after a pin are allowed.
 
@@ -129,19 +136,17 @@ to the project root (or passes project files explicitly).
 
 ## Inspecting what resolves
 
-`bunny doctor` reports the pin file in effect and what each pin resolves to,
+`bunny doctor` reports what each pin resolves to and the file that set it,
 including a pin whose package is missing:
 
 ```text
-✓ .bunny-version  /path/to/project/.bunny-version
-✓ Pin (jdk)       21 → jdk-21
-✗ Pin (maven)     maven 3.9 pinned in /path/to/project/.bunny-version, but maven-3.9 is not installed
-  fix: run 'bunny install maven-3.9'
+✓ Pin (jdk)       21 → jdk-21  (/path/to/.bunny-version)
+✗ Pin (maven)     maven maven pinned in /path/to/project/.bunny-version, but maven is not installed
+  fix: run 'bunny install maven'
 ```
 
-It reports the pins from the nearest pin file only, while a shim keeps walking
-up per capability, so a capability inherited from an ancestor directory can be
-in effect without appearing here.
+It reports effective pins across the directory tree, including inherited
+capabilities, using the same per-capability precedence as the shims.
 
 ## Common gotchas
 

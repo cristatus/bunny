@@ -32,7 +32,7 @@ Most developers assemble Java and Node workstations from a fragmented mix of `sd
 
 - **Host-native by default**: `mvn`, Gradle, and npm use their normal cache paths unless you redirect them. Trusted apps can opt into a bubblewrap sandbox — always on, or for a single launch.
 - **Single binary, no shell hooks**: `bunny init` wires PATH and completions into shell startup. Executables dispatch through symlinks via `argv[0]`, so behavior is consistent across terminals, IDEs, and containers.
-- **Per-project version pinning**: Drop a `.bunny-version` file in a project root to pin a bare version (`jdk 21`) or a specific vendor package (`jdk corretto-21`). Add `--exact` to reject version drift.
+- **Per-project version pinning**: Drop a `.bunny-version` file in a project root to pin a bare version (`jdk 21`) or a specific vendor package (`jdk corretto-21`). Pins keep selecting the package after updates.
 - **First-class Java toolchains**: Multi-vendor JDK support (Temurin, Corretto, Zulu, GraalVM) via the [Foojay Disco API](https://api.foojay.io/disco/v3.0), with automated Gradle/Maven toolchain configuration.
 - **Curated catalog**: JDKs, Node, IDEs, and everyday CLI tools. See [bunny-catalog](https://github.com/cristatus/bunny-catalog).
 - **Forkable for teams**: Point `catalogs:` at an internal endpoint or a checkout on disk to distribute your own toolchains, or list it alongside the public catalog to add packages without forking.
@@ -114,8 +114,8 @@ bunny pin jdk 17
 java -version    # Resolves to JDK 17 within the project directory
 mvn -version     # Receives JAVA_HOME for the same pinned JDK
 
-# Reject a different patch/build release after an update
-bunny pin --exact jdk 17
+# Install SDKs selected by the project
+bunny install --project
 ```
 
 Bunny automatically maintains **Gradle and Maven toolchains**. A project configured for Java 17 compiles against Bunny's JDK 17 even when Gradle runs under JDK 21. See [First-class Java](docs/java.md).
@@ -143,7 +143,9 @@ node --version   # 22.x
 | `bunny search [query...]` | Search the catalog, ranked by match strength (`-t/--tag`, `--capability`, `--kind`, `--installed`, `--available`) |
 | `bunny info <id>` | Display package details, active provider state, pins, and dependents |
 | `bunny use <id>` | Switch the active global provider for a capability (e.g. `jdk-21`) |
-| `bunny pin <capability> <version>` | Pin a capability to a package in `./.bunny-version` (`--exact` records the installed release) |
+| `bunny pin <capability> <version>` | Pin a capability to a package in `./.bunny-version` |
+| `bunny pin --init` | Create SDK pins from inherited pins and active providers |
+| `bunny install --project` | Install missing SDKs selected by project pins |
 | `bunny unpin <capability>` | Remove a capability pin from `./.bunny-version` |
 | `bunny run <id> [-- args]` | Execute a package binary (`--sandbox`, `--no-sandbox`, `--sandbox-profile <name>`, `--explain`, `-c/--command`) |
 | `bunny update [id]` | Check for package updates (`--apply` to install them; defaults to every installed package) |
@@ -164,7 +166,7 @@ Every command also accepts the global `-l/--log-level` and `--no-progress` flags
 - [Portability Model](docs/portability.md): Default host-native execution, data redirection, and optional runtime isolation.
 - [Sandboxing](docs/sandbox.md): Per-package bwrap execution with isolated, ephemeral, or clean home state, built-in/custom profiles, path masks, network modes, and the hardened boundary.
 - [Configuration](docs/config.md): `config.yaml` reference, custom install roots, data redirection, and sandbox activation.
-- [Per-project Pinning](docs/pinning.md): `.bunny-version`, exact release checks, and IDE setup.
+- [Per-project Pinning](docs/pinning.md): `.bunny-version`, project provisioning, and IDE setup.
 - [Team Deployment](docs/teams.md): Forking catalogs, private hosting, and reproducible environments.
 - [Corporate Environments](docs/corporate.md): Proxies, custom CA roots, Maven settings, and air-gapped workflows.
 - [Architecture](docs/architecture.md): Package boundaries, state management, and transactional mutations.
@@ -216,7 +218,7 @@ A few finer points, if you're evaluating closely:
 
 - Bunny's shims still cost a resolver hop on every invocation — no shell hooks doesn't mean zero dispatch cost. [mise supports shims too](https://mise.jdx.dev/dev-tools/shims.html).
 - [mise also sandboxes commands](https://mise.jdx.dev/sandboxing.html) via `mise exec`/`mise run`. Bunny's sandbox is policy attached to installed package IDs (including normal shim launches), with isolated/ephemeral home state and namespace boundaries — a different model, not a claim that mise lacks the feature.
-- Bunny's exact pins check the installed release; they're not artifact lockfiles like [mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html) — no recorded checksums, no historical-release fetching, no side-by-side patch versions. For repeatable provisioning, pin your catalog to a Git commit instead; see [Team deployment](docs/teams.md#lockfiles-and-reproducibility).
+- Bunny's project pins select package IDs; they're not artifact lockfiles like [mise.lock](https://mise.jdx.dev/dev-tools/mise-lock.html) — no recorded checksums, no historical-release fetching, no side-by-side patch versions. For repeatable provisioning, pin your catalog to a Git commit instead; see [Team deployment](docs/teams.md#lockfiles-and-reproducibility).
 
 ## License
 

@@ -7,6 +7,25 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `bunny install --project` provisions missing SDKs from effective project pins,
+  with dependency and capability checks before installation.
+- `bunny pin --init` captures inherited SDK pins and active SDK providers without
+  overwriting an existing pin file.
+- Maven and Gradle capabilities allow project selection of these build tools.
+
+### Changed
+
+- Pins select package IDs and follow updates in place. Removed `--exact` and
+  `package@version` pins.
+- Doctor reports inherited project pins with the same precedence as shims.
+
+### Fixed
+
+- Installing or removing an inactive SDK preserves the active provider's shims,
+  including when installation rolls back after a state-save failure.
+
 ## [0.8.0] - 2026-09-28
 
 ### Changed
