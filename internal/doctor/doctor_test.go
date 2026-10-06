@@ -301,23 +301,19 @@ func TestPinResolutionMixedSatisfaction(t *testing.T) {
 	state := &stubPinState{installed: map[string]bool{"jdk-21": true}}
 
 	results := PinResolution(state, dir)
-	if len(results) != 3 {
-		t.Fatalf("want 3 results (header + 2 pins), got %d: %+v", len(results), results)
+	if len(results) != 2 {
+		t.Fatalf("want 2 pin results, got %d: %+v", len(results), results)
 	}
-	// Header: .bunny-version path
-	if results[0].Name != ".bunny-version" || results[0].Severity != OK {
-		t.Errorf("header row off: %+v", results[0])
-	}
-	// jdk pin: installed → OK
-	if results[1].Name != "Pin (jdk)" || results[1].Severity != OK {
-		t.Errorf("jdk pin should be OK: %+v", results[1])
+	// jdk pin: installed → OK, naming the file that set it
+	if results[0].Name != "Pin (jdk)" || results[0].Severity != OK || !strings.Contains(results[0].Detail, dir) {
+		t.Errorf("jdk pin should be OK with its source: %+v", results[0])
 	}
 	// node pin: not installed → Fail with install hint
-	if results[2].Severity != Fail {
-		t.Errorf("node pin should be Fail: %+v", results[2])
+	if results[1].Severity != Fail {
+		t.Errorf("node pin should be Fail: %+v", results[1])
 	}
-	if !strings.Contains(results[2].Fix, "bunny install node-23") {
-		t.Errorf("missing install hint in Fix: %q", results[2].Fix)
+	if !strings.Contains(results[1].Fix, "bunny install node-23") {
+		t.Errorf("missing install hint in Fix: %q", results[1].Fix)
 	}
 }
 
@@ -389,18 +385,14 @@ func TestCatalogChecksWarnWhenNothingCanServe(t *testing.T) {
 	}
 }
 
-func TestPinResolutionVendorAndReleaseDrift(t *testing.T) {
+func TestPinResolutionRejectsInvalidPackagePins(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, shim.ProjectVersionFile), []byte("jdk corretto-21@21.0.4+7\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	st := &stubPinState{installed: map[string]bool{"corretto-21": true}, provides: map[string]string{"corretto-21": "jdk"}, versions: map[string]string{"corretto-21": "21.0.4+7"}}
-	if got := PinResolution(st, dir); len(got) != 2 || got[1].Severity != OK {
-		t.Fatalf("vendor pin not recognized: %+v", got)
-	}
-	st.versions["corretto-21"] = "21.0.5+11"
-	if got := PinResolution(st, dir); len(got) != 2 || got[1].Severity != Fail || !strings.Contains(got[1].Detail, "installed version 21.0.5+11") {
-		t.Fatalf("doctor missed version drift: %+v", got)
+	got := PinResolution(&stubPinState{}, dir)
+	if len(got) != 1 || got[0].Severity != Fail || !strings.Contains(got[0].Detail, "invalid pin") {
+		t.Fatalf("invalid pin accepted: %v", got)
 	}
 }
 

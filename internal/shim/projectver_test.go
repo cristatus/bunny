@@ -145,31 +145,6 @@ func TestResolveProjectVersionRejectsUnreadablePin(t *testing.T) {
 	}
 }
 
-func TestResolveAllPins(t *testing.T) {
-	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ProjectVersionFile), []byte("node 22\njdk 21\n"), 0644)
-	pins, source, err := ResolveAllPins(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pins) != 2 || pins["node"] != "22" || pins["jdk"] != "21" {
-		t.Errorf("got %v", pins)
-	}
-	if source == "" {
-		t.Error("source should be set")
-	}
-}
-
-func TestResolveAllPinsMissing(t *testing.T) {
-	pins, source, err := ResolveAllPins(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pins != nil || source != "" {
-		t.Errorf("expected nil/empty, got %v %q", pins, source)
-	}
-}
-
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {
@@ -257,21 +232,20 @@ func TestInvalidProjectPinsFailClosed(t *testing.T) {
 	}
 }
 
-func TestExactPinRoundTripPreservesOtherPins(t *testing.T) {
+func TestInvalidPackagePinPreservesFile(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, ProjectVersionFile, "# tools\nnode 22 # shared\njdk 21\n")
-	if err := WriteProjectVersion(dir, "jdk", "corretto-21@21.0.4+7"); err != nil {
-		t.Fatal(err)
+	original := "# tools\nnode 22 # shared\njdk 21\n"
+	writeFile(t, dir, ProjectVersionFile, original)
+	err := WriteProjectVersion(dir, "jdk", "corretto-21@21.0.4+7")
+	if err == nil || !strings.Contains(err.Error(), "invalid pin") {
+		t.Fatalf("invalid pin accepted: %v", err)
 	}
-	pin, err := ResolveProjectVersion(dir, "jdk")
-	if err != nil || pin.PackageID() != "corretto-21" || pin.ExactVersion() != "21.0.4+7" {
-		t.Fatalf("exact pin: %+v, %v", pin, err)
+	if data := readFile(t, filepath.Join(dir, ProjectVersionFile)); data != original {
+		t.Fatalf("rejected pin changed file: %s", data)
 	}
-	if data := readFile(t, filepath.Join(dir, ProjectVersionFile)); !strings.Contains(data, "node 22 # shared") || !strings.Contains(data, "# tools") {
-		t.Fatalf("lost unrelated content: %s", data)
-	}
-	if err := WriteProjectVersion(dir, "jdk", "21\nnode 24"); err == nil {
-		t.Fatal("newline injection must fail")
+	writeFile(t, dir, ProjectVersionFile, "jdk corretto-21@21.0.4+7\n")
+	if _, err := ResolveProjectVersion(dir, "jdk"); err == nil || !strings.Contains(err.Error(), "invalid pin") {
+		t.Fatalf("invalid pin accepted: %v", err)
 	}
 }
 

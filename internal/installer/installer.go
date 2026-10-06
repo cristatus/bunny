@@ -118,6 +118,10 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		active = i.State.ResolveProvider(m.Provides)
 	}
 	becomeActive := m.Provides == "" || active == "" || active == id
+	changedCommands := newCommands
+	if !becomeActive {
+		changedCommands = nil
+	}
 	replacedCommands := append([]string(nil), oldCommands...)
 	if m.Provides != "" && becomeActive {
 		replacedCommands = appendMissing(replacedCommands, i.State.CommandsForCapability(m.Provides)...)
@@ -225,7 +229,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	}
 	_, hadExisting := i.State.Packages[id]
 	journal, err := startInstallTransaction(i, id, destDir, workDir, m.Version, hadExisting,
-		appendMissing(slices.Clone(replacedCommands), newCommands...))
+		appendMissing(slices.Clone(replacedCommands), changedCommands...))
 	if err != nil {
 		cleanup()
 		return fmt.Errorf("record install transaction: %w", err)
@@ -250,7 +254,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if becomeActive {
 		if err := i.installShims(m); err != nil {
 			*i.State = *stateBefore
-			i.rollbackInstall(placed, replacedCommands, newCommands)
+			i.rollbackInstall(placed, replacedCommands, changedCommands)
 			cleanup()
 			return fmt.Errorf("install shims: %w", err)
 		}
@@ -260,7 +264,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	integrationFiles, err := i.replaceDesktopIntegration(oldManifest, m, id, placed.finalDir)
 	if err != nil {
 		*i.State = *stateBefore
-		i.rollbackInstall(placed, replacedCommands, newCommands)
+		i.rollbackInstall(placed, replacedCommands, changedCommands)
 		i.restoreOldDesktopIntegration(oldManifest, id, placed.finalDir)
 		cleanup()
 		return fmt.Errorf("install desktop integration: %w", err)
@@ -270,7 +274,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	// stage it before state so an installed package is always runnable offline.
 	if err := writeManifestCache(i.Paths.ManifestFile(id), m); err != nil {
 		*i.State = *stateBefore
-		i.rollbackInstall(placed, replacedCommands, newCommands)
+		i.rollbackInstall(placed, replacedCommands, changedCommands)
 		i.restoreDesktopIntegration(oldManifest, m, integrationFiles, id, placed.finalDir)
 		cleanup()
 		return fmt.Errorf("cache installed manifest: %w", err)
@@ -280,7 +284,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		if restoreErr := cacheBefore.Restore(i.Paths.ManifestFile(id)); restoreErr != nil {
 			log.Warn("Failed to restore installed manifest", "package", id, "error", restoreErr)
 		}
-		i.rollbackInstall(placed, replacedCommands, newCommands)
+		i.rollbackInstall(placed, replacedCommands, changedCommands)
 		i.restoreDesktopIntegration(oldManifest, m, integrationFiles, id, placed.finalDir)
 		cleanup()
 		return fmt.Errorf("remove stale shims: %w", err)
@@ -298,7 +302,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 			if restoreErr := cacheBefore.Restore(i.Paths.ManifestFile(id)); restoreErr != nil {
 				log.Warn("Failed to restore installed manifest", "package", id, "error", restoreErr)
 			}
-			i.rollbackInstall(placed, replacedCommands, newCommands)
+			i.rollbackInstall(placed, replacedCommands, changedCommands)
 			i.restoreDesktopIntegration(oldManifest, m, integrationFiles, id, placed.finalDir)
 			cleanup()
 			return fmt.Errorf("activate provider commands: %w", err)
@@ -313,7 +317,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		if err := cacheBefore.Restore(i.Paths.ManifestFile(id)); err != nil {
 			log.Warn("Failed to restore installed manifest", "package", id, "error", err)
 		}
-		i.rollbackInstall(placed, replacedCommands, newCommands)
+		i.rollbackInstall(placed, replacedCommands, changedCommands)
 		i.restoreDesktopIntegration(oldManifest, m, integrationFiles, id, placed.finalDir)
 		cleanup()
 		return fmt.Errorf("save state: %w", err)
@@ -449,7 +453,11 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 		return err
 	}
 	if manifest != nil {
-		names = appendMissing(names, binNames(manifest)...)
+		for _, name := range binNames(manifest) {
+			if owner, ok := i.State.CommandOwner(name); !ok || owner == id {
+				names = appendMissing(names, name)
+			}
+		}
 	}
 	log.Debug("Removing shims", "package", id, "dir", i.Paths.Bin(), "commands", names)
 	ours := i.presentShims(names)

@@ -343,18 +343,14 @@ func TestShimsStayOwnedWhenRunFromAnotherBinary(t *testing.T) {
 	}
 }
 
-func TestResolverExactPinRejectsVersionDrift(t *testing.T) {
+func TestResolverRejectsInvalidPackagePin(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteProjectVersion(dir, "jdk", "corretto-21@21.0.4+7"); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ProjectVersionFile), []byte("jdk corretto-21@21.0.4+7\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	st := &stubState{owner: map[string]string{"java": "jdk-21"}, installed: map[string]bool{"corretto-21": true}, provides: map[string]string{"corretto-21": "jdk"}, versions: map[string]string{"corretto-21": "21.0.4+7"}}
+	st := &stubState{owner: map[string]string{"java": "jdk-21"}, installed: map[string]bool{"corretto-21": true}, provides: map[string]string{"corretto-21": "jdk"}}
 	r := &Resolver{State: st, Catalog: &stubCatalog{manifests: map[string]*manifest.Manifest{"jdk-21": {ID: "jdk-21", Provides: "jdk"}}}}
-	if got, err := r.Resolve("java", dir); err != nil || got.PackageID != "corretto-21" {
-		t.Fatalf("matching exact pin: %+v, %v", got, err)
-	}
-	st.versions["corretto-21"] = "21.0.5+11"
-	if _, err := r.Resolve("java", dir); err == nil || !strings.Contains(err.Error(), "installed version 21.0.5+11") {
-		t.Fatalf("upgrade must invalidate exact pin: %v", err)
+	if _, err := r.Resolve("java", dir); err == nil || !strings.Contains(err.Error(), "invalid pin") {
+		t.Fatalf("invalid pin silently selected a provider: %v", err)
 	}
 }

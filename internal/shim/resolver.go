@@ -16,7 +16,6 @@ type State interface {
 type PinState interface {
 	IsInstalled(id string) bool
 	ProvidesOf(id string) string
-	VersionOf(id string) string
 }
 
 // Catalog is the small slice of catalog.Loader the resolver needs.

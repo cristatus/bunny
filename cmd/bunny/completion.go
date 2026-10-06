@@ -307,8 +307,8 @@ const bashCompletion = `_bunny() {
     if [[ "$cur" == -* ]]; then
         local flags="__GLOBALS__"
         case "$sub" in
-            pin)          flags="$flags --exact" ;;
-            install)      flags="$flags --force -f" ;;
+            pin)          flags="$flags --init" ;;
+            install)      flags="$flags --force -f --project" ;;
             uninstall)    flags="$flags --purge --yes -y" ;;
             list)         flags="$flags __FILTERS__ --active" ;;
             search)       flags="$flags __FILTERS__ --installed --available" ;;
@@ -402,8 +402,8 @@ if [[ $cur == -* ]]; then
     local -a flags
     flags=(__GLOBALS__)
     case $sub in
-        pin) flags+=(--exact) ;;
-        install) flags+=(--force -f) ;;
+        pin) flags+=(--init) ;;
+        install) flags+=(--force -f --project) ;;
         uninstall) flags+=(--purge --yes -y) ;;
         list) flags+=(__FILTERS__ --active) ;;
         search) flags+=(__FILTERS__ --installed --available) ;;
@@ -538,7 +538,8 @@ complete -c bunny -f -n '__fish_seen_subcommand_from init completion' -a 'bash z
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and not __fish_seen_subcommand_from update validate' -a 'update validate'
 complete -c bunny -f -n '__fish_seen_subcommand_from dev; and __fish_seen_subcommand_from update' -a '(__bunny_ids)'
 # per-subcommand flags
-complete -c bunny -n '__fish_seen_subcommand_from pin' -l exact -d 'Pin the installed exact release'
+complete -c bunny -n '__fish_seen_subcommand_from pin' -l init -d 'Create pins from active SDKs'
+complete -c bunny -n '__fish_seen_subcommand_from install' -l project -d 'Install pinned project SDKs'
 complete -c bunny -n '__fish_seen_subcommand_from install' -s f -l force -d 'Force reinstall'
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -l purge -d "Also remove the package's data dir"
 complete -c bunny -n '__fish_seen_subcommand_from uninstall' -s y -l yes -d 'Skip the --purge confirmation prompt'

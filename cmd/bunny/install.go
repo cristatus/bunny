@@ -17,17 +17,37 @@ import (
 
 // InstallCmd installs one or more packages. --force reinstalls the same version.
 type InstallCmd struct {
-	IDs   []string `arg:"" name:"id" help:"Package ID(s)"`
-	Force bool     `short:"f" help:"Force reinstall"`
+	IDs     []string `arg:"" optional:"" name:"id" help:"Package ID(s)"`
+	Project bool     `help:"Install SDKs selected by effective project pins"`
+	Force   bool     `short:"f" help:"Force reinstall"`
 }
 
 func (c *InstallCmd) Run(a *App) error {
+	if c.Project && len(c.IDs) != 0 {
+		return fmt.Errorf("--project cannot be combined with package IDs")
+	}
+	if !c.Project && len(c.IDs) == 0 {
+		return fmt.Errorf("provide package IDs or --project")
+	}
+
 	rep := a.reporter()
-	ctx := rep.Begin(a.context(), c.IDs)
 	start := time.Now()
 	done, failed := 0, 0
 	var notes []string
-	err := a.withMutation(ctx, func() error {
+	err := a.withMutation(a.context(), func() error {
+		if c.Project {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			c.IDs, err = a.projectInstalls(cwd, c.Force)
+			if err != nil {
+				return err
+			}
+		}
+		// The reporter sizes its columns from the ids, which --project knows
+		// only once the pins are resolved, under the lock.
+		ctx := rep.Begin(a.context(), c.IDs)
 		regenToolchains := false
 		var errs []error
 		// Preflight the catalog once so an unknown id fails fast with a
@@ -39,13 +59,6 @@ func (c *InstallCmd) Run(a *App) error {
 			if ctx.Err() != nil {
 				break // cancelled (Ctrl+C)
 			}
-			if len(catalogPkgs) > 0 && partial == nil {
-				if err := requireInCatalog(id, catalogPkgs); err != nil {
-					rep.Fail(id, err)
-					failed++
-					continue
-				}
-			}
 			// Version-agnostic skip: already installed and not forced. Reuse the
 			// "installed" label (it is installed) — the dim styling distinguishes
 			// it from a fresh install.
@@ -56,6 +69,13 @@ func (c *InstallCmd) Run(a *App) error {
 				}
 				rep.Skip(id, "installed", ver)
 				continue
+			}
+			if len(catalogPkgs) > 0 && partial == nil {
+				if err := requireInCatalog(id, catalogPkgs); err != nil {
+					rep.Fail(id, err)
+					failed++
+					continue
+				}
 			}
 			rep.Start(id)
 			wasFrom := a.State.Packages[id].Source

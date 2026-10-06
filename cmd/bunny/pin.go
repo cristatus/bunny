@@ -13,9 +13,9 @@ import (
 // PinCmd writes a project-local version pin to ./.bunny-version so the given
 // capability resolves to a specific version in this directory tree.
 type PinCmd struct {
-	Capability string `arg:"" help:"Capability to pin (e.g. node, jdk)"`
-	Version    string `arg:"" help:"Version (22) or package ID (corretto-21), optionally with @release"`
-	Exact      bool   `help:"Pin the installed package's exact release; fail on version drift"`
+	Capability string `arg:"" optional:"" help:"Capability to pin (e.g. node, jdk)"`
+	Version    string `arg:"" optional:"" help:"Version (22) or package ID (corretto-21)"`
+	Init       bool   `help:"Create pins from effective installed SDK selections"`
 }
 
 func (c *PinCmd) Run(a *App) error {
@@ -23,20 +23,25 @@ func (c *PinCmd) Run(a *App) error {
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
 	}
+	if c.Init {
+		if c.Capability != "" || c.Version != "" {
+			return fmt.Errorf("--init cannot be combined with a capability or version")
+		}
+		return a.withMutation(a.context(), func() error { return c.initialize(a, cwd) })
+	}
+	if c.Capability == "" || c.Version == "" {
+		return fmt.Errorf("provide a capability and version, or --init")
+	}
 	pin := shim.ProjectPin{Capability: c.Capability, Value: c.Version, Source: filepath.Join(cwd, shim.ProjectVersionFile)}
 	if err := pin.Validate(); err != nil {
 		return err
 	}
-	if c.Exact {
-		if err := pin.CheckInstalled(a.State); err != nil {
-			return err
-		}
-		pin.Value = pin.PackageID() + "@" + a.State.VersionOf(pin.PackageID())
-	} else if a.State.IsInstalled(pin.PackageID()) {
+	if a.State.IsInstalled(pin.PackageID()) {
 		if err := pin.CheckInstalled(a.State); err != nil {
 			return err
 		}
 	}
+
 	if err := shim.WriteProjectVersion(cwd, c.Capability, pin.Value); err != nil {
 		return fmt.Errorf("write pin: %w", err)
 	}

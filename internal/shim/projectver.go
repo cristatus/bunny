@@ -20,8 +20,7 @@ const ProjectVersionFile = ".bunny-version"
 // ProjectPin is one `<capability> <value>` line. Value is either a bare
 // version, joined to the capability to form the package id ("21" → "jdk-21"),
 // or a package id outright ("corretto-21") so a pin can name a specific
-// provider. Either form may carry an @version suffix to guard the exact
-// installed release. manifest.ValidateID forbids a leading digit, so the two
+// provider. manifest.ValidateID forbids a leading digit, so the two
 // forms are never ambiguous.
 type ProjectPin struct {
 	Capability string // e.g. "jdk"
@@ -31,7 +30,7 @@ type ProjectPin struct {
 
 // PackageID is the package this pin selects.
 func (p *ProjectPin) PackageID() string {
-	value, _, _ := strings.Cut(p.Value, "@")
+	value := p.Value
 	if value == "" {
 		return ""
 	}
@@ -39,12 +38,6 @@ func (p *ProjectPin) PackageID() string {
 		return p.Capability + "-" + value
 	}
 	return value
-}
-
-// ExactVersion is the optional installed-release guard after @.
-func (p *ProjectPin) ExactVersion() string {
-	_, version, _ := strings.Cut(p.Value, "@")
-	return version
 }
 
 // Validate rejects malformed pins before they can silently select another tool.
@@ -55,28 +48,20 @@ func (p *ProjectPin) Validate() error {
 	if err := manifest.ValidateID(p.PackageID()); err != nil {
 		return fmt.Errorf("invalid pin %s %q: %w", p.Capability, p.Value, err)
 	}
-	if _, version, exact := strings.Cut(p.Value, "@"); exact {
-		if err := manifest.ValidateVersion(version); err != nil {
-			return fmt.Errorf("invalid exact version in pin %s %q: %w", p.Capability, p.Value, err)
-		}
-	}
 	return nil
 }
 
-// CheckInstalled enforces both provider identity and any exact release guard.
+// CheckInstalled enforces the selected package and capability.
 func (p *ProjectPin) CheckInstalled(st PinState) error {
 	if err := p.Validate(); err != nil {
 		return err
 	}
 	id := p.PackageID()
 	if !st.IsInstalled(id) {
-		return fmt.Errorf("%s %s pinned in %s, but %s is not installed\nhint: bunny install %s (the catalog must contain the requested release)", p.Capability, p.Value, p.Source, id, id)
+		return fmt.Errorf("%s %s pinned in %s, but %s is not installed\nhint: bunny install %s", p.Capability, p.Value, p.Source, id, id)
 	}
 	if st.ProvidesOf(id) != p.Capability {
 		return fmt.Errorf("%s %s pinned in %s, but %s does not provide %s\nhint: pin a package that does, or a bare version", p.Capability, p.Value, p.Source, id, p.Capability)
-	}
-	if version := p.ExactVersion(); version != "" && st.VersionOf(id) != version {
-		return fmt.Errorf("%s %s pinned in %s, but %s has installed version %s\nhint: restore %s from a catalog containing version %s, or explicitly update the project pin", p.Capability, p.Value, p.Source, id, st.VersionOf(id), id, version)
 	}
 	return nil
 }
@@ -89,30 +74,41 @@ func ResolveProjectVersion(cwd, capability string) (*ProjectPin, error) {
 	if capability == "" {
 		return nil, errors.New("capability name required")
 	}
+	var selected *ProjectPin
+	err := walkProjectPins(cwd, func(path string, pins map[string]string) bool {
+		if value, found := pins[capability]; found {
+			selected = &ProjectPin{Capability: capability, Value: value, Source: path}
+			return true
+		}
+		return false
+	})
+	return selected, err
+}
+
+// walkProjectPins visits parsed files from the current directory upwards.
+// Returning true stops the walk once a caller has enough information.
+func walkProjectPins(cwd string, visit func(string, map[string]string) bool) error {
 	cwd, err := filepath.Abs(cwd)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	for dir := cwd; ; {
+	for dir := cwd; ; dir = filepath.Dir(dir) {
 		path := filepath.Join(dir, ProjectVersionFile)
-		content, err := os.ReadFile(path)
-		switch {
-		case err == nil:
-			pins, err := parseBunnyVersion(string(content))
+		data, err := os.ReadFile(path)
+		if err == nil {
+			pins, err := parseBunnyVersion(string(data))
 			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", path, err)
+				return fmt.Errorf("read %s: %w", path, err)
 			}
-			if v, ok := pins[capability]; ok {
-				return &ProjectPin{Capability: capability, Value: v, Source: path}, nil
+			if visit(path, pins) {
+				return nil
 			}
-		case !errors.Is(err, fs.ErrNotExist):
-			return nil, fmt.Errorf("read project pin %s: %w", path, err)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("read project pin %s: %w", path, err)
 		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return nil, nil
+		if filepath.Dir(dir) == dir {
+			return nil
 		}
-		dir = parent
 	}
 }
 
@@ -231,37 +227,6 @@ func pinFileTarget(path string) (target string, shared bool) {
 	return path, false
 }
 
-// ResolveAllPins returns every pin from the nearest .bunny-version walking up
-// from cwd, plus its path. Returns (nil, "", nil) when there is none. Note a
-// shim keeps walking per capability, so a capability inherited from a further
-// ancestor will not appear here.
-func ResolveAllPins(cwd string) (map[string]string, string, error) {
-	cwd, err := filepath.Abs(cwd)
-	if err != nil {
-		return nil, "", err
-	}
-	for dir := cwd; ; {
-		path := filepath.Join(dir, ProjectVersionFile)
-		content, err := os.ReadFile(path)
-		if err == nil {
-			pins, err := parseBunnyVersion(string(content))
-			if err != nil {
-				return nil, "", fmt.Errorf("read %s: %w", path, err)
-			}
-			if len(pins) > 0 {
-				return pins, path, nil
-			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return nil, "", err
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return nil, "", nil
-		}
-		dir = parent
-	}
-}
-
 // pinLines returns trimmed, non-blank, non-comment lines of content.
 func pinLines(content string) []string {
 	var out []string
@@ -292,6 +257,23 @@ func parseBunnyVersion(content string) (map[string]string, error) {
 			return nil, fmt.Errorf("duplicate pin for %s", f[0])
 		}
 		out[f[0]] = f[1]
+	}
+	return out, nil
+}
+
+// EffectivePins collects inherited pins with the same nearest-per-capability rule as launch.
+func EffectivePins(cwd string) (map[string]ProjectPin, error) {
+	out := map[string]ProjectPin{}
+	err := walkProjectPins(cwd, func(path string, pins map[string]string) bool {
+		for capability, value := range pins {
+			if _, found := out[capability]; !found {
+				out[capability] = ProjectPin{Capability: capability, Value: value, Source: path}
+			}
+		}
+		return false
+	})
+	if err != nil {
+		return nil, err
 	}
 	return out, nil
 }

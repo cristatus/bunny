@@ -351,11 +351,11 @@ func TestPrepareDependencyHonorsProjectPin(t *testing.T) {
 	for _, tc := range []struct{ name, pin, req, want, err string }{
 		{name: "bare pin", pin: "17", req: "jdk", want: "jdk-17"},
 		{name: "vendor pin", pin: "corretto-17", req: "jdk>=11", want: "corretto-17"},
-		{name: "exact pin", pin: "corretto-17@17.0.12+7", req: "jdk>=17", want: "corretto-17"},
+		{name: "invalid package ID", pin: "corretto-17@17.0.12+7", req: "jdk>=17", err: "invalid pin"},
 		{name: "missing pin", pin: "19", req: "jdk", err: "not installed"},
 		{name: "wrong capability", pin: "node-22", req: "jdk", err: "does not provide jdk"},
 		{name: "incompatible minimum", pin: "17", req: "jdk>=21", err: "does not satisfy jdk>=21"},
-		{name: "upgraded release", pin: "corretto-17@17.0.11+9", req: "jdk", err: "installed version 17.0.12+7"},
+		{name: "invalid package suffix", pin: "corretto-17@17.0.11+9", req: "jdk", err: "invalid pin"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

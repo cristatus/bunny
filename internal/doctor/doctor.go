@@ -453,26 +453,23 @@ func gpuCheck() Result {
 // how each pinned capability resolves to an installed package. Returns nil
 // when no pin file is found — `bunny doctor` then stays silent on pinning.
 func PinResolution(state PinState, cwd string) []Result {
-	pins, source, err := shim.ResolveAllPins(cwd)
+	effective, err := shim.EffectivePins(cwd)
 	if err != nil {
 		return []Result{{Name: ".bunny-version", Detail: err.Error(), Severity: Fail}}
 	}
-	if pins == nil {
+	if len(effective) == 0 {
 		return nil
 	}
-	out := []Result{
-		{Name: ".bunny-version", Detail: source, Severity: OK},
-	}
-	caps := slices.Sorted(maps.Keys(pins))
-	for _, cap := range caps {
-		ver := pins[cap]
-		pin := shim.ProjectPin{Capability: cap, Value: ver, Source: source}
+	var out []Result
+	for _, cap := range slices.Sorted(maps.Keys(effective)) {
+		pin := effective[cap]
+		ver := pin.Value
 		candidate := pin.PackageID()
 		name := "Pin (" + cap + ")"
 		if err := pin.CheckInstalled(state); err == nil {
-			out = append(out, Result{Name: name, Detail: fmt.Sprintf("%s → %s", ver, candidate), Severity: OK})
+			out = append(out, Result{Name: name, Detail: fmt.Sprintf("%s → %s  (%s)", ver, candidate, pin.Source), Severity: OK})
 		} else {
-			fix := "update the project pin or restore the requested release"
+			fix := "update the project pin"
 			if !state.IsInstalled(candidate) {
 				fix = "bunny install " + candidate
 			}

@@ -511,7 +511,7 @@ func ValidateID(id string) error {
 	return nil
 }
 
-// ValidateVersion checks the release spelling used by manifests and exact pins.
+// ValidateVersion checks the release spelling used by manifests.
 func ValidateVersion(v string) error {
 	if v == "" || len(v) > 64 {
 		return fmt.Errorf("must be 1-64 chars")
