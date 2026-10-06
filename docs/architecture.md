@@ -19,14 +19,11 @@ shared primitives: manifest, fsutil
 
 ## Durable state and ownership
 
-`internal/paths` is the source of truth for every path Bunny reads or writes. It
-resolves one logical layout under two possible prefix modes: standard XDG base
-directories by default, and a single consolidated root when `$BUNNY_HOME` is
-set. No other package branches on which layout is active. Install locations come
-from two sources: user-configured install roots determine where new installs go,
-while paths recorded in `state.json` track where existing packages reside.
-Reading the recorded path is what makes install roots safe to change without
-stranding installed tools.
+`internal/paths` is the source of truth for every path Bunny reads or writes.
+Everything lives under one root, `$BUNNY_HOME` or `~/.bunny`; the variable only
+moves the root. A package installs under the root for its kind (`sdk/`, `cli/`,
+`app/`), and `state.json` records the kind it was installed as, so a package
+whose kind later changes in the catalog is still found where it is.
 
 `internal/config` is the source of truth for activation and user policy: it
 decides whether tool data is redirected and which exact package IDs run in the
@@ -46,9 +43,8 @@ the user invoked `bunny run --sandbox`.
 
 The sandbox resolver merges exactly two layers over the built-in defaults:
 the selected built-in or user profile, then the package override. Sandbox launches
-also export private anchors for the already-resolved Bunny layout. A shim
-re-entering Bunny from an isolated HOME therefore reads the same config and
-state. The versioned inherited sandbox context makes disabled integrations,
+also export `$BUNNY_HOME` for the resolved root. A shim re-entering Bunny from
+an isolated HOME therefore reads the same config and state. The versioned inherited sandbox context makes disabled integrations,
 hidden paths, and effective writable roots explicit and monotonic. The
 outermost sandbox owns the boundary; nested Bunny launches run directly and
 fail closed when a requested child home is not already writable. Declared SDK

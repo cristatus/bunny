@@ -30,7 +30,7 @@ distribute a pre-populated keystore via a vendored manifest (see
 using `keytool`:
 
 ```bash
-keytool -importcert -keystore ~/.local/share/bunny/sdk/jdk-21/lib/security/cacerts \
+keytool -importcert -keystore ~/.bunny/sdk/jdk-21/lib/security/cacerts \
   -storepass changeit -file corp-root.crt -alias "CorpRootCA"
 ```
 
@@ -98,7 +98,7 @@ JDK toolchain configuration into `~/.gradle/gradle.properties` between
 and JVM arguments outside those markers.
 
 To redirect Gradle to another directory, set `GRADLE_USER_HOME` in
-`~/.config/bunny/config.yaml`. The toolchain block will follow it. See
+`~/.bunny/config/config.yaml`. The toolchain block will follow it. See
 [Configuration](config.md).
 
 ## Sandboxed packages
@@ -158,9 +158,9 @@ though `~/.gitconfig` is out of reach. Credential-bearing settings such as
    ```
 2. Archive the download cache:
    ```bash
-   tar -czf bunny-cache.tar.gz -C ~/.cache/bunny .
+   tar -czf bunny-cache.tar.gz -C ~/.bunny/cache .
    ```
-3. Transfer the archive to the air-gapped host and extract it into `~/.cache/bunny/`.
+3. Transfer the archive to the air-gapped host and extract it into `~/.bunny/cache/`.
 4. Subsequent `bunny install <id>` commands match archive checksums against the
    local cache and install without network calls.
 
@@ -169,8 +169,8 @@ internal artifact mirrors.
 
 ## Backups
 
-Back up `~/.local/share/bunny/` and `~/.config/bunny/`. The download cache
-(`~/.cache/bunny/`) and staging directories (`.staging/`) are ephemeral and
+Back up `~/.bunny/`. The download cache
+(`~/.bunny/cache/`) and staging directories (`.staging/`) are ephemeral and
 tagged with `CACHEDIR.TAG` and `.nobackup` markers.
 
 Backup tools with cache-tag support (Borg, Restic, GNU `tar --exclude-caches`)
@@ -178,7 +178,7 @@ automatically skip these directories; tools with `--exclude-if-present` can
 point it at `.nobackup`.
 
 Tools without cache-tag support (rsync, `cp`, Time Machine) need an explicit
-exclude of `~/.cache/bunny` and any `.staging` directory.
+exclude of `~/.bunny/cache` and any `.staging` directory.
 
 ## Logging and audit trails
 
@@ -201,5 +201,5 @@ Commands whose output is the data you asked for (`list`, `search`, `info`,
 `doctor`, `init`, `completion`) still print it, so `eval "$(bunny init zsh)"`
 works with any log level.
 
-`~/.local/share/bunny/state.json` provides a machine-readable JSON inventory of
+`~/.bunny/state/state.json` provides a machine-readable JSON inventory of
 installed packages and versions suitable for fleet compliance tracking.

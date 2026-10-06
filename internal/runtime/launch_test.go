@@ -209,8 +209,8 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 	root := t.TempDir()
 	p := paths.At(root)
 	st := state.Empty()
-	st.SetInstalled("jdk-11", "11.0.0", "jdk", "", "")
-	st.SetInstalled("jdk-21", "21.0.0", "jdk", "", "")
+	st.SetInstalled("jdk-11", "11.0.0", "jdk", "")
+	st.SetInstalled("jdk-21", "21.0.0", "jdk", "")
 	_ = st.SetProvider("jdk", "jdk-11") // active too old for >=17
 	cat := reqCat{envs: map[string]map[string]string{
 		"jdk-21": {"JAVA_HOME": "{app}"},
@@ -238,7 +238,7 @@ func TestMergeDepEnvVersionConstraint(t *testing.T) {
 func TestMergeDepEnvUnsatisfiableDegrades(t *testing.T) {
 	p := paths.At(t.TempDir())
 	st := state.Empty()
-	st.SetInstalled("jdk-11", "11.0.0", "jdk", "", "")
+	st.SetInstalled("jdk-11", "11.0.0", "jdk", "")
 	_ = st.SetProvider("jdk", "jdk-11")
 	l := &Launcher{Paths: p, Catalog: reqCat{}, State: st}
 	builder := newEnvBuilder(nil)
@@ -324,7 +324,7 @@ func TestPrepareNoConfigIsolatesNothing(t *testing.T) {
 func TestMergeDepEnvAppliesConfig(t *testing.T) {
 	root := t.TempDir()
 	st := state.Empty()
-	st.SetInstalled("jdk-21", "21.0.0", "jdk", "", "")
+	st.SetInstalled("jdk-21", "21.0.0", "jdk", "")
 	_ = st.SetProvider("jdk", "jdk-21")
 	cat := reqCat{envs: map[string]map[string]string{"jdk-21": {"JAVA_HOME": "{app}"}}}
 	cfg := &config.Config{Env: map[string]map[string]string{
@@ -372,14 +372,14 @@ func TestPrepareDependencyHonorsProjectPin(t *testing.T) {
 			}
 			t.Chdir(child)
 			st := state.Empty()
-			st.SetInstalled("jdk-17", "17.0.12+7", "jdk", "sdk", "")
-			st.SetInstalled("corretto-17", "17.0.12+7", "jdk", "sdk", "")
-			st.SetInstalled("jdk-21", "21.0.4+7", "jdk", "sdk", "")
-			st.SetInstalled("node-22", "22.0.0", "node", "sdk", "")
+			st.SetInstalled("jdk-17", "17.0.12+7", "jdk", "sdk")
+			st.SetInstalled("corretto-17", "17.0.12+7", "jdk", "sdk")
+			st.SetInstalled("jdk-21", "21.0.4+7", "jdk", "sdk")
+			st.SetInstalled("node-22", "22.0.0", "node", "sdk")
 			if err := st.SetProvider("jdk", "jdk-21"); err != nil {
 				t.Fatal(err)
 			}
-			l := &Launcher{Paths: paths.At(root).WithLayout(nil, st.Location), State: st, Catalog: reqCat{envs: map[string]map[string]string{
+			l := &Launcher{Paths: paths.At(root).WithKinds(st.KindOf), State: st, Catalog: reqCat{envs: map[string]map[string]string{
 				"jdk-17": {"JAVA_HOME": "{app}"}, "corretto-17": {"JAVA_HOME": "{app}"}, "jdk-21": {"JAVA_HOME": "{app}"},
 			}}}
 			for _, tool := range []string{"maven", "gradle"} {

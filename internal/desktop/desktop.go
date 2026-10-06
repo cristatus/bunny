@@ -64,8 +64,8 @@ func RemoveEntries(p *paths.Paths, entries []manifest.DesktopEntry) error {
 const managedKey = "X-Bunny-Package"
 
 // checkEntryOwned refuses an existing .desktop file bunny did not write.
-// Entries share ~/.local/share/applications with distro packages and
-// hand-written launchers, and clobbering one is not recoverable.
+// Bunny's share dir is its own, but clobbering a file someone put there by
+// hand is not recoverable, and the check costs one read.
 func checkEntryOwned(path string) error {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
@@ -194,9 +194,8 @@ func symlinkedManPages(p *paths.Paths, srcDir string) []string {
 	return out
 }
 
-// InstallIcons copies icons into the XDG icons hierarchy, leaving alone any
-// file bunny cannot show it installed. These directories are shared with the
-// distro and every other application, so an existing file is somebody's.
+// InstallIcons copies icons into bunny's icons hierarchy, leaving alone any
+// file bunny cannot show it installed: an existing file there is somebody's.
 // It returns the paths it wrote, including on error, so the caller can record
 // or undo exactly those.
 func InstallIcons(p *paths.Paths, icons []manifest.Icon, vars map[string]string, owned map[string]bool) ([]string, error) {
@@ -275,7 +274,33 @@ func RefreshIconCache(p *paths.Paths) {
 	}
 }
 
-// InstallCompletions copies shell-completion files to the XDG share dirs,
+// desktopDatabaseUpdater runs update-desktop-database on an applications dir.
+// A package-level var so tests can stub it out; a missing tool is a no-op.
+var desktopDatabaseUpdater = func(dir string) error {
+	path, err := exec.LookPath("update-desktop-database")
+	if err != nil {
+		return nil
+	}
+	if out, err := exec.Command(path, "-q", dir).CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// RefreshDesktopDatabase rebuilds the MIME cache for bunny's desktop entries,
+// so "Open with" and default applications see what was installed or removed.
+// Launchers pick up the entries themselves by watching the directory; only
+// file associations need the cache. Best-effort, like RefreshIconCache.
+func RefreshDesktopDatabase(p *paths.Paths) {
+	if _, err := os.Stat(p.Desktop()); err != nil {
+		return
+	}
+	if err := desktopDatabaseUpdater(p.Desktop()); err != nil {
+		log.Debug("update-desktop-database failed; file associations may be stale", "error", err)
+	}
+}
+
+// InstallCompletions copies shell-completion files into bunny's share dir,
 // returning the paths it wrote as InstallIcons does.
 func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[string]string, owned map[string]bool) ([]string, error) {
 	if comps == nil {
@@ -311,7 +336,7 @@ func InstallCompletions(p *paths.Paths, comps *manifest.Completions, vars map[st
 	return written, nil
 }
 
-// InstallMan copies man pages into bunny's XDG man root, sectioned by each
+// InstallMan copies man pages into bunny's man root, sectioned by each
 // file's own name, returning the paths it wrote as InstallIcons does.
 func InstallMan(p *paths.Paths, man []string, vars map[string]string, owned map[string]bool) ([]string, error) {
 	var written []string

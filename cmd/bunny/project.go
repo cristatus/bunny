@@ -57,7 +57,7 @@ func (a *App) projectInstalls(cwd string, force bool) ([]string, error) {
 		if err := future.CheckCommandConflicts(id, m.Provides, names); err != nil {
 			return nil, err
 		}
-		future.SetInstalled(id, m.Version, m.Provides, m.KindOf(), "")
+		future.SetInstalled(id, m.Version, m.Provides, m.KindOf())
 		if err := future.SetProviderCommands(m.Provides, id, names); err != nil {
 			return nil, err
 		}

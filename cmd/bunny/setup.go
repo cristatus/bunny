@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/log"
 
@@ -20,8 +17,8 @@ import (
 )
 
 // environmentDPath is where systemd's per-user environment generator reads
-// bunny's session env, so the graphical session sees the same PATH (and, for a
-// single-root install, the same $BUNNY_HOME and XDG_DATA_DIRS) as a login shell.
+// bunny's session env, so the graphical session sees the same PATH,
+// XDG_DATA_DIRS and, for a custom root, $BUNNY_HOME as a login shell.
 func environmentDPath() (string, error) {
 	cfg, err := os.UserConfigDir() // $XDG_CONFIG_HOME or ~/.config
 	if err != nil {
@@ -30,79 +27,55 @@ func environmentDPath() (string, error) {
 	return filepath.Join(cfg, "environment.d", "bunny.conf"), nil
 }
 
-// sessionPath returns the PATH the systemd user manager exports, which is what
-// graphical sessions inherit. The second result is false when that cannot be
-// determined: no systemd, no user manager, a container, plain SSH. A var so
-// tests can drive both branches.
-var sessionPath = systemdSessionPath
-
-func systemdSessionPath() (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	out, err := exec.CommandContext(ctx, "systemctl", "--user", "show-environment").Output()
-	if err != nil {
-		return "", false
-	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if value, ok := strings.CutPrefix(line, "PATH="); ok {
-			return value, true
+// desktopSession reports whether setup runs inside a graphical session, the
+// only place the session env matters: the desktop finds bunny's entries and
+// icons through XDG_DATA_DIRS. A var so tests can drive both branches.
+var desktopSession = func() bool {
+	for _, name := range []string{"XDG_CURRENT_DESKTOP", "WAYLAND_DISPLAY", "DISPLAY"} {
+		if os.Getenv(name) != "" {
+			return true
 		}
 	}
-	return "", true // systemd answered, and it exports no PATH of its own
+	return false
 }
 
-// sessionAlreadyProvides reports whether the graphical session already has dir
-// on PATH, and whether that could be established at all.
-func sessionAlreadyProvides(dir string) (provides, known bool) {
-	value, ok := sessionPath()
-	if !ok {
-		return false, false
+// sessionEnvContent is bunny's environment.d file. The system data dirs are
+// spelled out as the fallback because an unset XDG_DATA_DIRS means them, and
+// a value naming only bunny's share dir would hide every other application.
+func sessionEnvContent(p *paths.Paths) string {
+	content := "# managed by bunny — do not edit\n"
+	if root := pinnedRoot(p); root != "" {
+		content += fmt.Sprintf("%s=%s\n", paths.EnvHome, root)
 	}
-	for _, entry := range filepath.SplitList(value) {
-		if entry == dir {
-			return true, true
-		}
-	}
-	return false, true
+	content += fmt.Sprintf("XDG_DATA_DIRS=%s:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}\n", p.Share())
+	content += fmt.Sprintf("PATH=%s:${PATH}\n", p.Bin())
+	return content
 }
 
 // writeEnvironmentD writes ~/.config/environment.d/bunny.conf and reports
-// whether it wrote. Under XDG only PATH is needed, since desktop entries
-// already live where the desktop scans. A single-root install also needs
-// $BUNNY_HOME, which is what every invocation resolves the layout from, and
-// XDG_DATA_DIRS to reach the entries kept inside the root.
-//
-// It skips when the session already exports the shim dir, because systemd's
-// generator does not deduplicate and the file would only add a second
-// identical entry. Two guards: it cannot skip when the answer is unknown, a
-// missing entry being far worse than a duplicate, and it never skips over an
-// existing file, or it would read bunny's own earlier contribution and decline
-// to correct a line gone stale.
+// whether it changed anything.
 func writeEnvironmentD(p *paths.Paths) (string, bool, error) {
 	path, err := environmentDPath()
 	if err != nil {
 		return "", false, err
 	}
-	_, statErr := os.Stat(path)
-	if os.IsNotExist(statErr) && p.XDG() {
-		if provides, known := sessionAlreadyProvides(p.Bin()); known && provides {
-			return path, false, nil
-		}
-	}
-	content := "# managed by bunny — do not edit\n"
-	if !p.XDG() {
-		content += fmt.Sprintf("%s=%s\n", paths.EnvHome, p.Root)
-		content += fmt.Sprintf("XDG_DATA_DIRS=%s:${XDG_DATA_DIRS}\n", p.Share())
-	}
-	content += fmt.Sprintf("PATH=%s:${PATH}\n", p.Bin())
+	content := sessionEnvContent(p)
 	if cur, err := os.ReadFile(path); err == nil && string(cur) == content {
-		return path, true, nil
+		return path, false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return "", false, err
 	}
 	return path, true, fsutil.WriteFile(path, []byte(content), 0644)
+}
+
+// pinnedRoot is the root the shell setup has to name, or "" for ~/.bunny,
+// which every invocation finds without being told.
+func pinnedRoot(p *paths.Paths) string {
+	if p.DefaultRoot() {
+		return ""
+	}
+	return p.Root
 }
 
 // detectShell returns the shell basename from $SHELL, or "" if unknown/unset.
@@ -141,12 +114,12 @@ func rcHasBunnyInit(content string) bool { return bunnyInitRe.MatchString(conten
 // initEvalLine is the line setup appends to the rc. Absolute bunny path so it
 // resolves before PATH is set; fish uses `| source`, others `eval`.
 //
-// A single-root install pins $BUNNY_HOME on the invocation, root being "" under
-// XDG. `bunny init` resolves the layout from the environment it runs in, and an
-// rc runs in shells that never had the variable: an unpinned call there emits
-// the XDG snippet and points PATH at ~/.local/bin, away from the root the rest
-// of the install lives under. The snippet a pinned call emits exports the root
-// onward, so this one line establishes the layout for the whole shell.
+// A custom root is pinned as $BUNNY_HOME on the invocation; root is "" for
+// ~/.bunny. `bunny init` resolves the root from the environment it runs in, and
+// an rc runs in shells that never had the variable: an unpinned call there
+// emits the snippet for ~/.bunny, away from the root the install lives under.
+// The snippet a pinned call emits exports the root onward, so this one line
+// establishes the root for the whole shell.
 func initEvalLine(root, bunnyBin, shell string) string {
 	word, quote := shellWord, shellQuote
 	if shell == "fish" {
@@ -209,9 +182,9 @@ func ensureRcInit(rcPath, root, bunnyBin, shell string) (bool, error) {
 }
 
 // staleRcInit returns the bunny init line rcPath runs when it was written for
-// another layout, and "" otherwise. What decides the layout is the root the
-// line pins, or that it pins none: an XDG setup's unpinned line left in place
-// after a reinstall under BUNNY_HOME emits the XDG snippet in every shell.
+// another root, and "" otherwise. What decides the root is the one the line
+// pins, or that it pins none: an unpinned line left in place after a reinstall
+// under a custom BUNNY_HOME emits the ~/.bunny snippet in every shell.
 // How the line reaches bunny, by absolute path or through PATH, does not
 // matter, and a commented-out line runs nothing. Setup does not rewrite a line
 // the user may have edited, but "already configured" alone would claim a
@@ -243,10 +216,11 @@ func staleRcInit(rcPath, root, shell string) string {
 	return stale
 }
 
-// SetupCmd is the one-shot installer: session env (environment.d), shell
-// completions, and the shell rc `bunny init` line.
+// SetupCmd is the one-shot installer: shell completions, the shell rc `bunny
+// init` line and, on a desktop, the session env (environment.d).
 type SetupCmd struct {
-	Shell string `help:"Shell to configure: bash, zsh, or fish (auto-detected from $SHELL if omitted)"`
+	Shell   string `help:"Shell to configure: bash, zsh, or fish (auto-detected from $SHELL if omitted)"`
+	Desktop bool   `help:"Write the desktop session env even when no graphical session is detected"`
 }
 
 func (c *SetupCmd) Run(a *App) error {
@@ -270,16 +244,20 @@ func (c *SetupCmd) Run(a *App) error {
 		p := a.status()
 		p.Println()
 
-		envPath, wroteEnv, err := writeEnvironmentD(a.Paths)
-		if err != nil {
-			return fmt.Errorf("write environment.d: %w", err)
-		}
-		if wroteEnv {
-			log.Info("Wrote session env", "path", envPath)
-			p.Println("wrote session env to " + tildePath(envPath))
-		} else {
-			log.Info("Session env already provides the shim dir, skipped", "dir", bin, "path", envPath)
-			p.Println("session env already provides " + tildePath(bin) + ", skipped")
+		desktop := c.Desktop || desktopSession()
+		wroteEnv := false
+		if desktop {
+			envPath, wrote, err := writeEnvironmentD(a.Paths)
+			if err != nil {
+				return fmt.Errorf("write environment.d: %w", err)
+			}
+			wroteEnv = wrote
+			if wrote {
+				log.Info("Wrote session env", "path", envPath)
+				p.Println("wrote session env to " + tildePath(envPath))
+			} else {
+				p.Println("session env " + tildePath(envPath) + " up to date")
+			}
 		}
 
 		if err := writeCompletionFile(a.Paths, shell); err != nil {
@@ -292,7 +270,8 @@ func (c *SetupCmd) Run(a *App) error {
 			return err
 		}
 		bunnyBin := filepath.Join(bin, "bunny")
-		added, err := ensureRcInit(rcPath, a.Paths.Root, bunnyBin, shell)
+		root := pinnedRoot(a.Paths)
+		added, err := ensureRcInit(rcPath, root, bunnyBin, shell)
 		if err != nil {
 			return fmt.Errorf("configure %s: %w", rcPath, err)
 		}
@@ -302,21 +281,17 @@ func (c *SetupCmd) Run(a *App) error {
 		} else {
 			log.Info("Shell rc already configured", "rc", rcPath)
 			p.Println(tildePath(rcPath) + " already configured")
-			if line := staleRcInit(rcPath, a.Paths.Root, shell); line != "" {
+			if line := staleRcInit(rcPath, root, shell); line != "" {
 				ui.Notice(fmt.Sprintf("%s runs %q, not what this install writes: %s",
-					tildePath(rcPath), line, strings.TrimSpace(initEvalLine(a.Paths.Root, bunnyBin, shell))))
+					tildePath(rcPath), line, strings.TrimSpace(initEvalLine(root, bunnyBin, shell))))
 			}
 		}
 
-		sessionVars := "PATH"
-		if !a.Paths.XDG() {
-			sessionVars = "PATH XDG_DATA_DIRS " + paths.EnvHome
+		p.Println()
+		p.Println("setup complete — restart your shell to activate bunny")
+		if wroteEnv {
+			p.Println("log out and back in once so the desktop finds bunny's applications")
 		}
-		p.Println()
-		p.Println("setup complete — restart your shell to activate bunny,")
-		p.Println("or update the current session with:")
-		p.Println()
-		p.Println("  systemctl --user import-environment " + sessionVars)
 		return nil
 	})
 }

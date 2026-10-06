@@ -25,12 +25,12 @@ func TestPinVendorFollowsInstalledUpdates(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	st := state.Empty()
-	st.SetInstalled("corretto-21", "21.0.4+7", "jdk", "sdk", "")
+	st.SetInstalled("corretto-21", "21.0.4+7", "jdk", "sdk")
 	a := &App{State: st}
 	if err := (&PinCmd{Capability: "jdk", Version: "corretto-21"}).Run(a); err != nil {
 		t.Fatal(err)
 	}
-	st.SetInstalled("corretto-21", "21.0.5+11", "jdk", "sdk", "")
+	st.SetInstalled("corretto-21", "21.0.5+11", "jdk", "sdk")
 	pin, err := shim.ResolveProjectVersion(dir, "jdk")
 	if err != nil || pin.Value != "corretto-21" {
 		t.Fatalf("pin: %v %v", pin, err)
@@ -55,7 +55,7 @@ func TestPinFailurePreservesFile(t *testing.T) {
 				t.Fatal(err)
 			}
 			st := state.Empty()
-			st.SetInstalled("node-22", "22.0.0", "node", "sdk", "")
+			st.SetInstalled("node-22", "22.0.0", "node", "sdk")
 			if err := tc.Run(&App{State: st}); err == nil {
 				t.Fatal("expected rejected pin")
 			}

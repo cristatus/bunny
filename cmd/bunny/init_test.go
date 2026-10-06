@@ -11,9 +11,9 @@ import (
 	"github.com/cristatus/bunny/internal/paths"
 )
 
-// A single-root install keeps desktop entries and completions inside the root,
-// so the shell has to be told about it via XDG_DATA_DIRS.
-func TestInitSnippetSingleRootDedupGuards(t *testing.T) {
+// Desktop entries and completions live inside the root, so the shell has to be
+// told about it via XDG_DATA_DIRS.
+func TestInitSnippetDedupGuards(t *testing.T) {
 	p := paths.At("/h/.bunny")
 	bin, share := p.Bin(), p.Share()
 
@@ -52,16 +52,16 @@ func TestInitSnippetSingleRootDedupGuards(t *testing.T) {
 	}
 }
 
-// Every invocation resolves the layout from $BUNNY_HOME, shims included, so the
-// snippet has to re-establish it. A snippet that only put the bin dir on PATH
-// would give a fresh shell bunny's binary and shims while they all read the XDG
-// layout, where nothing is installed.
-func TestInitSnippetSingleRootReexportsRoot(t *testing.T) {
-	p := paths.At("/h/.bunny")
+// Every invocation resolves the root from $BUNNY_HOME, shims included, so the
+// snippet has to re-establish a custom one. A snippet that only put the bin dir
+// on PATH would give a fresh shell bunny's binary and shims while they all read
+// ~/.bunny, where nothing is installed.
+func TestInitSnippetCustomRootReexportsRoot(t *testing.T) {
+	p := paths.At("/opt/bunny")
 	for _, c := range []struct{ shell, want string }{
-		{"bash", `[ -n "${BUNNY_HOME:-}" ] || export BUNNY_HOME=/h/.bunny`},
-		{"zsh", `[ -n "${BUNNY_HOME:-}" ] || export BUNNY_HOME=/h/.bunny`},
-		{"fish", `test -n "$BUNNY_HOME"; or set -gx BUNNY_HOME /h/.bunny`},
+		{"bash", `[ -n "${BUNNY_HOME:-}" ] || export BUNNY_HOME=/opt/bunny`},
+		{"zsh", `[ -n "${BUNNY_HOME:-}" ] || export BUNNY_HOME=/opt/bunny`},
+		{"fish", `test -n "$BUNNY_HOME"; or set -gx BUNNY_HOME /opt/bunny`},
 	} {
 		snippet := initSnippet(p, c.shell)
 		if !strings.Contains(snippet, c.want) {
@@ -74,77 +74,43 @@ func TestInitSnippetSingleRootReexportsRoot(t *testing.T) {
 	}
 }
 
-// Under XDG, desktop entries and bash/fish completions are already in
-// locations the system scans, so the snippet must not touch XDG_DATA_DIRS.
-// Shrinking what a user has to paste into their rc is the point of the layout.
-func TestInitSnippetXDGDropsDataDirs(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+// ~/.bunny is found without being named, so the snippet must not export it:
+// an exported default would override nothing and pin a value that a later
+// $BUNNY_HOME in the session would have to fight.
+func TestInitSnippetDefaultRootOmitsHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv(paths.EnvHome, "")
-	for _, v := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
-		t.Setenv(v, "")
-	}
 	p, err := paths.Resolve()
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	for _, shell := range []string{"bash", "zsh", "fish"} {
 		snippet := initSnippet(p, shell)
-		if strings.Contains(snippet, "XDG_DATA_DIRS") {
-			t.Errorf("%s: XDG layout should not set XDG_DATA_DIRS:\n%s", shell, snippet)
-		}
-		// Exporting the root is what selects the single-root layout, so the XDG
-		// snippet must not mention it at all.
 		if strings.Contains(snippet, paths.EnvHome) {
-			t.Errorf("%s: XDG layout should not set %s:\n%s", shell, paths.EnvHome, snippet)
+			t.Errorf("%s: the default root should not set %s:\n%s", shell, paths.EnvHome, snippet)
 		}
-		if !strings.Contains(snippet, p.Bin()) {
-			t.Errorf("%s: missing PATH entry for %s", shell, p.Bin())
+		if !strings.Contains(snippet, p.Bin()) || !strings.Contains(snippet, p.Share()) {
+			t.Errorf("%s: missing PATH or XDG_DATA_DIRS entry:\n%s", shell, snippet)
 		}
 	}
-
-	// zsh has no conventional user site-functions dir, so fpath is still needed.
-	if zsh := initSnippet(p, "zsh"); !strings.Contains(zsh, p.ZshCompletions()) {
-		t.Error("zsh: fpath entry is required under XDG too")
-	}
-	// bash and fish read their completion dirs natively; nothing to wire up.
-	if bash := initSnippet(p, "bash"); strings.Contains(bash, "bash-completion") {
-		t.Error("bash: completions are discovered natively under XDG")
+	if fish := initSnippet(p, "fish"); !strings.Contains(fish, "fish_complete_path "+p.FishCompletions()) {
+		t.Errorf("fish: completions must be reachable without XDG_DATA_DIRS at startup:\n%s", fish)
 	}
 }
 
 // Unlike desktop entries and icons, man implementations do not search the
-// XDG data dirs on their own — MANPATH is the only lever, so the guard must
-// be present under both layouts, not gated on single-root the way
-// XDG_DATA_DIRS is.
-func TestInitSnippetSetsManpathInEveryLayout(t *testing.T) {
-	for _, p := range []*paths.Paths{
-		paths.At("/h/.bunny"),
-		func() *paths.Paths {
-			home := t.TempDir()
-			t.Setenv("HOME", home)
-			t.Setenv(paths.EnvHome, "")
-			for _, v := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
-				t.Setenv(v, "")
-			}
-			p, err := paths.Resolve()
-			if err != nil {
-				t.Fatal(err)
-			}
-			return p
-		}(),
-	} {
-		man := p.ManPages()
-		if bash := initSnippet(p, "bash"); !strings.Contains(bash, `case ":${MANPATH:-}:" in`) || !strings.Contains(bash, man) {
-			t.Errorf("bash: missing MANPATH dedup guard for %s:\n%s", man, bash)
-		}
-		if zsh := initSnippet(p, "zsh"); !strings.Contains(zsh, `case ":${MANPATH:-}:" in`) || !strings.Contains(zsh, man) {
-			t.Errorf("zsh: missing MANPATH dedup guard for %s:\n%s", man, zsh)
-		}
-		if fish := initSnippet(p, "fish"); !strings.Contains(fish, "set -gx MANPATH "+man) {
-			t.Errorf("fish: missing MANPATH guard for %s:\n%s", man, fish)
-		}
+// XDG data dirs on their own, so MANPATH is the only lever.
+func TestInitSnippetSetsManpath(t *testing.T) {
+	p := paths.At("/h/.bunny")
+	man := p.ManPages()
+	if bash := initSnippet(p, "bash"); !strings.Contains(bash, `case ":${MANPATH:-}:" in`) || !strings.Contains(bash, man) {
+		t.Errorf("bash: missing MANPATH dedup guard for %s:\n%s", man, bash)
+	}
+	if zsh := initSnippet(p, "zsh"); !strings.Contains(zsh, `case ":${MANPATH:-}:" in`) || !strings.Contains(zsh, man) {
+		t.Errorf("zsh: missing MANPATH dedup guard for %s:\n%s", man, zsh)
+	}
+	if fish := initSnippet(p, "fish"); !strings.Contains(fish, "set -gx MANPATH "+man) {
+		t.Errorf("fish: missing MANPATH guard for %s:\n%s", man, fish)
 	}
 }
 

@@ -56,11 +56,6 @@ type Package struct {
 	Provides  string    `json:"provides,omitempty"`
 	// Kind is the install root the package belongs to ("app", "cli", "sdk").
 	Kind string `json:"kind,omitempty"`
-	// Path is where the package actually is, always recorded. Reading a
-	// location instead of recomputing one is what lets the user repoint an
-	// install root, or the catalog change a package's kind, without stranding
-	// an already-installed tree. Absolute paths in state are the price.
-	Path string `json:"path,omitempty"`
 	// Source names the catalog the package was installed from, so a package
 	// changing hands between catalogs is something bunny can notice. Empty for
 	// an install predating it, and for a catalog that cannot name itself.
@@ -290,13 +285,12 @@ func (s *State) repair() []string {
 // becomes the active provider for that capability only when no provider is
 // active yet; installing an additional provider (e.g. a second JDK) leaves the
 // current one active — switch with `bunny use`.
-func (s *State) SetInstalled(id, version, provides, kind, path string) {
+func (s *State) SetInstalled(id, version, provides, kind string) {
 	s.Packages[id] = Package{
 		Version:   version,
 		Installed: time.Now(),
 		Provides:  provides,
 		Kind:      kind,
-		Path:      path,
 		// Kept across a reinstall, as SetSource promises: a source that
 		// cannot name itself must not erase the one already known.
 		Source: s.Packages[id].Source,
@@ -333,15 +327,14 @@ func (s *State) SetSource(id, source string) {
 	s.Packages[id] = pkg
 }
 
-// Location returns a package's install kind and, when it lives outside the
-// default root for that kind, its recorded path. Suitable as the lookup passed
-// to paths.WithLayout. Both are empty for a package bunny does not know.
-func (s *State) Location(id string) (kind, path string) {
+// KindOf returns the kind a package was installed as, which decides where it
+// lives. Suitable as the lookup passed to paths.WithKinds. Empty for a package
+// bunny does not know.
+func (s *State) KindOf(id string) string {
 	if s == nil {
-		return "", ""
+		return ""
 	}
-	pkg := s.Packages[id]
-	return pkg.Kind, pkg.Path
+	return s.Packages[id].Kind
 }
 
 // SetUninstalled removes a package and any commands/providers it owned. When

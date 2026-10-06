@@ -9,50 +9,9 @@ import (
 	"github.com/cristatus/bunny/internal/paths"
 )
 
-func TestWriteEnvironmentDSingleRoot(t *testing.T) {
+func TestWriteEnvironmentDCustomRoot(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	p := paths.At("/h/.bunny")
-	path, wrote, err := writeEnvironmentD(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !wrote {
-		t.Fatal("a single-root install always needs the session env")
-	}
-	if filepath.Base(path) != "bunny.conf" || !strings.Contains(path, "environment.d") {
-		t.Errorf("path = %q", path)
-	}
-	data, _ := os.ReadFile(path)
-	s := string(data)
-	// The graphical session resolves the layout from this, so a session given
-	// only PATH would launch shims that read the XDG layout instead.
-	if !strings.Contains(s, "BUNNY_HOME=/h/.bunny\n") {
-		t.Errorf("missing root line: %s", s)
-	}
-	if !strings.Contains(s, "XDG_DATA_DIRS=/h/.bunny/share:${XDG_DATA_DIRS}") {
-		t.Errorf("missing XDG line: %s", s)
-	}
-	if !strings.Contains(s, "PATH=/h/.bunny/bin:${PATH}") {
-		t.Errorf("missing PATH line: %s", s)
-	}
-	// idempotent: second write returns same path, no error
-	if _, _, err := writeEnvironmentD(p); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// The session only needs XDG_DATA_DIRS when bunny's desktop entries live
-// somewhere the desktop would not otherwise look.
-func TestWriteEnvironmentDXDGOmitsDataDirs(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(paths.EnvHome, "")
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("XDG_DATA_HOME", "")
-	p, err := paths.Resolve()
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := paths.At("/opt/bunny")
 	path, wrote, err := writeEnvironmentD(p)
 	if err != nil {
 		t.Fatal(err)
@@ -60,16 +19,64 @@ func TestWriteEnvironmentDXDGOmitsDataDirs(t *testing.T) {
 	if !wrote {
 		t.Fatal("expected the file to be written")
 	}
-	data, _ := os.ReadFile(path)
-	if strings.Contains(string(data), "XDG_DATA_DIRS") {
-		t.Errorf("XDG layout should not set XDG_DATA_DIRS: %s", data)
+	if filepath.Base(path) != "bunny.conf" || !strings.Contains(path, "environment.d") {
+		t.Errorf("path = %q", path)
 	}
+	data, _ := os.ReadFile(path)
+	s := string(data)
+	// The graphical session resolves the root from this, so a session given
+	// only PATH would launch shims that read ~/.bunny instead.
+	if !strings.Contains(s, "BUNNY_HOME=/opt/bunny\n") {
+		t.Errorf("missing root line: %s", s)
+	}
+	// An unset XDG_DATA_DIRS means the system dirs; dropping them would hide
+	// every other application from the desktop.
+	if !strings.Contains(s, "XDG_DATA_DIRS=/opt/bunny/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}\n") {
+		t.Errorf("missing XDG line: %s", s)
+	}
+	if !strings.Contains(s, "PATH=/opt/bunny/bin:${PATH}") {
+		t.Errorf("missing PATH line: %s", s)
+	}
+	if _, wrote, err := writeEnvironmentD(p); err != nil || wrote {
+		t.Errorf("an up-to-date file is left alone: wrote=%v err=%v", wrote, err)
+	}
+}
+
+// ~/.bunny is found without being named, so the session need not carry it.
+func TestWriteEnvironmentDDefaultRootOmitsHome(t *testing.T) {
+	p := defaultPaths(t)
+	path, _, err := writeEnvironmentD(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
 	if strings.Contains(string(data), paths.EnvHome) {
-		t.Errorf("XDG layout should not set %s: %s", paths.EnvHome, data)
+		t.Errorf("default root should not set %s: %s", paths.EnvHome, data)
 	}
 	if !strings.Contains(string(data), "PATH="+p.Bin()) {
 		t.Errorf("missing PATH line: %s", data)
 	}
+}
+
+func defaultPaths(t *testing.T) *paths.Paths {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv(paths.EnvHome, "")
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	p, err := paths.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// stubDesktop decides whether setup sees a graphical session.
+func stubDesktop(t *testing.T, desktop bool) {
+	t.Helper()
+	prev := desktopSession
+	desktopSession = func() bool { return desktop }
+	t.Cleanup(func() { desktopSession = prev })
 }
 
 func TestRcHasBunnyInit(t *testing.T) {
@@ -139,10 +146,10 @@ func TestBlankLinePrefix(t *testing.T) {
 }
 
 // The rc runs in shells that never had $BUNNY_HOME, and `bunny init` reads the
-// layout from its own environment, so the rc line has to carry the root. An
-// unpinned line would emit the XDG snippet and put ~/.local/bin on PATH while
-// the install lives under the root.
-func TestInitEvalLinePinsSingleRoot(t *testing.T) {
+// root from its own environment, so the rc line has to carry a custom root. An
+// unpinned line would emit the ~/.bunny snippet while the install lives
+// elsewhere.
+func TestInitEvalLinePinsCustomRoot(t *testing.T) {
 	for _, c := range []struct{ shell, want string }{
 		{"bash", `eval "$(env BUNNY_HOME='/opt/bunny' /opt/bunny/bin/bunny init bash)"`},
 		{"zsh", `eval "$(env BUNNY_HOME='/opt/bunny' /opt/bunny/bin/bunny init zsh)"`},
@@ -157,9 +164,9 @@ func TestInitEvalLinePinsSingleRoot(t *testing.T) {
 			t.Errorf("%s: pinned line not recognised as bunny init: %q", c.shell, got)
 		}
 	}
-	// Under XDG there is no root to pin, and the bare line stays bare.
-	if got := initEvalLine("", "/h/.local/bin/bunny", "bash"); strings.Contains(got, paths.EnvHome) {
-		t.Errorf("XDG layout should not pin a root: %q", got)
+	// ~/.bunny needs no pin, and the bare line stays bare.
+	if got := initEvalLine("", "/h/.bunny/bin/bunny", "bash"); strings.Contains(got, paths.EnvHome) {
+		t.Errorf("the default root should not be pinned: %q", got)
 	}
 }
 
@@ -177,6 +184,7 @@ func TestSetupCmdRun(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	stubDesktop(t, true)
 	a := &App{Paths: paths.At(root)}
 
 	cmd := &SetupCmd{Shell: "zsh"}
@@ -227,69 +235,8 @@ func TestSetupCmdRejectsInvalidShell(t *testing.T) {
 	}
 }
 
-// stubSession makes the session PATH deterministic, so both branches can be
-// tested without depending on the machine running them.
-func stubSession(t *testing.T, value string, known bool) {
-	t.Helper()
-	prev := sessionPath
-	sessionPath = func() (string, bool) { return value, known }
-	t.Cleanup(func() { sessionPath = prev })
-}
-
-func xdgPaths(t *testing.T) *paths.Paths {
-	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv(paths.EnvHome, "")
-	for _, v := range []string{"XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
-		t.Setenv(v, "")
-	}
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	p, err := paths.Resolve()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-// systemd's generator does not deduplicate, so writing when the session
-// already exports the shim dir would only add a second identical PATH entry.
-func TestWriteEnvironmentDSkipsWhenSessionAlreadyProvides(t *testing.T) {
-	p := xdgPaths(t)
-	stubSession(t, "/usr/bin:"+p.Bin()+":/bin", true)
-
-	path, wrote, err := writeEnvironmentD(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wrote {
-		t.Error("expected the write to be skipped")
-	}
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Error("no file should have been created")
-	}
-}
-
-// "Cannot tell" must not mean "skip": a missing PATH entry breaks toolchains
-// inside GUI-launched IDEs, which is far worse than a duplicate one.
-func TestWriteEnvironmentDWritesWhenSessionUnknown(t *testing.T) {
-	p := xdgPaths(t)
-	stubSession(t, "", false)
-
-	_, wrote, err := writeEnvironmentD(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !wrote {
-		t.Error("an undeterminable session must still get the file")
-	}
-}
-
-// The check would otherwise read bunny's own earlier contribution to the
-// session and decline to correct a line that has since gone stale.
-func TestWriteEnvironmentDRewritesExistingFile(t *testing.T) {
-	p := xdgPaths(t)
-	stubSession(t, p.Bin(), true) // session already provides it
+func TestWriteEnvironmentDRewritesStaleFile(t *testing.T) {
+	p := defaultPaths(t)
 
 	path, err := environmentDPath()
 	if err != nil {
@@ -315,12 +262,35 @@ func TestWriteEnvironmentDRewritesExistingFile(t *testing.T) {
 	}
 }
 
+// Headless machines have no desktop to find bunny's applications, so the
+// session env is not written; the rc line alone sets the shell up.
+func TestSetupCmdHeadlessSkipsSessionEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	stubDesktop(t, false)
+	a := &App{Paths: paths.At(t.TempDir())}
+
+	if err := (&SetupCmd{Shell: "bash"}).Run(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "environment.d", "bunny.conf")); !os.IsNotExist(err) {
+		t.Errorf("headless setup must not write environment.d: %v", err)
+	}
+	if err := (&SetupCmd{Shell: "bash", Desktop: true}).Run(a); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "environment.d", "bunny.conf")); err != nil {
+		t.Errorf("--desktop must write environment.d: %v", err)
+	}
+}
+
 // Setup leaves an existing bunny init line alone, but one written for another
-// layout (an XDG setup, then a reinstall under BUNNY_HOME) points the shell
+// root (a default setup, then a reinstall under BUNNY_HOME) points the shell
 // somewhere else, and "already configured" alone would hide that. A line
 // that reaches bunny through PATH is equivalent, and a commented-out one runs
 // nothing: neither is stale.
-func TestStaleRcInitNamesALineForAnotherLayout(t *testing.T) {
+func TestStaleRcInitNamesALineForAnotherRoot(t *testing.T) {
 	rc := filepath.Join(t.TempDir(), ".zshrc")
 	write := func(content string) {
 		t.Helper()
@@ -328,14 +298,14 @@ func TestStaleRcInitNamesALineForAnotherLayout(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	xdgLine := initEvalLine("", "/h/.local/bin/bunny", "zsh")
+	defaultLine := initEvalLine("", "/h/.bunny/bin/bunny", "zsh")
 
-	write("# added by bunny setup\n" + xdgLine)
+	write("# added by bunny setup\n" + defaultLine)
 	if got := staleRcInit(rc, "", "zsh"); got != "" {
-		t.Errorf("the line this layout writes is not stale: %q", got)
+		t.Errorf("the line this root writes is not stale: %q", got)
 	}
-	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/h/.local/bin/bunny") {
-		t.Errorf("an unpinned line under a single-root install must be named, got %q", got)
+	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/h/.bunny/bin/bunny") {
+		t.Errorf("an unpinned line under a custom root must be named, got %q", got)
 	}
 
 	write("# eval \"$(bunny init zsh)\"  # old\neval \"$(bunny init zsh)\"\n")
@@ -345,8 +315,8 @@ func TestStaleRcInitNamesALineForAnotherLayout(t *testing.T) {
 
 	// A comment that would pin the right root runs nothing either: the active
 	// unpinned line below it is still the stale one.
-	write("# " + initEvalLine("/opt/bunny", "/opt/bunny/bin/bunny", "zsh") + xdgLine)
-	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/h/.local/bin/bunny") {
+	write("# " + initEvalLine("/opt/bunny", "/opt/bunny/bin/bunny", "zsh") + defaultLine)
+	if got := staleRcInit(rc, "/opt/bunny", "zsh"); !strings.Contains(got, "/h/.bunny/bin/bunny") {
 		t.Errorf("a comment must not stand in for the active line, got %q", got)
 	}
 

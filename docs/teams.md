@@ -1,7 +1,7 @@
 # Team deployment
 
 Bunny is built to be forked. The catalog is a directory of YAML manifests in a
-git repo, and the CLI reads its catalog URL from `~/.config/bunny/config.yaml`,
+git repo, and the CLI reads its catalog URL from `~/.bunny/config/config.yaml`,
 allowing a team to maintain a single source of truth for its official toolchain.
 
 ## The shape of a team deployment
@@ -24,8 +24,8 @@ Team onboarding:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
-~/.local/bin/bunny setup && exec $SHELL
-cp /path/to/dotfiles/bunny/config.yaml ~/.config/bunny/config.yaml
+~/.bunny/bin/bunny setup && exec $SHELL
+cp /path/to/dotfiles/bunny/config.yaml ~/.bunny/config/config.yaml
 bunny install jdk-21 maven gradle node-22
 ```
 
@@ -34,7 +34,7 @@ minutes.
 
 ## Pointing at your fork
 
-`~/.config/bunny/config.yaml`:
+`~/.bunny/config/config.yaml`:
 
 ```yaml
 catalogs:
@@ -162,7 +162,7 @@ trust to auto-bump and skip the cron entirely on internal manifests.
 
 ## Auditing installations
 
-`~/.local/share/bunny/state.json` provides a flat JSON record of installed
+`~/.bunny/state/state.json` provides a flat JSON record of installed
 packages and versions on each machine, making it straightforward to parse from
 configuration management or MDM tooling. A built-in fleet view is a deliberate
 non-goal (see [ROADMAP](../ROADMAP.md)); `state.json` is the integration point

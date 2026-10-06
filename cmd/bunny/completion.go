@@ -313,7 +313,7 @@ const bashCompletion = `_bunny() {
             list)         flags="$flags __FILTERS__ --active" ;;
             search)       flags="$flags __FILTERS__ --installed --available" ;;
             run)          flags="$flags --command -c --sandbox --no-sandbox --sandbox-profile --explain" ;;
-            setup)        flags="$flags --shell" ;;
+            setup)        flags="$flags --shell --desktop" ;;
             update)       flags="$flags --apply" ;;
             clean)        flags="$flags --all" ;;
             dev)          flags="$flags --catalog" ;;
@@ -408,7 +408,7 @@ if [[ $cur == -* ]]; then
         list) flags+=(__FILTERS__ --active) ;;
         search) flags+=(__FILTERS__ --installed --available) ;;
         run) flags+=(--command -c --sandbox --no-sandbox --sandbox-profile --explain) ;;
-        setup) flags+=(--shell) ;;
+        setup) flags+=(--shell --desktop) ;;
         update) flags+=(--apply) ;;
         clean) flags+=(--all) ;;
         dev) flags+=(--catalog) ;;
@@ -556,6 +556,7 @@ complete -c bunny -n '__fish_seen_subcommand_from run' -l sandbox-profile -r -f 
 complete -c bunny -n '__fish_seen_subcommand_from run' -l explain -d 'Print what this launch would do without launching'
 complete -c bunny -f -n '__fish_seen_subcommand_from reshim' -a '(__bunny_capabilities)'
 complete -c bunny -n '__fish_seen_subcommand_from setup' -l shell -r -f -a 'bash zsh fish' -d 'Shell to configure'
+complete -c bunny -n '__fish_seen_subcommand_from setup' -l desktop -d 'Write the desktop session env'
 complete -c bunny -n '__fish_seen_subcommand_from update; and not __fish_seen_subcommand_from dev' -l apply -d 'Apply available updates'
 complete -c bunny -n '__fish_seen_subcommand_from clean' -l all -d 'Drop all download cache'
 complete -c bunny -n '__fish_seen_subcommand_from dev' -l catalog -r -f -a '(__bunny_catalogs)' -d 'Catalog checkout to act on'

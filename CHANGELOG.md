@@ -17,9 +17,23 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Bunny lives under one root, `~/.bunny` (or `$BUNNY_HOME`): shims in
+  `bin/`, installs in `sdk/`, `cli/` and `app/`, state in `state/`, config in
+  `config/config.yaml`, downloads in `cache/`. The desktop finds bunny's
+  applications through `XDG_DATA_DIRS`, which `bunny setup` sets on a desktop;
+  log out and back in once after the first setup. Existing installs under the
+  XDG directories are not migrated: reinstall.
+- `bunny setup` writes the desktop session env only in a graphical session, or
+  with `--desktop`.
+- `bunny info` shows where an installed package is.
 - Pins select package IDs and follow updates in place. Removed `--exact` and
   `package@version` pins.
 - Doctor reports inherited project pins with the same precedence as shims.
+
+### Removed
+
+- The `install:` config roots. For a shorter path, link to bunny's, such as
+  `~/opt/jdk-21 → ~/.bunny/sdk/jdk-21`.
 
 ### Fixed
 

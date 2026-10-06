@@ -1,5 +1,5 @@
-// Package config is the user's settings file, at ~/.config/bunny/config.yaml
-// or $BUNNY_HOME/config.yaml under a single-root install.
+// Package config is the user's settings file, at config/config.yaml under
+// bunny's root.
 //
 // It is the only place that can activate optional behavior, and — for the
 // sandbox — the only place policy is written at all: data redirection and
@@ -44,12 +44,6 @@ type Config struct {
 	// own directories; this is for the ones that do not, and for values buried
 	// inside a compound variable (MAVEN_ARGS) that bunny cannot parse out.
 	Dirs map[string][]string `yaml:"dirs,omitempty"`
-
-	// Install overrides where each kind of package goes, keyed by "app",
-	// "cli", or "sdk". Pointing "sdk" somewhere shallow puts every JDK and
-	// build tool where an IDE's file picker can reach it. A leading ~/ is
-	// expanded; anything else must be absolute.
-	Install map[string]string `yaml:"install,omitempty"`
 
 	// Sandbox holds reusable profiles and the package IDs the user explicitly
 	// opts into run-time sandboxing. Presence in Sandbox.Packages is what
@@ -286,26 +280,12 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate rejects env entries that could not be safely exported and install
-// roots that are not usable directories.
+// Validate rejects env entries that could not be safely exported.
 func (c *Config) Validate() error {
 	for _, key := range slices.Sorted(maps.Keys(c.Env)) {
 		if err := manifest.ValidateEnv("env."+key, c.Env[key]); err != nil {
 			return err
 		}
-	}
-	for _, kind := range slices.Sorted(maps.Keys(c.Install)) {
-		if !manifest.KnownKind(kind) {
-			return fmt.Errorf("install.%s: must be one of %s", kind, strings.Join(manifest.Kinds, ", "))
-		}
-		root, err := absPath("install."+kind, c.Install[kind])
-		if err != nil {
-			return err
-		}
-		if root == string(filepath.Separator) {
-			return fmt.Errorf("install.%s: refusing to install into the filesystem root", kind)
-		}
-		c.Install[kind] = root
 	}
 	if err := c.validateCatalogs(); err != nil {
 		return err
@@ -388,15 +368,6 @@ func absPath(field, value string) (string, error) {
 		return "", fmt.Errorf("%s: must be an absolute path or start with ~/, got %q", field, value)
 	}
 	return filepath.Clean(expanded), nil
-}
-
-// InstallRoots returns the configured roots keyed by kind, with placeholders
-// already expanded by Validate. Nil-safe.
-func (c *Config) InstallRoots() map[string]string {
-	if c == nil {
-		return nil
-	}
-	return c.Install
 }
 
 // expandHome resolves a leading ~/ against the user's home directory. Only the

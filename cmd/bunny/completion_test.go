@@ -40,8 +40,8 @@ bin:
 	a.catalogs = []catalogEntry{{src: catalog.Source{Name: "local", Loader: local}, local: local}}
 
 	// Two installed packages: node-22 provides a capability, bat provides nothing.
-	a.State.SetInstalled("node-22", "22.0.0", "node", "", "")
-	a.State.SetInstalled("bat", "1.0.0", "", "", "")
+	a.State.SetInstalled("node-22", "22.0.0", "node", "")
+	a.State.SetInstalled("bat", "1.0.0", "", "")
 
 	catalogIDs := a.completionIDs(false)
 	if len(catalogIDs) != 1 || catalogIDs[0] != "jdk-21" {
@@ -90,7 +90,7 @@ bin:
 	}
 	local := catalog.NewLocal(checkout)
 	a.catalogs = []catalogEntry{{src: catalog.Source{Name: "local", Loader: local}, local: local}}
-	a.State.SetInstalled("node-22", "22", "node", "", "")
+	a.State.SetInstalled("node-22", "22", "node", "")
 	got := a.completionCapabilities()
 	if strings.Join(got, ",") != "jdk,node" {
 		t.Fatalf("capabilities = %v, want [jdk node]", got)
@@ -146,7 +146,7 @@ bin:
 	if err := os.WriteFile(a.Paths.ManifestFile("jdk-21"), []byte(man), 0644); err != nil {
 		t.Fatal(err)
 	}
-	a.State.SetInstalled("jdk-21", "21", "jdk", "", "")
+	a.State.SetInstalled("jdk-21", "21", "jdk", "")
 
 	got := a.completionBinaries("jdk-21")
 	if strings.Join(got, ",") != "java,javac" {

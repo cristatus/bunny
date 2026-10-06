@@ -110,7 +110,7 @@ func TestReshimCapabilities(t *testing.T) {
 
 	// Install-like setup: node-24 provides node, declares global-bins, and has
 	// a globally-installed tsc. Cache its manifest so loadInstalledManifest finds it.
-	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	a.State.SetInstalled("node-24", "24.0.0", "node", "")
 	a.State.SetCommand("node", "node-24") // protected SDK shim
 	m := &manifest.Manifest{ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
 		Sources:    []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
@@ -148,7 +148,7 @@ func TestReshimCapabilities(t *testing.T) {
 func TestReshimPrunesWhenToolGone(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	a.State.SetInstalled("node-24", "24.0.0", "node", "")
 	m := &manifest.Manifest{ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
 		Sources:    []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
 		Bin:        []manifest.Binary{{Name: "node", Path: "{app}/bin/node"}},
@@ -179,7 +179,7 @@ func TestReshimPrunesWhenToolGone(t *testing.T) {
 func TestReshimNeverReplacesBunnyExecutable(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	a.State.SetInstalled("node-24", "24.0.0", "node", "")
 	m := &manifest.Manifest{ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
 		Sources:    []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
 		Bin:        []manifest.Binary{{Name: "node", Path: "{app}/bin/node"}},
@@ -208,8 +208,8 @@ func TestCheckUpdatesComparesToCatalog(t *testing.T) {
 	// checks — that's `dev update`'s job), so a differing catalog version is an
 	// update and a matching one is not.
 	st := state.Empty()
-	st.SetInstalled("tool", "1.0", "", "", "")
-	st.SetInstalled("other", "2.0", "", "", "")
+	st.SetInstalled("tool", "1.0", "", "")
+	st.SetInstalled("other", "2.0", "", "")
 	cat := reportCatalog{packages: []catalog.PackageInfo{
 		{ID: "tool", Version: "1.1"},        // catalog moved on → update
 		{ID: "other", Version: "2.0"},       // same version → no update
@@ -237,7 +237,7 @@ func TestRegenerateToolchains(t *testing.T) {
 	a := &App{Paths: paths.At(root), State: state.Empty()}
 
 	addJDK := func(id, ver string) {
-		a.State.SetInstalled(id, ver, "jdk", "", "")
+		a.State.SetInstalled(id, ver, "jdk", "")
 		cacheManifest(t, a.Paths.ManifestFile(id), &manifest.Manifest{
 			ID: id, Name: id, Version: ver, Provides: "jdk",
 			Sources: []manifest.Source{{URL: "https://example.com/" + id, SHA256: strings.Repeat("a", 64)}},
@@ -247,14 +247,14 @@ func TestRegenerateToolchains(t *testing.T) {
 	addJDK("jdk-21", "21.0.11+10")
 	addJDK("jdk-25", "25.0.3+9")
 
-	a.State.SetInstalled("gradle", "9.0.0", "", "", "")
+	a.State.SetInstalled("gradle", "9.0.0", "", "")
 	cacheManifest(t, a.Paths.ManifestFile("gradle"), &manifest.Manifest{
 		ID: "gradle", Name: "Gradle", Version: "9.0.0", Toolchains: "gradle",
 		Sources: []manifest.Source{{URL: "https://example.com/gradle", SHA256: strings.Repeat("a", 64)}},
 		Bin:     []manifest.Binary{{Name: "gradle", Path: "{app}/bin/gradle"}},
 		Env:     map[string]string{"GRADLE_USER_HOME": "{data}/gradle"},
 	})
-	a.State.SetInstalled("maven", "3.9.0", "", "", "")
+	a.State.SetInstalled("maven", "3.9.0", "", "")
 	cacheManifest(t, a.Paths.ManifestFile("maven"), &manifest.Manifest{
 		ID: "maven", Name: "Maven", Version: "3.9.0", Toolchains: "maven",
 		Sources: []manifest.Source{{URL: "https://example.com/maven", SHA256: strings.Repeat("a", 64)}},
@@ -323,7 +323,7 @@ func TestRequireInCatalogHit(t *testing.T) {
 func TestReshimRefusesAnUnknownTarget(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	a.State.SetInstalled("node-24", "24.0.0", "node", "")
 	cacheManifest(t, a.Paths.ManifestFile("node-24"), &manifest.Manifest{
 		ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
 		Sources: []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
@@ -355,7 +355,7 @@ func TestReshimRefusesAnUnknownTarget(t *testing.T) {
 func TestToolchainsSaysWhenThereIsNothingToConfigure(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	a.State.SetInstalled("jdk-21", "21.0.11+10", "jdk", "", "")
+	a.State.SetInstalled("jdk-21", "21.0.11+10", "jdk", "")
 	cacheManifest(t, a.Paths.ManifestFile("jdk-21"), &manifest.Manifest{
 		ID: "jdk-21", Name: "JDK", Version: "21.0.11+10", Provides: "jdk",
 		Sources: []manifest.Source{{URL: "https://example.com/jdk", SHA256: strings.Repeat("a", 64)}},
@@ -377,7 +377,7 @@ func TestToolchainsSaysWhenThereIsNothingToConfigure(t *testing.T) {
 func TestScopedReshimKeepsAnotherCapabilitysGlobalCommand(t *testing.T) {
 	root := t.TempDir()
 	a := &App{Paths: paths.At(root), State: state.Empty()}
-	a.State.SetInstalled("node-24", "24.0.0", "node", "", "")
+	a.State.SetInstalled("node-24", "24.0.0", "node", "")
 	cacheManifest(t, a.Paths.ManifestFile("node-24"), &manifest.Manifest{ID: "node-24", Name: "Node", Version: "24.0.0", Provides: "node",
 		Sources:    []manifest.Source{{URL: "https://example.com/x", SHA256: strings.Repeat("a", 64)}},
 		Bin:        []manifest.Binary{{Name: "node", Path: "{app}/bin/node"}},

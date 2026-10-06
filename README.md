@@ -1,6 +1,6 @@
 # Bunny 🐰
 
-A toolchain manager for Java and Node developers: a single-binary alternative to SDKMAN. Bunny installs JDKs, Node, Maven, Gradle, and supporting IDEs into standard XDG directories. Packages run directly against your host environment by default (`~/.m2`, `~/.gradle`, `~/.npm`), with an optional per-package sandbox when you want isolated application state or fewer integrations. No sudo or shell hooks.
+A toolchain manager for Java and Node developers: a single-binary alternative to SDKMAN. Bunny installs JDKs, Node, Maven, Gradle, and supporting IDEs under a single directory, `~/.bunny`. Packages run directly against your host environment by default (`~/.m2`, `~/.gradle`, `~/.npm`), with an optional per-package sandbox when you want isolated application state or fewer integrations. No sudo or shell hooks.
 
 Bunny currently supports Linux on `x86_64`/`amd64`.
 
@@ -16,7 +16,7 @@ curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | s
 **2. Wire up your shell**
 
 ```bash
-~/.local/bin/bunny setup && exec $SHELL
+~/.bunny/bin/bunny setup && exec $SHELL
 ```
 
 **3. Install a toolchain and use it**
@@ -45,8 +45,8 @@ See the [Portability Model](docs/portability.md) and [Configuration](docs/config
 # 1. Install bunny binary
 curl -fsSL https://raw.githubusercontent.com/cristatus/bunny/main/install.sh | sh
 
-# 2. Configure environment (session env, completions, and shell rc)
-~/.local/bin/bunny setup
+# 2. Configure environment (shell rc, completions, and desktop session env)
+~/.bunny/bin/bunny setup
 exec $SHELL
 bunny doctor
 
@@ -74,7 +74,7 @@ Debian/Ubuntu, `sudo pacman -S bubblewrap` on Arch). See
 [Sandboxing](docs/sandbox.md) for the extra helpers ephemeral homes, private
 networking, and filtered D-Bus require.
 
-To consolidate everything under a single root (useful for CI, containers, and fleet images), set `BUNNY_HOME=/opt/bunny`.
+To use another root (useful for CI, containers, and fleet images), set `BUNNY_HOME=/opt/bunny`.
 
 ### Optional per-package sandboxing
 
@@ -165,7 +165,7 @@ Every command also accepts the global `-l/--log-level` and `--no-progress` flags
 - [First-class Java](docs/java.md): Multi-vendor JDK support, toolchains, and runtime `requires` constraints.
 - [Portability Model](docs/portability.md): Default host-native execution, data redirection, and optional runtime isolation.
 - [Sandboxing](docs/sandbox.md): Per-package bwrap execution with isolated, ephemeral, or clean home state, built-in/custom profiles, path masks, network modes, and the hardened boundary.
-- [Configuration](docs/config.md): `config.yaml` reference, custom install roots, data redirection, and sandbox activation.
+- [Configuration](docs/config.md): `config.yaml` reference, data redirection, and sandbox activation.
 - [Per-project Pinning](docs/pinning.md): `.bunny-version`, project provisioning, and IDE setup.
 - [Team Deployment](docs/teams.md): Forking catalogs, private hosting, and reproducible environments.
 - [Corporate Environments](docs/corporate.md): Proxies, custom CA roots, Maven settings, and air-gapped workflows.
@@ -175,33 +175,43 @@ Every command also accepts the global `-l/--log-level` and `--no-progress` flags
 
 ## Directory Layout
 
-Bunny adheres strictly to the XDG Base Directory Specification:
+Everything bunny installs lives under one root, `~/.bunny`:
 
 ```
-~/.local/share/bunny/
+~/.bunny/
+├── bin/                    Bunny binary and symlink shims (argv[0] dispatch)
 ├── sdk/{id}/               SDKs and toolchains (JDKs, Node, Maven, Gradle)
 ├── cli/{id}/               Standalone CLI tools (ripgrep, jq, gh)
 ├── app/{id}/               GUI applications (code, zed, idea)
 ├── data/{id}/              Per-package data directories ({data} placeholder)
-├── manifests/{id}.yaml     Install-time manifest snapshots
-├── state.json              State database (installed packages, providers, roots)
-└── mutation.lock           Lockfile serializing mutating operations
-
-~/.config/bunny/config.yaml User configuration
-~/.cache/bunny/             Download cache and catalog index
-~/.local/bin/               Bunny binary and symlink shims (argv[0] dispatch)
-~/.local/share/applications/ Desktop .desktop entry files
-~/.local/share/icons/       Application icons
+├── share/                  Desktop entries, icons, man pages, completions
+├── cache/                  Downloads and catalog index
+├── state/                  state.json, manifest snapshots, mutation lock
+└── config/config.yaml      User configuration
 ```
 
-Setting `$BUNNY_HOME` to an absolute path collapses all of the above under that single root.
+Outside the root, `bunny setup` adds one line to your shell rc and, on a
+desktop, `~/.config/environment.d/bunny.conf`, which puts `~/.bunny/share` on
+`XDG_DATA_DIRS` so the desktop finds bunny's applications. Log out and back in
+once after the first setup; later installs appear without it.
+
+Set `$BUNNY_HOME` to an absolute path to use another root.
+
+For a shorter path, such as a JDK home to pick in an IDE, link to bunny's:
+
+```bash
+ln -s ~/.bunny/sdk/jdk-21 ~/opt/jdk-21
+```
+
+Links you create are yours: bunny never updates or removes them, so a link to
+an uninstalled package is left dangling.
 
 ## Building from Source
 
 ```bash
 make build      # Output: ./bin/bunny
 make test       # Run test suite
-make install    # Install binary to ~/.local/bin/bunny (or $BUNNY_HOME/bin)
+make install    # Install binary to ~/.bunny/bin/bunny (or $BUNNY_HOME/bin)
 ```
 
 ## Comparison

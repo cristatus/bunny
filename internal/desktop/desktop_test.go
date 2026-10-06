@@ -158,6 +158,29 @@ func TestRefreshIconCache(t *testing.T) {
 	})
 }
 
+func TestRefreshDesktopDatabase(t *testing.T) {
+	orig := desktopDatabaseUpdater
+	t.Cleanup(func() { desktopDatabaseUpdater = orig })
+
+	p := paths.At(t.TempDir())
+	called := false
+	desktopDatabaseUpdater = func(string) error { called = true; return nil }
+	RefreshDesktopDatabase(p)
+	if called {
+		t.Error("updater must not run before any entry is installed")
+	}
+
+	if err := InstallEntries(p, []manifest.DesktopEntry{{ID: "code.desktop", Name: "Code", Exec: "code"}}, nil, "code"); err != nil {
+		t.Fatal(err)
+	}
+	var got string
+	desktopDatabaseUpdater = func(dir string) error { got = dir; return nil }
+	RefreshDesktopDatabase(p)
+	if got != p.Desktop() {
+		t.Errorf("updater called with %q, want %q", got, p.Desktop())
+	}
+}
+
 func TestInstallCompletions(t *testing.T) {
 	root := t.TempDir()
 	p := paths.At(root)

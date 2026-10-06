@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/cristatus/bunny/internal/config"
-	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/runtime"
 	"github.com/cristatus/bunny/internal/shim"
@@ -64,7 +63,6 @@ func RunAll(p *paths.Paths, cats []CatalogSource) []Result {
 		strayBinaryCheck(p),
 		configCheck(p),
 	}, catalogChecks(cats), []Result{
-		installRootsCheck(p),
 		pathOnPathCheck(p.Bin()),
 		bwrapCheck(),
 		userNamespaceCheck(),
@@ -75,17 +73,11 @@ func RunAll(p *paths.Paths, cats []CatalogSource) []Result {
 	})
 }
 
-// layoutCheck reports which layout is active and verifies the roots bunny
-// writes to. Under XDG those are several directories, so naming the one that
-// is broken matters more than reporting a single root.
+// layoutCheck reports the active root and verifies the directories bunny
+// writes to under it.
 func layoutCheck(p *paths.Paths) Result {
-	name := "BUNNY_HOME"
-	detail := p.Root
-	if p.XDG() {
-		name = "layout"
-		detail = "xdg: " + p.Data()
-	}
-	for _, dir := range []string{p.Data(), p.Cache(), p.Bin()} {
+	const name = "BUNNY_HOME"
+	for _, dir := range []string{p.Root, p.State(), p.Cache(), p.Bin()} {
 		info, err := os.Stat(dir)
 		if os.IsNotExist(err) {
 			continue // created lazily on first install
@@ -97,19 +89,19 @@ func layoutCheck(p *paths.Paths) Result {
 			return Result{Name: name, Detail: fmt.Sprintf("not a directory: %s", dir), Severity: Fail}
 		}
 	}
-	return Result{Name: name, Detail: detail, Severity: OK}
+	return Result{Name: name, Detail: tilde(p.Root), Severity: OK}
 }
 
-// strayBinaryCheck reports a running binary that belongs to a layout other than
-// the one bunny resolved. $BUNNY_HOME selects the layout on every invocation, so
-// a single-root install reached from a shell missing that variable resolves to
-// the XDG layout while its binary, shims, and packages all sit under the root.
-// No other check can see it: PATH holds the root's bin dir, and every check
-// passes against an empty XDG layout.
+// strayBinaryCheck reports a running binary that belongs to a root other than
+// the one bunny resolved. $BUNNY_HOME selects the root on every invocation, so
+// an install under a custom root reached from a shell missing that variable
+// resolves to ~/.bunny while its binary, shims, and packages all sit elsewhere.
+// No other check can see it: PATH holds that root's bin dir, and every check
+// passes against an empty ~/.bunny.
 //
 // A binary outside the resolved bin dir is ordinary otherwise, a build in a
 // source tree being the common case, so this only warns when the binary sits in
-// another layout's bin dir. A sibling state file is what identifies one, and it
+// another root's bin dir. A sibling state file is what identifies one, and it
 // also means there is something there to be cut off from.
 func strayBinaryCheck(p *paths.Paths) Result {
 	const name = "binary"
@@ -127,7 +119,7 @@ func strayBinaryCheck(p *paths.Paths) Result {
 	}
 	return Result{
 		Name:     name,
-		Detail:   fmt.Sprintf("%s belongs to the install at %s, which is not the active layout", tilde(exe), tilde(root)),
+		Detail:   fmt.Sprintf("%s belongs to the install at %s, which is not the active root", tilde(exe), tilde(root)),
 		Severity: Warn,
 		Fix:      "export " + paths.EnvHome + "=" + root,
 	}
@@ -165,18 +157,6 @@ func catalogChecks(cats []CatalogSource) []Result {
 		results = append(results, r)
 	}
 	return results
-}
-
-// installRootsCheck reports where each kind of package actually installs.
-// Config is easy to get subtly wrong (a setting left commented, a typo in a
-// kind), and until this existed the only way to find out was to install
-// something and go looking for it.
-func installRootsCheck(p *paths.Paths) Result {
-	var parts []string
-	for _, kind := range manifest.Kinds {
-		parts = append(parts, kind+"="+tilde(p.InstallRoot(kind)))
-	}
-	return Result{Name: "install", Detail: strings.Join(parts, "  "), Severity: OK}
 }
 
 // tilde abbreviates $HOME so the roots stay readable on one line.
@@ -491,12 +471,10 @@ type ShimState interface {
 }
 
 // ShimsCheck walks the command names bunny's state says it manages, and only
-// those: the bin directory is ~/.local/bin under XDG, shared with pipx, cargo
-// and hand-made links that are not bunny's to judge. A managed name can be
-// missing (deleted), broken (pointing at a bunny binary that moved), occupied
-// by a file another tool wrote over it (corepack's pnpm, say, which makes
-// `bunny update` and `bunny reshim` keep failing on it), or shadowed by an
-// earlier PATH entry, so the shell never reaches it.
+// those: anything else someone put in the bin dir is not bunny's to judge. A
+// managed name can be missing (deleted), broken (pointing at a bunny binary
+// that moved), occupied by a file written over it, or shadowed by an earlier
+// PATH entry, so the shell never reaches it.
 func ShimsCheck(p *paths.Paths, s ShimState) Result {
 	const name = "Shims"
 	bunnyPath, err := shim.BunnyBinaryPath(p.Bin())

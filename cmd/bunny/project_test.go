@@ -28,7 +28,7 @@ func sdkApp(t *testing.T) (*App, string) {
 	t.Setenv("HOME", t.TempDir())
 	root, checkout := t.TempDir(), t.TempDir()
 	a := &App{State: state.Empty(), Config: &config.Config{}, Catalog: catalog.NewLocal(checkout), NoProgress: true}
-	a.Paths = paths.At(root).WithLayout(nil, func(id string) (string, string) { return a.State.Location(id) })
+	a.Paths = paths.At(root).WithKinds(func(id string) string { return a.State.KindOf(id) })
 	os.MkdirAll(a.Paths.Bin(), 0755)
 	os.WriteFile(a.Paths.BunnyBinary(), []byte("#!/bin/sh\n"), 0755)
 	a.Installer = installer.New(a.Paths, a.Catalog, a.State)
@@ -131,7 +131,7 @@ func TestProjectInstallInheritsSDKsAndPreservesGlobalProvider(t *testing.T) {
 			t.Fatalf("%s %v", explanation, err)
 		}
 	}
-	oldPath := a.State.Packages["jdk-21"].Path
+	oldPath := a.Paths.AppDir("jdk-21")
 	addSDK(t, root, "jdk-21", "jdk", "21.0.2", "java", nil)
 	if err := (&InstallCmd{Project: true}).Run(a); err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestProjectInstallInheritsSDKsAndPreservesGlobalProvider(t *testing.T) {
 	if err := (&UpdateCmd{ID: "jdk-21", Apply: true}).Run(a); err != nil {
 		t.Fatal(err)
 	}
-	if a.State.VersionOf("jdk-21") != "21.0.2" || a.State.Packages["jdk-21"].Path != oldPath {
+	if a.State.VersionOf("jdk-21") != "21.0.2" || a.Paths.AppDir("jdk-21") != oldPath {
 		t.Fatal("update changed package identity", a.State.Packages)
 	}
 }

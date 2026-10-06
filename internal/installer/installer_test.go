@@ -88,7 +88,7 @@ func installerWith(t *testing.T, manifests map[string]*manifest.Manifest, files 
 	// Wire the layout the way cmd/bunny does, so AppDir resolves through the
 	// kind state recorded at install time instead of guessing a root. Without
 	// it the tests exercise a path resolution production never uses.
-	paths := paths.At(root).WithLayout(nil, st.Location)
+	paths := paths.At(root).WithKinds(st.KindOf)
 
 	// Pretend bunny is in BinDir so shim.Install has a target.
 	os.MkdirAll(paths.Bin(), 0755)
@@ -289,7 +289,7 @@ func TestCheckRequiresVersionConstraint(t *testing.T) {
 
 	t.Run("satisfying JDK installed", func(t *testing.T) {
 		i := installerWith(t, map[string]*manifest.Manifest{"gradle": m}, nil)
-		i.State.SetInstalled("jdk-21", "21.0.11+10", "jdk", "", "")
+		i.State.SetInstalled("jdk-21", "21.0.11+10", "jdk", "")
 		if err := i.checkRequires(m); err != nil {
 			t.Errorf("checkRequires should return nil when jdk-21 is installed, got: %v", err)
 		}
@@ -297,7 +297,7 @@ func TestCheckRequiresVersionConstraint(t *testing.T) {
 
 	t.Run("only insufficient JDK installed", func(t *testing.T) {
 		i := installerWith(t, map[string]*manifest.Manifest{"gradle": m}, nil)
-		i.State.SetInstalled("jdk-11", "11.0.24+8", "jdk", "", "")
+		i.State.SetInstalled("jdk-11", "11.0.24+8", "jdk", "")
 		if err := i.checkRequires(m); err == nil {
 			t.Error("checkRequires should return an error when only jdk-11 is installed")
 		}
@@ -1012,85 +1012,6 @@ func TestFirstInstallResolvesAppPlaceholderForIntegration(t *testing.T) {
 	}
 }
 
-// Changing an install root must not strand an installed tree. The package is
-// updated where it lives, and its location is written down so every later
-// command still finds it. Without this, `install --force` builds a second tree
-// at the new root and abandons the first, still recorded and still on disk.
-func TestReinstallKeepsExistingLocationWhenRootMoves(t *testing.T) {
-	srcFile := filepath.Join(t.TempDir(), "n.tar.gz")
-	os.WriteFile(srcFile, []byte("payload"), 0644)
-	m := &manifest.Manifest{
-		ID: "node-24", Name: "Node", Version: "24.0.0", Kind: manifest.KindSDK,
-		Sources: []manifest.Source{{URL: "file://" + srcFile, File: "n.tar.gz", SHA256: sha256Of("payload")}},
-		Bin:     []manifest.Binary{{Name: "node", Path: "{app}/node"}},
-	}
-	i := installerWith(t, map[string]*manifest.Manifest{"node-24": m}, nil)
-	if err := i.Install(context.Background(), "node-24", false, nil); err != nil {
-		t.Fatal(err)
-	}
-	original := i.Paths.AppDir("node-24")
-	if _, err := os.Stat(original); err != nil {
-		t.Fatalf("install dir missing: %v", err)
-	}
-
-	// The user repoints the sdk root, as `install.sdk: ~/opt` does.
-	moved := filepath.Join(t.TempDir(), "opt")
-	i.Paths = i.Paths.WithLayout(map[string]string{manifest.KindSDK: moved}, i.State.Location)
-
-	if err := i.Install(context.Background(), "node-24", true, nil); err != nil {
-		t.Fatal(err)
-	}
-	if got := i.Paths.AppDir("node-24"); got != original {
-		t.Errorf("package moved to %q, want it left at %q", got, original)
-	}
-	if entries, err := os.ReadDir(moved); err == nil && len(entries) > 0 {
-		t.Errorf("a second tree was built under the new root: %v", entries)
-	}
-	if info, ok := i.State.Packages["node-24"]; !ok || info.Path != original {
-		t.Errorf("state.Path = %q, want the recorded location %q", info.Path, original)
-	}
-}
-
-// The state record is proof of ownership, so it must name the real location.
-// While Path was always cleared, state agreed that a package lived at whatever
-// path the current config computed, which let --force replace an unrelated
-// directory that happened to sit there.
-func TestForceRefusesUnownedDirectoryAtAMovedRoot(t *testing.T) {
-	srcFile := filepath.Join(t.TempDir(), "n.tar.gz")
-	os.WriteFile(srcFile, []byte("payload"), 0644)
-	m := &manifest.Manifest{
-		ID: "node-24", Name: "Node", Version: "24.0.0", Kind: manifest.KindSDK,
-		Sources: []manifest.Source{{URL: "file://" + srcFile, File: "n.tar.gz", SHA256: sha256Of("payload")}},
-		Bin:     []manifest.Binary{{Name: "node", Path: "{app}/node"}},
-	}
-	i := installerWith(t, map[string]*manifest.Manifest{"node-24": m}, nil)
-	if err := i.Install(context.Background(), "node-24", false, nil); err != nil {
-		t.Fatal(err)
-	}
-
-	// A directory of the user's, at the path the new root would compute.
-	moved := filepath.Join(t.TempDir(), "opt")
-	theirs := filepath.Join(moved, "node-24")
-	if err := os.MkdirAll(theirs, 0755); err != nil {
-		t.Fatal(err)
-	}
-	keep := filepath.Join(theirs, "notes.txt")
-	if err := os.WriteFile(keep, []byte("mine"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	i.Paths = i.Paths.WithLayout(map[string]string{manifest.KindSDK: moved}, i.State.Location)
-
-	if err := i.Install(context.Background(), "node-24", true, nil); err != nil {
-		t.Fatalf("reinstall should update in place, not touch %s: %v", theirs, err)
-	}
-	if data, err := os.ReadFile(keep); err != nil || string(data) != "mine" {
-		t.Fatalf("user's directory was destroyed: %q, %v", data, err)
-	}
-}
-
-// Seeding is copy-if-absent: an upgrade fills in what a package needs and
-// leaves anything already there alone, because {data} is the user's once
-// written and a config edited between installs must survive.
 func TestSeedDataFillsGapsWithoutOverwriting(t *testing.T) {
 	seedDir, dataDir := t.TempDir(), t.TempDir()
 	mustWrite := func(dir, rel, content string) string {

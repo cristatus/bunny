@@ -290,9 +290,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 		return fmt.Errorf("remove stale shims: %w", err)
 	}
 
-	// Always record where the tree went. Anything conditional here is a bet
-	// that the roots will not move, and losing that bet strands the install.
-	i.State.SetInstalled(id, m.Version, m.Provides, kind, placed.finalDir)
+	i.State.SetInstalled(id, m.Version, m.Provides, kind)
 	i.State.SetSource(id, pkg.Source.Name)
 	i.State.SetFiles(id, integrationFiles)
 	switch {
@@ -337,7 +335,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 
 	cleanup()
 	if commitErr == nil {
-		if err := os.Remove(transactionPath(i.Paths)); err != nil {
+		if err := os.Remove(i.Paths.TransactionFile()); err != nil {
 			log.Warn("Failed to clear committed install transaction", "package", id, "error", err)
 		}
 	}
@@ -733,11 +731,9 @@ func (p *placement) Rollback() error {
 }
 
 // destination is where an install lands: the tree a package already occupies,
-// otherwise the configured root for its kind. An installed package is updated
-// in place because both inputs to that default can move underneath it — the
-// user can repoint a root, the catalog can change a kind — and either would
-// otherwise build a second tree and abandon the first, still recorded and
-// still on disk.
+// otherwise the root for its kind. An installed package is updated in place
+// because the catalog can change its kind, which would otherwise build a
+// second tree and abandon the first, still recorded and still on disk.
 func (i *Installer) destination(id, kind string) string {
 	if i.State.IsInstalled(id) {
 		return i.Paths.AppDir(id)
@@ -906,6 +902,9 @@ func (i *Installer) installDesktopIntegration(m *manifest.Manifest, owned []stri
 	if len(m.Icons) > 0 {
 		desktop.RefreshIconCache(i.Paths) // so new icons show without a re-login
 	}
+	if len(m.Desktop) > 0 {
+		desktop.RefreshDesktopDatabase(i.Paths)
+	}
 	return written, nil
 }
 
@@ -922,6 +921,9 @@ func (i *Installer) removeDesktopIntegration(m *manifest.Manifest, files []strin
 	}
 	if m != nil && len(m.Icons) > 0 {
 		desktop.RefreshIconCache(i.Paths) // drop removed icons from the theme cache
+	}
+	if m != nil && len(m.Desktop) > 0 {
+		desktop.RefreshDesktopDatabase(i.Paths)
 	}
 	return errors.Join(errs...)
 }

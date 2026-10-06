@@ -201,7 +201,7 @@ func noteApp(t *testing.T, from string, configured ...string) *App {
 		entries = append(entries, catalogEntry{src: catalog.Source{Name: name, Loader: r}, remote: r})
 	}
 	a := &App{Paths: p, State: state.Empty(), catalogs: entries}
-	a.State.SetInstalled("rg", "1.0.0", "", "cli", "")
+	a.State.SetInstalled("rg", "1.0.0", "", "cli")
 	a.State.SetSource("rg", from)
 	return a
 }
@@ -236,7 +236,7 @@ func TestSourceChangeNoteReportsARemovedCatalog(t *testing.T) {
 
 func TestPackageSourcePrefersWhatWasInstalled(t *testing.T) {
 	a := &App{State: state.Empty()}
-	a.State.SetInstalled("rg", "14.1.0", "", "cli", "")
+	a.State.SetInstalled("rg", "14.1.0", "", "cli")
 	a.State.SetSource("rg", "axelor")
 	// What a package resolves to now can differ from where it came from; for a
 	// package already on disk the recorded catalog is the true answer.

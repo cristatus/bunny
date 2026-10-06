@@ -106,6 +106,10 @@ func (i *Installer) checkOwned(dir, id string) error {
 	} else if err != nil {
 		return err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink, and bunny only manages packages inside its own root\n"+
+			"hint: move the package back to %s", dir, dir)
+	}
 	if !info.IsDir() {
 		return fmt.Errorf("%s is not a package directory", dir)
 	}
@@ -115,7 +119,7 @@ func (i *Installer) checkOwned(dir, id string) error {
 	marker, err := readPackageMarker(dir)
 	if os.IsNotExist(err) {
 		return fmt.Errorf("%s exists and was not created by bunny\n"+
-			"hint: move it aside, or point this package's install root elsewhere", dir)
+			"hint: move it aside", dir)
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", dir, err)

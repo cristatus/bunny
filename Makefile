@@ -13,10 +13,10 @@ test:
 test-sandbox:
 	BUNNY_REQUIRE_SANDBOX_TESTS=1 dbus-run-session -- go test -race -count=1 -tags sandbox_integration ./internal/runtime
 
-# Mirrors install.sh and paths.Resolve: BUNNY_HOME collapses everything under
-# one root, otherwise shims and the binary live in ~/.local/bin.
+# Mirrors install.sh and paths.Resolve: the binary lives in $BUNNY_HOME/bin,
+# ~/.bunny/bin by default.
 install: build
-	@dir=$${BUNNY_HOME:+$$BUNNY_HOME/bin}; dir=$${dir:-$$HOME/.local/bin}; \
+	@dir=$${BUNNY_HOME:+$$BUNNY_HOME/bin}; dir=$${dir:-$$HOME/.bunny/bin}; \
 	mkdir -p "$$dir" && cp $(BIN) "$$dir/bunny" && echo "installed $$dir/bunny"
 
 fmt:

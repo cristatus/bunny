@@ -184,7 +184,7 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve paths: %w", err)
 	}
-	if _, err := os.Lstat(filepath.Join(p.Data(), "install-transaction.json")); err == nil {
+	if _, err := os.Lstat(p.TransactionFile()); err == nil {
 		lock, err := state.AcquireLock(context.Background(), p.MutationLock())
 		if err != nil {
 			return nil, fmt.Errorf("lock interrupted install: %w", err)
@@ -208,11 +208,10 @@ func New() (*App, error) {
 
 	app := &App{Context: context.Background(), State: st, Config: cfg}
 
-	// Install locations come from config for new installs and from state for
-	// existing ones, so editing config never moves a tree that already exists.
+	// An installed package's root comes from the kind state recorded for it.
 	// The lookup reads through the App because withMutation swaps in a freshly
 	// loaded state once it holds the lock.
-	p = p.WithLayout(cfg.InstallRoots(), func(id string) (string, string) { return app.State.Location(id) })
+	p = p.WithKinds(func(id string) string { return app.State.KindOf(id) })
 	app.Paths = p
 
 	app.catalogs = catalogEntries(cfg, p)
@@ -227,21 +226,13 @@ func New() (*App, error) {
 	cat := catalog.NewComposite(wired...)
 
 	// The first thing worth knowing when an install lands somewhere unexpected:
-	// which config was read, which layout resolved, which catalog won. Guarded
+	// which config was read, which root resolved, which catalog won. Guarded
 	// because New runs on every shim dispatch, so `node --version` shouldn't pay
 	// to assemble it.
 	if log.GetLevel() <= log.DebugLevel {
-		log.Debug("Layout", "xdg", p.XDG(), "config", p.UserConfigFile(),
+		log.Debug("Layout", "root", p.Root, "config", p.UserConfigFile(),
 			"state", p.StateFile(), "manifests", p.Manifests(), "bin", p.Bin(),
 			"cache", p.Cache())
-		// Per kind, not p.InstallRoots(): that sorts and deduplicates, so a
-		// customized root shows up as an unlabelled path with nothing saying
-		// which kind sent it there.
-		roots := make([]any, 0, len(manifest.Kinds)*2)
-		for _, kind := range manifest.Kinds {
-			roots = append(roots, kind, p.InstallRoot(kind))
-		}
-		log.Debug("Install roots", roots...)
 		cats := make([]any, 0, len(app.catalogs)*2)
 		for _, e := range app.catalogs {
 			detail := e.location

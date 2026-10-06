@@ -153,6 +153,9 @@ func (c *InfoCmd) Run(a *App) error {
 		installedVersion, installed = info.Version, true
 	}
 	detail := infoDetail{installedVersion: installedVersion, installed: installed, source: source}
+	if installed {
+		detail.path = a.Paths.AppDir(m.ID)
+	}
 	if m.Provides != "" {
 		detail.activeProvider = a.State.Providers[m.Provides]
 		if cwd, err := os.Getwd(); err == nil {
@@ -182,9 +185,12 @@ func (c *InfoCmd) Run(a *App) error {
 type infoDetail struct {
 	installedVersion string
 	installed        bool
-	activeProvider   string
-	projectPin       string
-	dependents       []string
+	// path is where the package is installed, the directory to hand an IDE
+	// asking for a JDK or Maven home.
+	path           string
+	activeProvider string
+	projectPin     string
+	dependents     []string
 	// source names the catalog the package came from, set only when several
 	// are configured.
 	source string
@@ -217,6 +223,9 @@ func renderInfo(p *ui.Printer, m *manifest.Manifest, detail infoDetail) string {
 		rows = append(rows, ui.KVRow{Key: "Tags", Value: strings.Join(m.Tags, ", ")})
 	}
 	rows = append(rows, ui.KVRow{Key: "Version", Value: version + "  " + status})
+	if detail.path != "" {
+		rows = append(rows, ui.KVRow{Key: "Path", Value: detail.path})
+	}
 	if detail.source != "" {
 		rows = append(rows, ui.KVRow{Key: "Catalog", Value: detail.source})
 	}

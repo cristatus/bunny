@@ -1,25 +1,24 @@
 # Configuration
 
-Bunny reads one optional file, `~/.config/bunny/config.yaml` (or
-`$BUNNY_HOME/config.yaml` when Bunny is collapsed under a single root). A
-missing file is not an error: it defaults to the stock catalog, the standard
-install locations, native `$HOME` storage, and direct package execution.
+Bunny reads one optional file, `~/.bunny/config/config.yaml`
+(`$BUNNY_HOME/config/config.yaml` for a custom root). A missing file is not an
+error: it defaults to the stock catalog, native `$HOME` storage, and direct
+package execution.
 
 Bunny never creates this file automatically.
 [`config.example.yaml`](../config.example.yaml) in the repository is a commented
 template:
 
 ```bash
-mkdir -p ~/.config/bunny
-cp config.example.yaml ~/.config/bunny/config.yaml
+mkdir -p ~/.bunny/config
+cp config.example.yaml ~/.bunny/config/config.yaml
 ```
 
 Copying it changes nothing until you uncomment a setting. `bunny doctor` prints
-the active configuration path and resolved install roots:
+the active configuration path:
 
 ```
-✓ config   ~/.config/bunny/config.yaml
-✓ install  app=~/.local/share/bunny/app  cli=~/.local/share/bunny/cli  sdk=~/opt
+✓ config   ~/.bunny/config/config.yaml
 ```
 
 Unknown top-level keys are rejected during validation so typos fail immediately.
@@ -30,9 +29,6 @@ catalogs:
     local: ~/src/acme-catalog
   - name: bunny
     remote: https://raw.githubusercontent.com/cristatus/bunny-catalog/main
-
-install:
-  sdk: ~/opt
 
 env:
   node:
@@ -128,40 +124,6 @@ something a default should decide.
 
 See [Team deployment](teams.md).
 
-## `install`
-
-Configures the root directory for each package kind. Keys are the three install
-kinds, accepting absolute paths or paths prefixed with `~/`:
-
-| Kind  | Contains                                                                       | Default                    |
-| ----- | ------------------------------------------------------------------------------ | -------------------------- |
-| `sdk` | JDKs, Node, Maven, Gradle, sbt, pnpm: anything another tool may need a path to | `~/.local/share/bunny/sdk` |
-| `cli` | plain commands (ripgrep, jq, gh)                                               | `~/.local/share/bunny/cli` |
-| `app` | GUI applications (code, cursor, zed, idea)                                     | `~/.local/share/bunny/app` |
-
-The package kind is defined in its manifest. Setting `install.sdk: ~/opt` places
-JDKs and build tools where IDE file pickers can easily reach them:
-
-```
-~/opt/jdk-21  ~/opt/corretto-21  ~/opt/maven  ~/opt/gradle  ~/opt/node-22
-```
-
-Directories are named by package ID (`jdk-21`, `corretto-21`, `semeru-17`),
-matching the names used by `bunny list` and `bunny install`.
-
-Bunny records where each package was installed. Changing an install root affects
-new installs only. Packages already on disk remain at their recorded locations,
-and `bunny uninstall` removes the recorded path rather than a recomputed one.
-To move an existing package, uninstall and reinstall it.
-
-Roots may reside on different filesystems: each install root maintains its own
-`.staging` subdirectory, ensuring the atomic directory rename at the end of an
-install never crosses a filesystem boundary.
-
-Pointing a root at an existing directory is safe. Every install tree carries a
-`.bunny-package` marker identifying the owning package, and Bunny refuses to
-replace or remove a directory without one.
-
 ## `env`
 
 Extra environment variables applied when Bunny launches a package. This is
@@ -193,10 +155,10 @@ Values expand template placeholders:
 | Placeholder         | Expands to                                                                 |
 | ------------------- | -------------------------------------------------------------------------- |
 | `{app}`             | the package install tree                                                   |
-| `{data}`            | the per-package data dir, `~/.local/share/bunny/data/<id>`, yours to clear |
+| `{data}`            | the per-package data dir, `~/.bunny/data/<id>`, yours to clear |
 | `{home}`            | your real `$HOME`                                                          |
-| `{bin}`             | the shim dir, `~/.local/bin`                                               |
-| `{share}`           | `~/.local/share`                                                           |
+| `{bin}`             | the shim dir, `~/.bunny/bin`                                               |
+| `{share}`           | bunny's share dir, `~/.bunny/share`                                        |
 | `{id}`, `{version}` | the package id and version                                                 |
 
 Manifest `prepare:` steps receive build-time placeholders instead (manifest
@@ -284,13 +246,12 @@ file, e.g. `{app}/share/man/man1/foo.1`; an entry naming a directory instead
 installs every page inside it, for a tool like `gh` that ships one page per
 subcommand.
 
-Bunny installs them under a shared XDG man root (`~/.local/share/man`, or
-`$BUNNY_HOME/share/man` under a single root), sectioned into `man1/`, `man8/`,
+Bunny installs them under `~/.bunny/share/man`, sectioned into `man1/`, `man8/`,
 etc. by each page's own filename. Directory entries are symlinked rather than
 copied, so a reinstall finds exactly what the previous version installed.
-`bunny init`/`bunny setup` export `MANPATH` for this root unconditionally, in
-bash, zsh, and fish — unlike desktop entries and icons, `man` implementations
-do not search the XDG data dirs on their own.
+`bunny init` exports `MANPATH` for this root in bash, zsh, and fish: unlike
+desktop entries and icons, `man` implementations do not search the XDG data
+dirs on their own.
 
 ## Recipes
 

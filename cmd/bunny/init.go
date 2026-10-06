@@ -7,13 +7,12 @@ import (
 	"github.com/cristatus/bunny/internal/paths"
 )
 
-// InitCmd prints the shell snippet that puts bunny's shim dir on PATH, plus
-// $fpath for zsh completions. It must be pure (no side effects): `bunny setup`
-// wires it into the rc as an eval, so it runs on every shell start.
-//
-// Under XDG that's nearly all it does. A single-root install also sets
-// XDG_DATA_DIRS (so desktop entries inside the root are found) and re-exports
-// $BUNNY_HOME so the root survives into shells that never ran setup.
+// InitCmd prints the shell snippet that puts bunny's shim dir first on PATH,
+// adds its share dir to XDG_DATA_DIRS and its man pages to MANPATH, plus
+// $fpath for zsh completions. A root other than ~/.bunny is re-exported as
+// $BUNNY_HOME so it survives into shells that never ran setup. It must be pure
+// (no side effects): `bunny setup` wires it into the rc as an eval, so it runs
+// on every shell start.
 type InitCmd struct {
 	Shell string `arg:"" optional:"" enum:"bash,zsh,fish" default:"bash" help:"Shell type (bash, zsh, or fish)"`
 }
@@ -29,25 +28,23 @@ func (c *InitCmd) Run(a *App) error {
 func initSnippet(p *paths.Paths, shell string) string {
 	switch shell {
 	case "fish":
-		pathGuard := fmt.Sprintf("contains -- %[1]s $PATH; or set -gx PATH %[1]s $PATH\n", fishWord(p.Bin()))
-		manGuard := fishManGuard(p)
-		if p.XDG() {
-			return pathGuard + manGuard
-		}
-		return rootExport("test -n \"$%[1]s\"; or set -gx %[1]s %[2]s\n", fishWord(p.Root)) +
-			pathGuard +
+		return rootExport(p, "test -n \"$%[1]s\"; or set -gx %[1]s %[2]s\n", fishWord(p.Root)) +
+			fmt.Sprintf("contains -- %[1]s $PATH; or set -gx PATH %[1]s $PATH\n", fishWord(p.Bin())) +
 			fmt.Sprintf(`set -q XDG_DATA_DIRS[1]; or set -gx XDG_DATA_DIRS /usr/local/share:/usr/share
 if not string match -q -- "*:%[1]s:*" ":$XDG_DATA_DIRS:"
     set -gx XDG_DATA_DIRS %[2]s:$XDG_DATA_DIRS
 end
 `, fishDQ(p.Share()), fishWord(p.Share())) +
-			manGuard
+			// fish lists vendor completion dirs from XDG_DATA_DIRS before
+			// config.fish runs, so a shell that gets it only from this
+			// snippet needs bunny's added by hand.
+			fmt.Sprintf("contains -- %[1]s $fish_complete_path; or set -ga fish_complete_path %[1]s\n", fishWord(p.FishCompletions())) +
+			fishManGuard(p)
 	case "zsh":
 		// Add bunny's completions dir to fpath. If compinit already ran (say
 		// oh-my-zsh ran it before this snippet), re-run it so it scans the new
 		// dir and loads every package's completion there, not just bunny's,
-		// honoring each file's #compdef tag. zsh is the one shell with no
-		// conventional user site-functions dir, so this applies to both layouts.
+		// honoring each file's #compdef tag.
 		// An if, not `(( … )) && …`: that form leaves status 1 when compinit
 		// has not run, and a prompt showing $? then reports an error on every
 		// new shell.
@@ -62,29 +59,25 @@ end
 	}
 }
 
-// posixGuards is the bash/zsh-shared dedup-guarded PATH prepend, plus the
-// $BUNNY_HOME re-export and XDG_DATA_DIRS prepend a single-root install needs so
-// the layout resolves and the desktop can find entries and icons inside its root.
+// posixGuards is the bash/zsh-shared dedup-guarded PATH and XDG_DATA_DIRS
+// prepends, plus the $BUNNY_HOME re-export a custom root needs to resolve. The
+// share dir goes first so a package installed through bunny wins over the
+// distro's entry with the same desktop id.
 func posixGuards(p *paths.Paths) string {
-	pathGuard := fmt.Sprintf(`case ":$PATH:" in
+	// Not "${BUNNY_HOME:-<root>}": bash reads a ' inside a double-quoted
+	// ${…:-word} as a quote, so a root with an apostrophe never closes.
+	return rootExport(p, "[ -n \"${%[1]s:-}\" ] || export %[1]s=%[2]s\n", shellWord(p.Root)) +
+		fmt.Sprintf(`case ":$PATH:" in
     *":%[1]s:"*) ;;
     *) export PATH="%[1]s:$PATH" ;;
 esac
-`, dqEscape(p.Bin()))
-	manGuard := posixManGuard(p)
-	if p.XDG() {
-		return pathGuard + manGuard
-	}
-	// Not "${BUNNY_HOME:-<root>}": bash reads a ' inside a double-quoted
-	// ${…:-word} as a quote, so a root with an apostrophe never closes.
-	return rootExport("[ -n \"${%[1]s:-}\" ] || export %[1]s=%[2]s\n", shellWord(p.Root)) +
-		pathGuard +
+`, dqEscape(p.Bin())) +
 		fmt.Sprintf(`case ":${XDG_DATA_DIRS:-}:" in
     *":%[1]s:"*) ;;
     *) export XDG_DATA_DIRS="%[1]s:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" ;;
 esac
 `, dqEscape(p.Share())) +
-		manGuard
+		posixManGuard(p)
 }
 
 // posixManGuard prepends bunny's man root to $MANPATH, in bash/zsh. man(1)
@@ -116,13 +109,16 @@ end
 
 // rootExport formats the assignment that re-establishes $BUNNY_HOME, given a
 // shell-specific template taking the variable name as %[1]s and the root,
-// already quoted for that shell, as %[2]s. Every invocation resolves the
-// layout from this variable, shims included, so a single-root install that
-// only put its bin dir on PATH would leave those shims reading the XDG layout
-// instead. The template assigns only when the variable is unset or empty,
-// matching what paths.Resolve treats as absent and leaving a deliberate
+// already quoted for that shell, as %[2]s, or "" for ~/.bunny. Every
+// invocation resolves the root from this variable, shims included, so a custom
+// root that only put its bin dir on PATH would leave those shims reading
+// ~/.bunny instead. The template assigns only when the variable is unset or
+// empty, matching what paths.Resolve treats as absent and leaving a deliberate
 // override in place.
-func rootExport(template, root string) string {
+func rootExport(p *paths.Paths, template, root string) string {
+	if p.DefaultRoot() {
+		return ""
+	}
 	return fmt.Sprintf(template, paths.EnvHome, root)
 }
 

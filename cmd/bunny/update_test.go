@@ -43,7 +43,7 @@ func TestRenderUpdateTable(t *testing.T) {
 // and "updated 0 packages" does not tell the reader they are up to date.
 func TestApplyWithoutUpdatesReportsUpToDate(t *testing.T) {
 	st := state.Empty()
-	st.SetInstalled("tool", "1.0", "", "", "")
+	st.SetInstalled("tool", "1.0", "", "")
 	a := &App{State: st, Catalog: reportCatalog{
 		packages: []catalog.PackageInfo{{ID: "tool", Version: "1.0"}},
 	}}
@@ -84,7 +84,7 @@ func captureStdout(t *testing.T, fn func()) string {
 // used to answer "all packages are up to date" for it while --apply refused.
 func TestUpdateRefusesAPackageThatIsNotInstalled(t *testing.T) {
 	st := state.Empty()
-	st.SetInstalled("tool", "1.0", "", "", "")
+	st.SetInstalled("tool", "1.0", "", "")
 	a := &App{State: st, Catalog: reportCatalog{
 		packages: []catalog.PackageInfo{{ID: "tool", Version: "1.0"}, {ID: "idea", Version: "2"}},
 	}}
@@ -113,7 +113,7 @@ func TestUpdateCheckReportsPackagesItCouldNotCheck(t *testing.T) {
 		{"legacy", "1.0", ""},      // installed before sources were recorded
 		{"gone", "1.0", "upstream"},
 	} {
-		st.SetInstalled(p.id, p.version, "", "", "")
+		st.SetInstalled(p.id, p.version, "", "")
 		st.SetSource(p.id, p.source)
 	}
 	partial := &catalog.PartialError{Catalogs: []string{"company"}, Err: catalog.ErrUnavailable}
@@ -152,7 +152,7 @@ func TestUpdateCheckReportsPackagesItCouldNotCheck(t *testing.T) {
 // would install it and switch catalogs. It is unchecked instead.
 func TestUpdateCheckIgnoresAnotherCatalogsCopyWhileTheOwnerIsDown(t *testing.T) {
 	st := state.Empty()
-	st.SetInstalled("node-22", "22.5", "", "", "")
+	st.SetInstalled("node-22", "22.5", "", "")
 	st.SetSource("node-22", "company")
 	a := &App{State: st, Catalog: reportCatalog{
 		packages: []catalog.PackageInfo{{ID: "node-22", Version: "22.3", Source: "upstream"}},
@@ -172,7 +172,7 @@ func TestUpdateCheckIgnoresAnotherCatalogsCopyWhileTheOwnerIsDown(t *testing.T) 
 
 func TestUpdateCheckLeavesLegacyInstallUncheckedDuringPartialListing(t *testing.T) {
 	st := state.Empty()
-	st.SetInstalled("node-22", "22.5", "", "", "")
+	st.SetInstalled("node-22", "22.5", "", "")
 	a := &App{State: st, Catalog: reportCatalog{
 		packages: []catalog.PackageInfo{{ID: "node-22", Version: "22.3", Source: "upstream"}},
 		err:      &catalog.PartialError{Catalogs: []string{"company"}, Err: catalog.ErrUnavailable},

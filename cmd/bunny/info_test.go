@@ -17,7 +17,7 @@ func TestRenderInfoInstalledWithUpdate(t *testing.T) {
 		Description: "OpenJDK 21 LTS", Provides: "jdk",
 	}
 	got := renderInfo(p, m, infoDetail{
-		installedVersion: "21.0.11", installed: true, activeProvider: "jdk-21",
+		installedVersion: "21.0.11", installed: true, path: "/h/.bunny/sdk/jdk-21", activeProvider: "jdk-21",
 		projectPin: "21 (.bunny-version)", dependents: []string{"gradle", "maven"},
 	})
 	if !strings.Contains(got, "jdk-21") || !strings.Contains(got, "installed") {
@@ -29,7 +29,7 @@ func TestRenderInfoInstalledWithUpdate(t *testing.T) {
 	if !strings.Contains(got, "Provides: jdk") || !strings.Contains(got, "Id: jdk-21") {
 		t.Fatalf("aligned key rows missing: %q", got)
 	}
-	for _, want := range []string{"Active: yes", "Project pin: 21", "Used by: gradle, maven"} {
+	for _, want := range []string{"Path: /h/.bunny/sdk/jdk-21", "Active: yes", "Project pin: 21", "Used by: gradle, maven"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("info missing %q: %q", want, got)
 		}
@@ -46,6 +46,9 @@ func TestRenderInfoNotInstalled(t *testing.T) {
 	}
 	if strings.Contains(got, "update available") {
 		t.Fatalf("must not claim update for uninstalled pkg: %q", got)
+	}
+	if strings.Contains(got, "Path:") {
+		t.Fatalf("an uninstalled package has no path: %q", got)
 	}
 	if !strings.Contains(got, "run 'bunny install maven' to add") {
 		t.Fatalf("not-installed package should get an install hint: %q", got)

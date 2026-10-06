@@ -41,7 +41,7 @@ the active `GRADLE_USER_HOME`):
 
 ```properties
 # >>> bunny managed (jdk toolchains) >>>
-org.gradle.java.installations.paths=/home/you/.local/share/bunny/sdk/jdk-17,/home/you/.local/share/bunny/sdk/jdk-21
+org.gradle.java.installations.paths=/home/you/.bunny/sdk/jdk-17,/home/you/.bunny/sdk/jdk-21
 org.gradle.java.installations.auto-download=false
 # <<< bunny managed <<<
 ```
@@ -60,7 +60,7 @@ replace that file and hide anything you declared in it.
 <toolchain>
   <type>jdk</type>
   <provides><version>17</version><vendor>temurin</vendor></provides>
-  <configuration><jdkHome>/home/you/.local/share/bunny/sdk/jdk-17</jdkHome></configuration>
+  <configuration><jdkHome>/home/you/.bunny/sdk/jdk-17</jdkHome></configuration>
 </toolchain>
 ```
 

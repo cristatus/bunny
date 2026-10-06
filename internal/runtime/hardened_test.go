@@ -497,6 +497,21 @@ func TestHardenedRefusesASymlinkedIsolatedHome(t *testing.T) {
 	}
 }
 
+// A package moved out of the root and linked back cannot be bound at its own
+// path, so the launch is refused with the same hint install and uninstall give.
+func TestHardenedRefusesAPackageLinkedFromOutside(t *testing.T) {
+	p, hostHome := hardenedPrepared(t)
+	moved := t.TempDir()
+	p.Vars["app"] = filepath.Join(t.TempDir(), "tool")
+	if err := os.Symlink(moved, p.Vars["app"]); err != nil {
+		t.Fatal(err)
+	}
+	_, err := buildSandboxPlan(p, finalized(t, &PackageSandbox{Boundary: "hardened", Home: "isolated"}), "/work", hostHome, sandboxContext{})
+	if err == nil || !strings.Contains(err.Error(), "move the package back") {
+		t.Errorf("a linked package must be refused with a hint, got %v", err)
+	}
+}
+
 // A write grant over ~/.config would otherwise hand the payload its own
 // sandbox policy: rewrite config.yaml and the next launch runs unsandboxed.
 // Without such a grant the file stays hidden with the rest of the home.

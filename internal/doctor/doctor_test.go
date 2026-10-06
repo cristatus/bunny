@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/cristatus/bunny/internal/config"
-	"github.com/cristatus/bunny/internal/manifest"
 	"github.com/cristatus/bunny/internal/paths"
 	"github.com/cristatus/bunny/internal/shim"
 )
@@ -85,8 +84,8 @@ func TestPathCheckMissing(t *testing.T) {
 	}
 }
 
-// The bin directory is ~/.local/bin under XDG, shared with other tools. A
-// dangling link of theirs is not a broken bunny shim, and a managed shim
+// Only names state manages are judged. A dangling link someone else put in
+// the bin dir is not a broken bunny shim, and a managed shim
 // that was deleted outright is missing even though nothing in the directory
 // looks wrong.
 func TestShimsCheckJudgesOnlyManagedNames(t *testing.T) {
@@ -213,18 +212,20 @@ func TestStrayBinaryCheckOutsideAnyLayoutIsOK(t *testing.T) {
 
 // The failure this exists for: a single-root install reached from a shell with
 // no $BUNNY_HOME, where every other check passes against an empty XDG layout.
-func TestStrayBinaryCheckWarnsForAnotherLayout(t *testing.T) {
+func TestStrayBinaryCheckWarnsForAnotherRoot(t *testing.T) {
 	root := t.TempDir()
 	other := paths.At(root)
-	if err := os.MkdirAll(other.Bin(), 0755); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{other.Bin(), other.State()} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := os.WriteFile(other.StateFile(), []byte("{}"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	withExecutable(t, other.BunnyBinary())
 
-	// Resolved layout: somewhere else entirely, as an unset $BUNNY_HOME gives.
+	// Resolved root: somewhere else entirely, as an unset $BUNNY_HOME gives.
 	r := strayBinaryCheck(paths.At(t.TempDir()))
 	if r.Severity != Warn {
 		t.Fatalf("expected a warning, got %+v", r)
@@ -325,27 +326,6 @@ func TestPathCheckCarriesFix(t *testing.T) {
 	}
 	if !strings.Contains(r.Fix, "bunny setup") {
 		t.Fatalf("PATH check Fix = %q, want it to mention 'bunny setup'", r.Fix)
-	}
-}
-
-// Reporting the effective roots is what makes "did my config take effect?"
-// answerable without installing something and going to look for it.
-func TestInstallRootsCheckReportsConfiguredRoots(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-
-	p := paths.At(filepath.Join(home, "b"))
-	if got := installRootsCheck(p).Detail; !strings.Contains(got, "sdk=~/b/sdk") {
-		t.Errorf("default roots not reported: %q", got)
-	}
-
-	custom := p.WithLayout(map[string]string{manifest.KindSDK: filepath.Join(home, "opt")}, nil)
-	got := installRootsCheck(custom).Detail
-	if !strings.Contains(got, "sdk=~/opt") {
-		t.Errorf("configured root not reported: %q", got)
-	}
-	if !strings.Contains(got, "cli=~/b/cli") {
-		t.Errorf("unconfigured kinds should still show their default: %q", got)
 	}
 }
 
@@ -474,8 +454,8 @@ func TestSandboxPolicyChecksSayWhenNothingIsArmed(t *testing.T) {
 // PATH entries are compared cleaned: a trailing slash names the same
 // directory and must not read as missing.
 func TestPathCheckIgnoresATrailingSlash(t *testing.T) {
-	t.Setenv("PATH", "/usr/bin:/home/u/.local/bin/")
-	if r := pathOnPathCheck("/home/u/.local/bin"); r.Severity != OK {
+	t.Setenv("PATH", "/usr/bin:/home/u/.bunny/bin/")
+	if r := pathOnPathCheck("/home/u/.bunny/bin"); r.Severity != OK {
 		t.Errorf("got %+v, want OK", r)
 	}
 }

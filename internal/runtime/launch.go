@@ -30,11 +30,11 @@ type Prepared struct {
 	// what the host contributed without stripping what the package needs.
 	Injected []string
 	Vars     map[string]string
-	// BunnyEnv anchors Bunny's own resolved layout for shim re-entry after a
-	// sandbox redirects HOME and XDG directories.
+	// BunnyEnv anchors Bunny's root for shim re-entry after a sandbox
+	// redirects HOME.
 	BunnyEnv []string
-	// ConfigFile is the canonical config.yaml path from the resolved Bunny
-	// layout, not the redirected HOME. A sandbox binds it read-only where it
+	// ConfigFile is the canonical config.yaml path under Bunny's root, not
+	// the redirected HOME. A sandbox binds it read-only where it
 	// exists, so a package cannot rewrite the policy that governs it.
 	ConfigFile string
 	// DepRoots are the install trees of resolved `requires:` providers. The
@@ -44,7 +44,7 @@ type Prepared struct {
 	// LayoutRoots are Bunny's own read-only paths from the resolved layout,
 	// bound back by the hardened boundary so a shim inside the sandbox can
 	// still resolve a package. Taken from the layout rather than written into
-	// a policy, so they follow a configured `install:` root.
+	// a policy, so they follow $BUNNY_HOME.
 	LayoutRoots []string
 }
 

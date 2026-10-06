@@ -317,9 +317,9 @@ both are already inside it.
 inside the boundary:
 
 ```bash
-mkdir -p ~/.local/share/bunny/data/claude/home/.claude
+mkdir -p ~/.bunny/data/claude/home/.claude
 cp -r ~/.claude/settings.json ~/.claude/skills \
-  ~/.local/share/bunny/data/claude/home/.claude/
+  ~/.bunny/data/claude/home/.claude/
 ```
 
 Copy deliberately, not wholesale. Hooks and MCP definitions name absolute paths
@@ -425,7 +425,7 @@ isolated home and grant it read-only. Session state still lands in
 `{data}/home`, so it stays out of your host config:
 
 ```bash
-D=~/.local/share/bunny/data/claude/home
+D=~/.bunny/data/claude/home
 mkdir -p "$D/.claude"
 ln -sfn ~/.claude/.credentials.json "$D/.claude/.credentials.json"
 ln -sfn ~/.claude/settings.json     "$D/.claude/settings.json"
@@ -751,8 +751,7 @@ fails on the read-only install root. Only the package's own `{data}` is
 writable.
 
 These paths come from the resolved layout, not from the policy, so they follow
-a configured `install:` root and a config file shared across machines stays
-correct. You never list them under `fs.read`. The tradeoff is that a hardened
+`$BUNNY_HOME`, and a config file shared across machines stays correct. You never list them under `fs.read`. The tradeoff is that a hardened
 package can read every toolchain you have installed; what stays hidden is the
 rest of the host home, which is where credentials and documents live.
 
@@ -994,9 +993,9 @@ Code sandbox ({data}/code/home)
     └── node shim → Node ({data}/node-22/home)
 ```
 
-Node receives its own HOME/XDG tree. Bunny preserves private anchors to its
-real config, state, and shim directories, so shim resolution keeps
-working even though Code changed HOME and every XDG base directory.
+Node receives its own HOME/XDG tree. Bunny exports `$BUNNY_HOME` for its real
+root, so shim resolution keeps working even though Code changed HOME and every
+XDG base directory.
 
 **The outermost sandbox owns the boundary.** A launch inside an existing
 sandbox never builds a second bubblewrap layer. It runs directly under the one

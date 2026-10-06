@@ -21,7 +21,7 @@ func setup(t *testing.T) (*Cleaner, *paths.Paths) {
 	p := paths.At(root)
 
 	st := state.Empty()
-	st.SetInstalled("keep", "1.0", "", "", "")
+	st.SetInstalled("keep", "1.0", "", "")
 
 	cat := &fakeCatalog{
 		manifests: map[string]*manifest.Manifest{

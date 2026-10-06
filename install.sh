@@ -6,9 +6,8 @@
 #
 # Environment:
 #   BUNNY_VERSION   Specific version to install (e.g. v0.8.0). Defaults to latest.
-#   BUNNY_HOME      Collapse bunny under a single root instead of the XDG
-#                   directories, as an absolute path. The binary lands at
-#                   $BUNNY_HOME/bin/bunny.
+#   BUNNY_HOME      Bunny's root, as an absolute path. Defaults to ~/.bunny.
+#                   The binary lands at $BUNNY_HOME/bin/bunny.
 
 set -eu
 
@@ -24,10 +23,8 @@ need() {
   command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"
 }
 
-# Without BUNNY_HOME, bunny uses the XDG layout and its shims live in
-# ~/.local/bin, which is already on PATH on most distributions.
 if [ -n "${BUNNY_HOME:-}" ]; then
-  # bunny requires an absolute root, a relative one moving the whole layout as
+  # bunny requires an absolute root, a relative one moving the whole install as
   # the user cd's around. Refuse here rather than install into a directory the
   # binary would then refuse to use.
   case "$BUNNY_HOME" in
@@ -36,7 +33,7 @@ if [ -n "${BUNNY_HOME:-}" ]; then
   esac
   INSTALL_DIR="$BUNNY_HOME/bin"
 else
-  INSTALL_DIR="$HOME/.local/bin"
+  INSTALL_DIR="$HOME/.bunny/bin"
 fi
 
 need curl
@@ -96,10 +93,10 @@ mv -f "$stage" "$INSTALL_DIR/bunny"
 
 printf '\nInstalled bunny %s to %s\n' "$tag" "$INSTALL_DIR/bunny"
 
-# setup resolves the layout from the environment it runs in, so a BUNNY_HOME
+# setup resolves the root from the environment it runs in, so a BUNNY_HOME
 # passed as a prefix to this script (set for this command only) has to be
-# repeated. Without it setup would wire up the XDG layout while the binary sits
-# under the single root. setup then persists the value itself.
+# repeated. Without it setup would wire up ~/.bunny while the binary sits under
+# the custom root. setup then persists the value itself.
 setup="$INSTALL_DIR/bunny setup"
 if [ -n "${BUNNY_HOME:-}" ]; then
   setup="BUNNY_HOME=$BUNNY_HOME $setup"

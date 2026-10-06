@@ -19,9 +19,9 @@ func TestUseRefusesUnrelatedCommandOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := state.Empty()
-	st.SetInstalled("node-24", "24", "node", "", "")
-	st.SetInstalled("node-22", "22", "node", "", "")
-	st.SetInstalled("corepack", "1.0", "", "", "")
+	st.SetInstalled("node-24", "24", "node", "")
+	st.SetInstalled("node-22", "22", "node", "")
+	st.SetInstalled("corepack", "1.0", "", "")
 	if err := st.SetProviderCommands("node", "node-24", []string{"node"}); err != nil {
 		t.Fatal(err)
 	}

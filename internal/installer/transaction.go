@@ -36,7 +36,7 @@ type fileRecord struct {
 }
 
 func transactionPath(p *paths.Paths) string {
-	return filepath.Join(p.Data(), "install-transaction.json")
+	return filepath.Join(p.State(), "install-transaction.json")
 }
 
 func captureFile(path string) (fileRecord, error) {
@@ -89,7 +89,7 @@ func (j *installTransaction) save(p *paths.Paths) error {
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteFile(transactionPath(p), data, 0600)
+	return fsutil.WriteFile(p.TransactionFile(), data, 0600)
 }
 
 func startInstallTransaction(i *Installer, id, finalDir, workDir, newVersion string, hadExisting bool, shimNames []string) (*installTransaction, error) {
@@ -215,7 +215,7 @@ func (j *installTransaction) checkPreviousTree(path string) error {
 // RecoverPendingInstall must run while the mutation lock is held. It either
 // finishes cleanup for committed state or restores every pre-commit artifact.
 func RecoverPendingInstall(p *paths.Paths) error {
-	data, err := os.ReadFile(transactionPath(p))
+	data, err := os.ReadFile(p.TransactionFile())
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -306,7 +306,7 @@ func RecoverPendingInstall(p *paths.Paths) error {
 	if err := os.RemoveAll(j.WorkDir); err != nil {
 		return err
 	}
-	if err := os.Remove(transactionPath(p)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(p.TransactionFile()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil

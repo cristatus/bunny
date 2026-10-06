@@ -27,6 +27,15 @@ type hardenedEnv struct {
 // part of the boundary, not optional toggles. Descendant user namespaces stay
 // permitted so Chromium can build its own zygote sandbox.
 func buildHardenedPlan(p *Prepared, policy *PackageSandbox, plan sandboxPlan, net netPlan, env hardenedEnv) (sandboxPlan, error) {
+	// The install tree is bound back at its own path, and bwrap cannot mount
+	// onto a symlink: a package moved out of the root and linked back would
+	// otherwise fail with bwrap's bare error.
+	if app := p.Vars["app"]; app != "" {
+		if info, err := os.Lstat(app); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			return sandboxPlan{}, fmt.Errorf("%s is a symlink, and bunny only runs packages inside its own root\n"+
+				"hint: move the package back to %s", app, app)
+		}
+	}
 	read, write, err := effectiveGrants(policy, env.hostHome)
 	if err != nil {
 		return sandboxPlan{}, err
@@ -288,13 +297,13 @@ func effectiveGrants(policy *PackageSandbox, hostHome string) (read, write []str
 // all: its install tree, its resolved providers' trees, the Bunny executable,
 // and Bunny's own layout so a shim inside the sandbox can resolve a package
 // the policy never named. Deriving the layout beats asking for it in `fs.read`
-// — the install roots are configurable, so a hand-written grant is a copy of
-// Bunny's own settings that breaks when they change or when the config moves
-// to another machine.
+// — $BUNNY_HOME moves the root, so a hand-written grant is a copy of Bunny's
+// own settings that breaks when it changes or the config moves to another
+// machine.
 //
 // An automatic grant that would re-expose a protected root is dropped rather than
-// refused: an install root of $HOME is a legal `install:` setting, and losing
-// shim re-entry is the containable failure. Explicit grants still error,
+// refused: a $BUNNY_HOME inside one is legal, and losing shim re-entry is the
+// containable failure. Explicit grants still error,
 // because there the user named the path and means it.
 func autoReadGrants(p *Prepared, roots []string) []string {
 	grants := make([]string, 0, len(p.DepRoots)+len(p.LayoutRoots)+2)

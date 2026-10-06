@@ -82,26 +82,26 @@ func probe(t *testing.T, configYAML, script string, env ...string) (string, int)
 // install (and therefore the same package {data}) across several launches.
 func probeIn(t *testing.T, home, configYAML, script string, env ...string) (string, int) {
 	t.Helper()
-	root := filepath.Join(home, ".local", "share", "bunny")
+	root := filepath.Join(home, ".bunny")
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	must(os.MkdirAll(filepath.Join(root, "manifests"), 0o755))
+	must(os.MkdirAll(filepath.Join(root, "state", "manifests"), 0o755))
 	must(os.MkdirAll(filepath.Join(root, "cli", "probe"), 0o755))
-	must(os.MkdirAll(filepath.Join(home, ".config", "bunny"), 0o755))
-	must(os.WriteFile(filepath.Join(root, "manifests", "probe.yaml"), []byte(
+	must(os.MkdirAll(filepath.Join(root, "config"), 0o755))
+	must(os.WriteFile(filepath.Join(root, "state", "manifests", "probe.yaml"), []byte(
 		"id: probe\nname: Probe\nversion: \"1.0\"\n"+
 			"sources:\n  - url: https://example.invalid/p.tar.gz\n    sha256: \""+strings.Repeat("0", 64)+"\"\n"+
 			"bin:\n  - name: probe\n    path: \"{app}/probe.sh\"\n"), 0o644))
 	must(os.WriteFile(filepath.Join(root, "cli", "probe", "probe.sh"),
 		[]byte("#!/bin/sh\n"+script+"\n"), 0o755))
-	must(os.WriteFile(filepath.Join(root, "state.json"), []byte(
+	must(os.WriteFile(filepath.Join(root, "state", "state.json"), []byte(
 		`{"version":1,"updated":"2026-01-01T00:00:00Z","packages":{"probe":`+
 			`{"version":"1.0","installed":"2026-01-01T00:00:00Z","kind":"cli"}}}`), 0o644))
-	must(os.WriteFile(filepath.Join(home, ".config", "bunny", "config.yaml"), []byte(configYAML), 0o644))
+	must(os.WriteFile(filepath.Join(root, "config", "config.yaml"), []byte(configYAML), 0o644))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -355,7 +355,7 @@ func TestPersistCannotUnmaskHiddenDescendant(t *testing.T) {
 			if code != 0 {
 				t.Fatalf("seed failed (%d): %s", code, out)
 			}
-			secret := filepath.Join(home, ".local/share/bunny/data/probe/home/keep/secret")
+			secret := filepath.Join(home, ".bunny/data/probe/home/keep/secret")
 			cfg += "      home: ephemeral\n      persist: [keep]\n      hide: [\"" + secret + "\"]\n"
 			out, code = probeIn(t, home, cfg, `if test -s "$HOME/keep/secret"; then echo LEAK; else echo HIDDEN; fi`)
 			if code != 0 || !strings.Contains(out, "HIDDEN") || strings.Contains(out, "LEAK") {

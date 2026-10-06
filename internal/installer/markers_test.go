@@ -80,10 +80,10 @@ func TestPackageMarkerRoundTrip(t *testing.T) {
 func TestCheckOwnedAcceptsStateRecord(t *testing.T) {
 	root := t.TempDir()
 	st := state.Empty()
-	p := paths.At(root).WithLayout(nil, st.Location)
+	p := paths.At(root).WithKinds(st.KindOf)
 	i := &Installer{State: st, Paths: p}
 
-	st.SetInstalled("ripgrep", "1.0", "", "cli", "")
+	st.SetInstalled("ripgrep", "1.0", "", "cli")
 	dir := p.AppDir("ripgrep")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
@@ -99,5 +99,32 @@ func TestCheckOwnedAcceptsStateRecord(t *testing.T) {
 	}
 	if err := i.checkOwned(other, "fd"); err == nil {
 		t.Error("an unrecorded, unmarked directory must be refused")
+	}
+}
+
+// A package moved out of the root and linked back is refused, not followed:
+// replacing or removing it would act on a tree outside bunny's root, and the
+// user is told to move it back rather than shown a generic error.
+func TestCheckOwnedRefusesAPackageLinkedFromOutside(t *testing.T) {
+	root := t.TempDir()
+	st := state.Empty()
+	p := paths.At(root).WithKinds(st.KindOf)
+	i := &Installer{State: st, Paths: p}
+
+	st.SetInstalled("jdk-21", "21", "jdk", "sdk")
+	moved := filepath.Join(t.TempDir(), "jdk-21")
+	if err := os.MkdirAll(moved, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dir := p.AppDir("jdk-21")
+	if err := os.MkdirAll(filepath.Dir(dir), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(moved, dir); err != nil {
+		t.Fatal(err)
+	}
+	err := i.checkOwned(dir, "jdk-21")
+	if err == nil || !strings.Contains(err.Error(), "move the package back") {
+		t.Errorf("a package linked from outside must be refused with a hint, got %v", err)
 	}
 }

@@ -45,7 +45,7 @@ func (c *SelfUpdateCmd) Run(a *App) error {
 // selfUpdateTarget is the binary to replace: the one running, resolved through
 // any symlink, which is also what every shim points at. <bin>/bunny is only
 // that binary for an install.sh install. For a `go install` or a symlinked
-// ~/.local/bin/bunny, writing there would leave the shims on the old version
+// <bin>/bunny, writing there would leave the shims on the old version
 // and replace a symlink with a copy.
 func (a *App) selfUpdateTarget() (string, error) {
 	target, err := shim.BunnyBinaryPath(a.Paths.Bin())

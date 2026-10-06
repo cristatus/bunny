@@ -131,7 +131,7 @@ version automatically as long as they inherit the project working directory.
 This is standard for IntelliJ, Eclipse, VS Code, and JDK detection plugins.
 
 If your IDE executes processes from a different working directory, point its
-tool path at `~/.local/bin/<shim>` and ensure the IDE sets the working directory
+tool path at `~/.bunny/bin/<shim>` and ensure the IDE sets the working directory
 to the project root (or passes project files explicitly).
 
 ## Inspecting what resolves
