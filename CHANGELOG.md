@@ -19,6 +19,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   theirs. Old versions stay until `bunny clean`; doctor counts them.
 - `~/.bunny/current/<capability>` links to the active provider, following
   `bunny use`.
+- Doctor warns when the desktop session does not yet find bunny's
+  applications, and says whether to run `bunny setup` or log in again.
 
 ### Changed
 

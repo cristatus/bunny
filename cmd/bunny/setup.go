@@ -16,17 +16,6 @@ import (
 	"github.com/cristatus/bunny/internal/ui"
 )
 
-// environmentDPath is where systemd's per-user environment generator reads
-// bunny's session env, so the graphical session sees the same PATH,
-// XDG_DATA_DIRS and, for a custom root, $BUNNY_HOME as a login shell.
-func environmentDPath() (string, error) {
-	cfg, err := os.UserConfigDir() // $XDG_CONFIG_HOME or ~/.config
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cfg, "environment.d", "bunny.conf"), nil
-}
-
 // desktopSession reports whether setup runs inside a graphical session, the
 // only place the session env matters: the desktop finds bunny's entries and
 // icons through XDG_DATA_DIRS. A var so tests can drive both branches.
@@ -55,7 +44,7 @@ func sessionEnvContent(p *paths.Paths) string {
 // writeEnvironmentD writes ~/.config/environment.d/bunny.conf and reports
 // whether it changed anything.
 func writeEnvironmentD(p *paths.Paths) (string, bool, error) {
-	path, err := environmentDPath()
+	path, err := paths.SessionEnvFile()
 	if err != nil {
 		return "", false, err
 	}

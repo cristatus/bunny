@@ -238,7 +238,7 @@ func TestSetupCmdRejectsInvalidShell(t *testing.T) {
 func TestWriteEnvironmentDRewritesStaleFile(t *testing.T) {
 	p := defaultPaths(t)
 
-	path, err := environmentDPath()
+	path, err := paths.SessionEnvFile()
 	if err != nil {
 		t.Fatal(err)
 	}

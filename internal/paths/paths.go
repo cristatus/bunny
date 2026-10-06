@@ -236,6 +236,18 @@ func (p *Paths) FishCompletions() string {
 // root (see the MANPATH guard in cmd/bunny/init.go).
 func (p *Paths) ManPages() string { return filepath.Join(p.Share(), "man") }
 
+// SessionEnvFile is the one file bunny writes outside its root:
+// ~/.config/environment.d/bunny.conf, where systemd's per-user environment
+// generator reads the session env, so the graphical session sees the same
+// PATH, XDG_DATA_DIRS and, for a custom root, $BUNNY_HOME as a login shell.
+func SessionEnvFile() (string, error) {
+	cfg, err := os.UserConfigDir() // $XDG_CONFIG_HOME or ~/.config
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(cfg, "environment.d", "bunny.conf"), nil
+}
+
 // CurrentDir holds one link per capability to its active provider, a path
 // that follows `bunny use` for an IDE or script to point at.
 func (p *Paths) CurrentDir() string { return filepath.Join(p.Root, "current") }

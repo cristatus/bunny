@@ -25,6 +25,7 @@ func (c *DoctorCmd) Run(a *App) error {
 		})
 	}
 	results := doctor.RunAll(a.Paths, cats)
+	results = append(results, doctor.SessionCheck(a.Paths)...)
 	results = append(results, doctor.ShimsCheck(a.Paths, a.State))
 	results = append(results, doctor.StoreCheck(a.Paths, a.State)...)
 	results = append(results, doctor.SandboxPolicyChecks(a.Config, a.State)...)
