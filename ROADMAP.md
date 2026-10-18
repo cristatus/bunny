@@ -13,7 +13,7 @@ tarball**, downloaded once and run directly:
   sbt, Ant, JBang), language compilers (Kotlin, Scala), framework CLIs
   (Micronaut, Quarkus, Spring Boot), servlet containers (Tomcat), and
   diagnostics/profiling tools (VisualVM, async-profiler, JMC, Arthas).
-- **JavaScript runtimes**: Node.js LTS lines, Bun, and Deno.
+- **JavaScript runtimes**: Node.js LTS lines and Bun.
 - **Node ecosystem tools**: Package managers distributed as standalone binaries
   (currently pnpm). npm comes with Node and is managed through it.
 - **Editors / IDEs targeting the above**: IntelliJ IDEA, Eclipse, NetBeans,

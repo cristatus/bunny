@@ -275,8 +275,6 @@ env:
     SBT_OPTS:
       "-Dsbt.global.base={data}/sbt -Dsbt.boot.directory={data}/boot -Dsbt.ivy.home={data}/ivy"
     COURSIER_CACHE: "{data}/coursier"
-  deno:
-    DENO_DIR: "{data}/deno"
   bun:
     BUN_INSTALL: "{data}/bun"
 
