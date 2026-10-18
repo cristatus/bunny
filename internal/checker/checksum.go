@@ -154,6 +154,10 @@ func fetchRangedSize(ctx context.Context, url string) (int64, error) {
 		return size, nil
 	case http.StatusOK:
 		return max(resp.ContentLength, 0), nil
+	case http.StatusRequestedRangeNotSatisfiable:
+		// bytes=0-0 is unsatisfiable only when the representation is empty,
+		// which is a size of 0, not a failure to report one.
+		return 0, nil
 	default:
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}

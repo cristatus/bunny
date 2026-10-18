@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -102,5 +103,81 @@ func TestFetchFileSizeFallsBackToARangedGet(t *testing.T) {
 	got, err := FetchFileSize(t.Context(), srv.URL)
 	if err != nil || got != size {
 		t.Errorf("FetchFileSize = %d, %v; want %d", got, err, size)
+	}
+}
+
+// A HEAD that carries Content-Length answers on its own, so no follow-up GET
+// is made.
+func TestFetchFileSizeUsesHeadContentLength(t *testing.T) {
+	const size = 1234
+	gets := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Content-Length", strconv.Itoa(size))
+			return
+		}
+		gets++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	got, err := FetchFileSize(t.Context(), srv.URL)
+	if err != nil || got != size {
+		t.Errorf("FetchFileSize = %d, %v; want %d", got, err, size)
+	}
+	if gets != 0 {
+		t.Errorf("follow-up GETs = %d, want 0", gets)
+	}
+}
+
+// A server that ignores the range serves the whole file; its Content-Length is
+// still the size.
+func TestFetchFileSizeRangedGetThatIgnoresTheRange(t *testing.T) {
+	const size = 512
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			return // no Content-Length
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(size))
+		w.Write(make([]byte, size))
+	}))
+	defer srv.Close()
+
+	got, err := FetchFileSize(t.Context(), srv.URL)
+	if err != nil || got != size {
+		t.Errorf("FetchFileSize = %d, %v; want %d", got, err, size)
+	}
+}
+
+// An empty file rejects bytes=0-0 with 416; that is a size of 0, not an error.
+func TestFetchFileSizeEmptyFile(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			return // no Content-Length
+		}
+		w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
+	}))
+	defer srv.Close()
+
+	got, err := FetchFileSize(t.Context(), srv.URL)
+	if err != nil || got != 0 {
+		t.Errorf("FetchFileSize = %d, %v; want 0, nil", got, err)
+	}
+}
+
+// A 206 with no readable total reports no size rather than failing.
+func TestFetchFileSizeWithoutATotal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			return // no Content-Length
+		}
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write([]byte{0})
+	}))
+	defer srv.Close()
+
+	got, err := FetchFileSize(t.Context(), srv.URL)
+	if err != nil || got != 0 {
+		t.Errorf("FetchFileSize = %d, %v; want 0, nil", got, err)
 	}
 }
