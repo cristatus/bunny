@@ -131,7 +131,7 @@ func (g *GitHub) latestTag(ctx context.Context, repo string) (string, error) {
 			return nil
 		},
 	}
-	resp, err := doRequestWithClient(ctx, client, http.MethodGet, u)
+	resp, err := doRequestWithClient(ctx, client, http.MethodGet, u, nil)
 	if err != nil {
 		return "", fmt.Errorf("fetch release: %w", err)
 	}

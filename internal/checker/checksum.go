@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/log"
@@ -113,7 +114,9 @@ func decodeBase64Digest(s string) (hash, algorithm string, ok bool) {
 	}
 }
 
-// FetchFileSize sends HEAD and returns Content-Length.
+// FetchFileSize returns the size of the file at url from a HEAD request, or
+// from a one-byte ranged GET when HEAD carries no Content-Length. It is 0
+// when the server reports neither.
 func FetchFileSize(ctx context.Context, url string) (int64, error) {
 	resp, err := doRequest(ctx, http.MethodHead, url)
 	if err != nil {
@@ -123,7 +126,37 @@ func FetchFileSize(ctx context.Context, url string) (int64, error) {
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return resp.ContentLength, nil
+	if resp.ContentLength > 0 {
+		return resp.ContentLength, nil
+	}
+	return fetchRangedSize(ctx, url)
+}
+
+// fetchRangedSize asks for the first byte of url and reads the file's size
+// from the Content-Range total, for servers such as the npm registry that
+// answer HEAD without a Content-Length. It returns 0 when the server does not
+// say either way.
+func fetchRangedSize(ctx context.Context, url string) (int64, error) {
+	resp, err := doRequestWithClient(ctx, httpClient, http.MethodGet, url, http.Header{"Range": {"bytes=0-0"}})
+	if err != nil {
+		return 0, err
+	}
+	// Closing without reading the body: a server that ignores the range and
+	// starts the whole file must not be downloaded just to learn its size.
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		_, total, _ := strings.Cut(resp.Header.Get("Content-Range"), "/")
+		size, err := strconv.ParseInt(total, 10, 64)
+		if err != nil {
+			return 0, nil
+		}
+		return size, nil
+	case http.StatusOK:
+		return max(resp.ContentLength, 0), nil
+	default:
+		return 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
 }
 
 // ParseChecksumFile extracts a hash for targetFile from common checksum-file

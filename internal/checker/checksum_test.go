@@ -1,6 +1,9 @@
 package checker
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -75,5 +78,29 @@ func TestParseChecksumFileNeverBorrowsAnotherFilesHash(t *testing.T) {
 	// hash to give.
 	if hash, _, err := ParseChecksumFile(a+"  renamed.tar.gz\n", "tool.tar.gz", "", nil); err != nil || hash != a {
 		t.Errorf("single entry: got %q, %v; want %q", hash, err, a)
+	}
+}
+
+// The npm registry answers HEAD without a Content-Length but reports the
+// file's size in the Content-Range of a one-byte ranged GET.
+func TestFetchFileSizeFallsBackToARangedGet(t *testing.T) {
+	const size = 98152331
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.Header().Set("Transfer-Encoding", "chunked")
+			return
+		}
+		if r.Header.Get("Range") != "bytes=0-0" {
+			t.Errorf("GET without a one-byte range: %q", r.Header.Get("Range"))
+		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", size))
+		w.WriteHeader(http.StatusPartialContent)
+		w.Write([]byte{0})
+	}))
+	defer srv.Close()
+
+	got, err := FetchFileSize(t.Context(), srv.URL)
+	if err != nil || got != size {
+		t.Errorf("FetchFileSize = %d, %v; want %d", got, err, size)
 	}
 }

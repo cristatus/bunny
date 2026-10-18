@@ -47,6 +47,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Installing or removing an inactive SDK preserves the active provider's shims,
   including when installation rolls back after a state-save failure.
+- `bunny dev update` reads a download's size from a one-byte ranged request
+  when the server answers HEAD without one, as the npm registry does.
 
 ## [0.8.0] - 2026-09-28
 

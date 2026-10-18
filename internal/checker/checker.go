@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"time"
 
@@ -33,10 +34,10 @@ func newMetadataClient() *http.Client {
 }
 
 func doRequest(ctx context.Context, method, url string) (*http.Response, error) {
-	return doRequestWithClient(ctx, httpClient, method, url)
+	return doRequestWithClient(ctx, httpClient, method, url, nil)
 }
 
-func doRequestWithClient(ctx context.Context, client *http.Client, method, url string) (*http.Response, error) {
+func doRequestWithClient(ctx context.Context, client *http.Client, method, url string, header http.Header) (*http.Response, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -50,6 +51,7 @@ func doRequestWithClient(ctx context.Context, client *http.Client, method, url s
 		if err != nil {
 			return nil, err
 		}
+		maps.Copy(req.Header, header)
 		resp, err := client.Do(req)
 		if err != nil {
 			lastErr = err
