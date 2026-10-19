@@ -406,3 +406,23 @@ func TestLoadRejectsInvalidSandboxConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadLinks(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	cfg, err := Load(write(t, "links:\n  jdk-21: ~/opt/jdk-21\n  node-22: /opt/node\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Links["jdk-21"]; got != "/home/u/opt/jdk-21" {
+		t.Errorf("jdk-21 = %q, want ~ expanded", got)
+	}
+	for name, yaml := range map[string]string{
+		"relative":  "links:\n  jdk-21: opt/jdk\n",
+		"bad id":    "links:\n  JDK_21: /opt/jdk\n",
+		"duplicate": "links:\n  jdk-21: /opt/x\n  node-22: /opt/x\n",
+	} {
+		if _, err := Load(write(t, yaml)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}

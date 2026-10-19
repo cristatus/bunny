@@ -31,7 +31,7 @@ mvn -version
 Most developers assemble Java and Node workstations from a fragmented mix of `sdkman`, `nvm`, `mise`, `asdf`, Homebrew, Flatpak, and manual tarballs. Bunny unifies that under one focused tool:
 
 - **Host-native by default**: `mvn`, Gradle, and npm use their normal cache paths unless you redirect them. Trusted apps can opt into a bubblewrap sandbox — always on, or for a single launch.
-- **Single binary, no shell hooks**: `bunny init` wires PATH and completions into shell startup. Executables dispatch through symlinks via `argv[0]`, so behavior is consistent across terminals, IDEs, and containers.
+- **Single binary, no shell hooks**: `bunny setup` wires PATH and completions into shell startup. Executables dispatch through symlinks via `argv[0]`, so behavior is consistent across terminals, IDEs, and containers.
 - **Per-project version pinning**: Drop a `.bunny-version` file in a project root to pin a bare version (`jdk 21`) or a specific vendor package (`jdk corretto-21`). Pins keep selecting the package after updates.
 - **First-class Java toolchains**: Multi-vendor JDK support (Temurin, Corretto, Zulu, GraalVM) via the [Foojay Disco API](https://api.foojay.io/disco/v3.0), with automated Gradle/Maven toolchain configuration.
 - **Curated catalog**: JDKs, Node, IDEs, and everyday CLI tools. See [bunny-catalog](https://github.com/cristatus/bunny-catalog).
@@ -150,11 +150,11 @@ node --version   # 22.x
 | `bunny run <id> [-- args]` | Execute a package binary (`--sandbox`, `--no-sandbox`, `--sandbox-profile <name>`, `--explain`, `-c/--command`) |
 | `bunny update [id]` | Check for package updates (`--apply` to install them; defaults to every installed package) |
 | `bunny self-update` | Check GitHub for a newer bunny release and install it |
-| `bunny doctor` | Validate layout, configuration, catalog health, shims, and pins |
+| `bunny doctor` | Validate layout, configuration, catalog health, shims, links, and pins |
 | `bunny setup` | Configure user session environment, completions, and shell rc integration (`--shell`) |
-| `bunny init [shell]` | Output shell initialization snippet (`bash`, `zsh`, `fish`) |
+| `bunny init [shell]` | Output shell initialization snippet (`bash`, `zsh`, `fish`, `sh` for `~/.profile`) |
 | `bunny completion [shell]` | Output shell tab-completion script (`bash`, `zsh`, `fish`) |
-| `bunny clean [id]` | Clean download cache and abandoned staging directories (`--all` to include installed packages) |
+| `bunny clean [id]` | Prune the download cache, abandoned installs, and versions no link points at (`--all` to drop the cache of installed packages too) |
 | `bunny reshim [target]` | Regenerate shims for globally installed executables (`npm -g`, etc.); defaults to every provider |
 | `bunny toolchains` | Regenerate Gradle/Maven JDK toolchain configuration from installed JDKs |
 
@@ -209,14 +209,15 @@ Set `$BUNNY_HOME` to an absolute path to use another root.
 
 Point an IDE or script at `~/.bunny/sdk/jdk-21` to keep that JDK across
 updates, or at `~/.bunny/current/jdk` to follow `bunny use`. For a shorter
-path, link to bunny's:
+path, have bunny keep one for you with [`links:`](docs/config.md#links):
 
-```bash
-ln -s ~/.bunny/current/jdk ~/opt/jdk
+```yaml
+links:
+  jdk-21: ~/opt/jdk-21
 ```
 
-Links you create are yours: bunny never updates or removes them, so a link to
-an uninstalled package is left dangling.
+Bunny creates the link on install, follows updates, and removes it on
+uninstall. A link you make yourself is yours: bunny never updates or removes it.
 
 ## Building from Source
 

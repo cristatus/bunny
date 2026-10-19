@@ -32,7 +32,9 @@ the old link, so an interrupted install restores it. Updates remove no version:
 a process started from one may still be running, and a path a tool resolved
 through the link stays valid until `bunny clean` removes the versions no link
 points at. `current/<capability>` links to each capability's active provider and
-is rebuilt from state after every install, uninstall, and `bunny use`.
+is rebuilt from state after every install, uninstall, and `bunny use`. Paths
+the user lists under `links:` in the config are rebuilt the same way, and bunny
+replaces only a link that already points at that package's install directory.
 
 `internal/config` is the source of truth for activation and user policy: it
 decides whether tool data is redirected and which exact package IDs run in the
@@ -44,7 +46,7 @@ alone.
 `runtime.Launcher` resolves project pins for required capabilities and checks
 minimum versions before launch. An explicit incompatible pin is an error; no
 other installed provider silently replaces it. Pins select package IDs and
-continue to apply after updates replace an installation in place. The launcher
+continue to apply after an update switches a package to its new version. The launcher
 layers environment variables in a fixed precedence order
 (host, dependency env, manifest env, config env). Normal execution ends in a
 direct `execve` unless the exact package is listed under sandbox.packages or

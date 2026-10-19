@@ -19,6 +19,9 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   theirs. Old versions stay until `bunny clean`; doctor counts them.
 - `~/.bunny/current/<capability>` links to the active provider, following
   `bunny use`.
+- `links:` in `config.yaml` keeps a path of your choosing, such as
+  `~/opt/jdk-21`, linked to a package's install directory. Doctor reports a
+  missing or occupied link.
 - Doctor warns when the desktop session does not yet find bunny's
   applications, and says whether to run `bunny setup` or log in again.
 
@@ -40,8 +43,7 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
-- The `install:` config roots. For a shorter path, link to bunny's, such as
-  `~/opt/jdk-21 → ~/.bunny/sdk/jdk-21`.
+- The `install:` config roots. For a shorter path, use `links:`.
 
 ### Fixed
 

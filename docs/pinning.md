@@ -82,8 +82,8 @@ over global defaults. It refuses to overwrite an existing `.bunny-version`.
 ## Package updates
 
 A pin selects a package ID, such as `jdk-21` or `corretto-21`. Each package has
-one installation. Patch and security updates replace it in place, and the pin
-continues to select that package. Bunny's catalog lists latest releases and
+one active installation. Patch and security updates switch it to the new
+version, and the pin continues to select that package. Bunny's catalog lists latest releases and
 has no historical release archive.
 
 For repeatable provisioning, use a catalog pinned to a Git commit and retain

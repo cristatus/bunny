@@ -121,6 +121,20 @@ func (p *Paths) InstallDir(id, kind string) string {
 	return filepath.Join(p.InstallRoot(kind), id)
 }
 
+// OwnsLink reports whether link is a symlink to id's install directory under
+// any kind, which is how a link bunny made is told from one a user made. Any
+// kind counts so that a link survives the package's kind changing and outlives
+// the state record of an uninstalled package.
+func (p *Paths) OwnsLink(id, link string) bool {
+	target, err := os.Readlink(link)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(manifest.Kinds, func(kind string) bool {
+		return target == p.InstallDir(id, kind)
+	})
+}
+
 // --- Versioned store ---
 
 // Store holds every installed tree: store/<id>/<version>, one directory per

@@ -127,7 +127,7 @@ func strayBinaryCheck(p *paths.Paths) Result {
 
 // configCheck names the user config path whether or not it exists. Absence is
 // not a problem (bunny's defaults are the no-config behaviour), but the file
-// is the only place install locations and data isolation are set, so doctor
+// is the only place data isolation and sandbox policy are set, so doctor
 // is where someone finds out where to put it.
 func configCheck(p *paths.Paths) Result {
 	path := p.UserConfigFile()
@@ -531,4 +531,43 @@ func ShimsCheck(p *paths.Paths, s ShimState) Result {
 		return Result{Name: name, Detail: strings.Join(details, "; "), Severity: Warn, Fix: strings.Join(fixes, "; ")}
 	}
 	return Result{Name: name, Detail: fmt.Sprintf("%d managed command(s) resolve to bunny", len(names)), Severity: OK}
+}
+
+// LinksState is the slice of state.State LinksCheck needs.
+type LinksState interface {
+	IsInstalled(id string) bool
+}
+
+// LinksCheck compares each configured link with what bunny would make: an
+// installed package's path should be a link into its install directory, and an
+// uninstalled package's path should not hold one of bunny's.
+func LinksCheck(p *paths.Paths, s LinksState, links map[string]string) []Result {
+	if len(links) == 0 {
+		return nil
+	}
+	const name = "Links"
+	var missing, foreign []string
+	for _, id := range slices.Sorted(maps.Keys(links)) {
+		link := links[id]
+		info, err := os.Lstat(link)
+		switch {
+		case err != nil:
+			if s.IsInstalled(id) {
+				missing = append(missing, id+" ("+tilde(link)+")")
+			}
+		case info.Mode()&os.ModeSymlink == 0 || !p.OwnsLink(id, link):
+			foreign = append(foreign, id+" ("+tilde(link)+")")
+		}
+	}
+	if len(foreign) > 0 {
+		return []Result{{Name: name, Severity: Fail,
+			Detail: fmt.Sprintf("%d occupied by something bunny did not make: %s", len(foreign), strings.Join(foreign, ", ")),
+			Fix:    "move the listed path(s) aside, then reinstall the package with bunny install --force"}}
+	}
+	if len(missing) > 0 {
+		return []Result{{Name: name, Severity: Warn,
+			Detail: fmt.Sprintf("%d missing: %s", len(missing), strings.Join(missing, ", ")),
+			Fix:    "reinstall the package with bunny install --force"}}
+	}
+	return []Result{{Name: name, Severity: OK, Detail: fmt.Sprintf("%d configured link(s) in place", len(links))}}
 }

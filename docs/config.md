@@ -202,6 +202,23 @@ dirs:
     - "{data}/repository"
 ```
 
+## `links`
+
+Keeps a path of your choosing as a link to a package's install directory, keyed
+by package id. Use it for a location you want to see, or point an IDE or build
+tool at:
+
+```yaml
+links:
+  jdk-21: ~/opt/jdk-21
+```
+
+The link is created on install, follows updates, and is removed on uninstall.
+Paths are absolute or start with `~/`, must be outside bunny's root, and cannot
+repeat. A path that holds anything bunny did not make is left alone and
+reported, and `bunny doctor` lists links that are missing or occupied.
+Deleting an entry from the config leaves its link behind; remove it yourself.
+
 ## `sandbox`
 
 `profiles:` names a policy, `packages:` activates one. Presence under

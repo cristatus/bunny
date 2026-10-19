@@ -49,6 +49,10 @@ type Installer struct {
 	State     *state.State
 	Download  *Downloader
 
+	// Links maps a package id to a path kept as a link to its install
+	// directory, from config.
+	Links map[string]string
+
 	Prepare          PrepareFn
 	BunnyPath        BunnyPathFn
 	SaveState        SaveStateFn
@@ -334,6 +338,9 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if err := SyncCurrent(i.Paths, i.State); err != nil {
 		log.Warn("Failed to update current links", "error", err)
 	}
+	if err := SyncLinks(i.Paths, i.State, i.Links); err != nil {
+		log.Warn("Failed to update configured links", "error", err)
+	}
 
 	// Merge what prepare wrote through the {data} shadow, once nothing can roll
 	// back: an install that failed earlier leaves the user's data dir as it
@@ -527,6 +534,9 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 	}
 	if err := SyncCurrent(i.Paths, i.State); err != nil {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("update current links: %w", err))
+	}
+	if err := SyncLinks(i.Paths, i.State, i.Links); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("update configured links: %w", err))
 	}
 	// Drop the manifest cache so a future Manager.loadInstalledManifest doesn't
 	// keep returning a stale view of an uninstalled package. Best effort —

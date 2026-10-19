@@ -43,6 +43,15 @@
 #   maven:
 #     - "{data}/repository"
 
+# --- Links ------------------------------------------------------------------
+#
+# Keep a path of your choosing linked to a package's install directory, for a
+# location you want to see or point other tools at. The link follows updates
+# and goes on uninstall. Bunny will not replace a path it did not make.
+
+# links:
+#   jdk-21: ~/opt/jdk-21
+
 # --- Sandbox ------------------------------------------------------------
 #
 # Runtime sandboxing is opt-in per package, and policy is yours alone —

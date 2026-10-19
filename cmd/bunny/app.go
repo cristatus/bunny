@@ -247,6 +247,7 @@ func New() (*App, error) {
 	app.Catalog = cat
 	app.Installed = catalog.NewInstalled(cat, p.ManifestFile)
 	app.Installer = installer.New(p, cat, st)
+	app.Installer.Links = cfg.Links
 	app.Installer.Version = version
 	return app, nil
 }

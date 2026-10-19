@@ -45,6 +45,11 @@ type Config struct {
 	// inside a compound variable (MAVEN_ARGS) that bunny cannot parse out.
 	Dirs map[string][]string `yaml:"dirs,omitempty"`
 
+	// Links maps a package id to a path kept as a link to that package's
+	// install directory, e.g. jdk-21: ~/opt/jdk-21. The link is made on
+	// install, follows updates, and goes on uninstall.
+	Links map[string]string `yaml:"links,omitempty"`
+
 	// Sandbox holds reusable profiles and the package IDs the user explicitly
 	// opts into run-time sandboxing. Presence in Sandbox.Packages is what
 	// activates it; nothing outside this file contributes policy.
@@ -290,6 +295,9 @@ func (c *Config) Validate() error {
 	if err := c.validateCatalogs(); err != nil {
 		return err
 	}
+	if err := c.validateLinks(); err != nil {
+		return err
+	}
 	for _, name := range slices.Sorted(maps.Keys(c.Sandbox.Profiles)) {
 		if err := manifest.ValidateID(name); err != nil {
 			return fmt.Errorf("sandbox.profiles.%s: %w", name, err)
@@ -349,6 +357,27 @@ func (c *Config) validateCatalogs() error {
 			}
 			cat.Local = local
 		}
+	}
+	return nil
+}
+
+// validateLinks holds each link to a package id and an absolute path of its
+// own, and resolves ~/.
+func (c *Config) validateLinks() error {
+	seen := make(map[string]string, len(c.Links))
+	for _, id := range slices.Sorted(maps.Keys(c.Links)) {
+		if err := manifest.ValidateID(id); err != nil {
+			return fmt.Errorf("links.%s: %w", id, err)
+		}
+		path, err := absPath("links."+id, c.Links[id])
+		if err != nil {
+			return err
+		}
+		if other, dup := seen[path]; dup {
+			return fmt.Errorf("links.%s: %s is already the link for %s", id, path, other)
+		}
+		seen[path] = id
+		c.Links[id] = path
 	}
 	return nil
 }

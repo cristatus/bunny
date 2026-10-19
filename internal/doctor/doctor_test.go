@@ -478,3 +478,26 @@ func TestShimsCheckSkipsShadowingWhenBinIsNotOnPath(t *testing.T) {
 		t.Errorf("got %+v, want OK: the bin dir is not on PATH to be shadowed", r)
 	}
 }
+
+func TestLinksCheck(t *testing.T) {
+	p := paths.At(t.TempDir())
+	dir := t.TempDir()
+	st := &stubPinState{installed: map[string]bool{"jdk-21": true}}
+	link := filepath.Join(dir, "jdk")
+
+	if got := LinksCheck(p, st, map[string]string{"jdk-21": link}); got[0].Severity != Warn {
+		t.Errorf("missing link: %v, want a warning", got[0])
+	}
+	if err := os.Symlink(p.InstallDir("jdk-21", "sdk"), link); err != nil {
+		t.Fatal(err)
+	}
+	if got := LinksCheck(p, st, map[string]string{"jdk-21": link}); got[0].Severity != OK {
+		t.Errorf("owned link: %v, want OK", got[0])
+	}
+	if got := LinksCheck(p, st, map[string]string{"node-22": link}); got[0].Severity != Fail {
+		t.Errorf("link to another package: %v, want a failure", got[0])
+	}
+	if got := LinksCheck(p, st, nil); got != nil {
+		t.Errorf("no links configured: %v, want no row", got)
+	}
+}
