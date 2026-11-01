@@ -1291,3 +1291,37 @@ func TestRemoveOwnedTreeKeepsTheMarkerUntilTheRestIsGone(t *testing.T) {
 		t.Errorf("a removable tree must be gone: %v", err)
 	}
 }
+
+func TestInstallPrunesOlderDownloadsAndUninstallDropsTheCache(t *testing.T) {
+	srcFile := filepath.Join(t.TempDir(), "x")
+	os.WriteFile(srcFile, []byte("x"), 0644)
+	m := &manifest.Manifest{
+		ID: "rg", Name: "ripgrep", Version: "1",
+		Sources: []manifest.Source{{URL: "file://" + srcFile, SHA256: sha256Of("x")}},
+		Bin:     []manifest.Binary{{Name: "rg", Path: "{app}/rg"}},
+	}
+	i := installerWith(t, map[string]*manifest.Manifest{"rg": m}, nil)
+	cache := i.Paths.AppDownloadCache("rg")
+	if err := os.MkdirAll(cache, 0755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(cache, "rg-0.9.tar.gz")
+	if err := os.WriteFile(stale, []byte("old"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := i.Install(context.Background(), "rg", false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("older download should be pruned after install")
+	}
+	if entries, _ := os.ReadDir(cache); len(entries) != 1 {
+		t.Errorf("want only the current download cached, got %d entries", len(entries))
+	}
+	if err := i.Uninstall("rg", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(cache); !os.IsNotExist(err) {
+		t.Error("download cache should be gone after uninstall")
+	}
+}

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/charmbracelet/log"
 
@@ -211,7 +212,12 @@ func (c *Cleaner) expectedFiles(id string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load installed manifest %s while pruning cache: %w", id, err)
 	}
-	vars := c.Paths.Vars(id, m.Version)
+	return cacheFileNames(c.Paths, m)
+}
+
+// cacheFileNames lists the basenames m's sources occupy in its download cache.
+func cacheFileNames(p *paths.Paths, m *manifest.Manifest) ([]string, error) {
+	vars := p.Vars(m.ID, m.Version)
 	var names []string
 	for _, s := range m.Sources {
 		expanded := Source{
@@ -224,11 +230,32 @@ func (c *Cleaner) expectedFiles(id string) ([]string, error) {
 		}
 		name, err := safeFileName(expanded)
 		if err != nil {
-			return nil, fmt.Errorf("source filename for %s: %w", id, err)
+			return nil, fmt.Errorf("source filename for %s: %w", m.ID, err)
 		}
 		names = append(names, name)
 	}
 	return names, nil
+}
+
+// pruneDownloads drops every cached download of m's package except the files
+// m itself would fetch. Best effort: a failure leaves files for `bunny clean`.
+func pruneDownloads(p *paths.Paths, m *manifest.Manifest) {
+	keep, err := cacheFileNames(p, m)
+	if err != nil || len(keep) == 0 {
+		return
+	}
+	dir := p.AppDownloadCache(m.ID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !slices.Contains(keep, e.Name()) {
+			if err := os.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+				log.Warn("Failed to prune old download", "package", m.ID, "file", e.Name(), "error", err)
+			}
+		}
+	}
 }
 
 // --- removal helpers ---

@@ -335,6 +335,7 @@ func (i *Installer) Install(ctx context.Context, id string, force bool, hook Pro
 	if commitErr != nil {
 		log.Warn("Failed to remove replaced versions", "package", id, "error", commitErr)
 	}
+	pruneDownloads(i.Paths, m)
 	if err := SyncCurrent(i.Paths, i.State); err != nil {
 		log.Warn("Failed to update current links", "error", err)
 	}
@@ -543,6 +544,9 @@ func (i *Installer) Uninstall(id string, purge bool) error {
 	// state.IsInstalled gates the runtime paths anyway.
 	if err := os.Remove(i.Paths.ManifestFile(id)); err != nil && !os.IsNotExist(err) {
 		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove cached manifest: %w", err))
+	}
+	if err := os.RemoveAll(i.Paths.AppDownloadCache(id)); err != nil {
+		cleanupErrs = append(cleanupErrs, fmt.Errorf("remove cached downloads: %w", err))
 	}
 	if purge {
 		log.Debug("Purging package data", "package", id, "path", i.Paths.AppData(id))

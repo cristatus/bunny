@@ -40,6 +40,8 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Pins select package IDs and follow updates in place. Removed `--exact` and
   `package@version` pins.
 - Doctor reports inherited project pins with the same precedence as shims.
+- An install or update drops the package's older cached downloads, keeping the
+  current one, and an uninstall drops the package's download cache.
 
 ### Removed
 
